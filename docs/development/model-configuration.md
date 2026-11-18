@@ -1,22 +1,37 @@
 # 模型配置与运行
 
-配置目录统一使用用户指定的 `config/models/`。原 `configs/` 保留 Python 诊断客户端的历史示例。
+配置目录统一使用 `configs/`，不再保留并行的 `config/`、根 `prompts/` 或根 `skills/`。
 
 ```text
-config/
+configs/
   models/MainAgent.yaml      # Flash 主 Agent
   models/SubAgent.yaml       # Pro 文本子 Agent
   models/VisionAgent.yaml    # Flash 视觉子 Agent
   runtime.yaml               # 并发、深度、预算、已审查只读工具
   mcp/AutoCAD.example.yaml
   mcp/AutoCAD.local.yaml      # 本机路径，已忽略
-prompts/static/
-  MainAgent.md
-  SubAgent.md
+  mcp/python-http.example.json
+  mcp/python-stdio.example.json
+  mcp/python.local.json       # Python 诊断客户端本机配置，已忽略
+  prompts/static/MainAgent.md
+  prompts/static/SubAgent.md
+  skills/cad-inspection/SKILL.md
 ```
 
 根 `.env` 只需设置 `DEEPSEEK_API_KEY=...`。YAML 使用 `api_key_env: DEEPSEEK_API_KEY`
 引用变量名，禁止写密钥值。`.env.example` 只给空变量；`.env` 和本机 MCP 配置不提交。
+
+`runtime.yaml` 管运行限制和已注册模型；`models/` 管模型 profile；`mcp/` 管连接；
+`prompts/static/` 管稳定角色规则；`skills/` 管按需加载的指引。
+Available 仍由运行时按当前模型、工具 schema、Skill 目录和预算动态组装，不保存易过期的工具清单。
+目前 Skill 加载器只允许已审查的 `cad-inspection`，把新文件放入目录不等于自动获得调用权限。
+
+2026-11-19 迁移：旧 `config/*` 对应 `configs/*`，根 `prompts/`、`skills/` 分别迁入
+`configs/prompts/`、`configs/skills/`；旧 `configs/local.mcp.json` 对应
+`configs/mcp/python.local.json`。已有本机文件原样迁移，不复制真实配置进 Git。
+外部脚本需同步参数路径，加载器不回退旧位置；历史日志保留当时路径。
+MCP YAML 的相对 `cwd` 以配置文件所在目录解析，迁移后目录深度不变。
+Python JSON 和 DSH YAML 仍是不同 schema，不能互换。
 
 ```powershell
 pnpm install --frozen-lockfile
@@ -33,12 +48,12 @@ pnpm models
 
 ## 真实模型与 AutoCAD-MCP smoke
 
-将 `config/mcp/AutoCAD.example.yaml` 复制为 `AutoCAD.local.yaml`，填写独立 MCP 环境的
+将 `configs/mcp/AutoCAD.example.yaml` 复制为 `AutoCAD.local.yaml`，填写独立 MCP 环境的
 Python executable 和仓库 cwd。本机已配置用户指定的 AutoCAD_MCP 路径；没有修改上游源码。
 
 ```powershell
-pnpm live-smoke --mcp config/mcp/AutoCAD.local.yaml
-pnpm live-smoke --mcp config/mcp/AutoCAD.local.yaml --image benchmark/fixtures/vision-calibration.png --expected-image benchmark/fixtures/vision-calibration.expected.json
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --image benchmark/fixtures/vision-calibration.png --expected-image benchmark/fixtures/vision-calibration.expected.json
 ```
 
 该命令会调用真实模型 API、连接本机 MCP，验证只读 CAD 工具、主/子返回，以及可选视觉校准。

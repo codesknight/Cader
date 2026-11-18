@@ -21,7 +21,7 @@ test('shipped YAML loads models without serializing environment secrets', async 
 });
 
 test('rejects inline secrets, YAML execution tags, duplicate keys and image claims for Pro', async () => {
-  const source = await readFile('config/models/SubAgent.yaml', 'utf8');
+  const source = await readFile('configs/models/SubAgent.yaml', 'utf8');
   for (const text of [source + '\napi_key: sk-test-configuration-secret',
     source.replace('input: [text]', 'input: [text, image]'),
     source + '\nmodel: duplicate', source.replace('deepseek-v4-pro', '!!js dangerous()'),
@@ -42,7 +42,7 @@ test('redacts credentials from arbitrary report and snapshot fields while retain
 });
 
 test('rejects unsafe runtime limits and unreviewed CAD write tools', async () => {
-  const text = await readFile('config/runtime.yaml', 'utf8');
+  const text = await readFile('configs/runtime.yaml', 'utf8');
   assert.throws(() => parseRuntime(text.replace('max_parallel_subagents: 5', 'max_parallel_subagents: 6')));
   assert.throws(() => parseRuntime(text.replace('max_delegation_depth: 1', 'max_delegation_depth: 2')));
   assert.throws(() => parseRuntime(text.replace('list_layers', 'delete_entity')));

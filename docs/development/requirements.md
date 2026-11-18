@@ -11,8 +11,9 @@
 建立 TS / Python workspace、一个实际 DSH 组件与插件 smoke、迁移已有 MCP 工具、
 更新 CI 与过程记录。保留旧设计和 Deep Agents spike 的 Git 历史。
 
-后续验收仍包括完整 DSH Web/headless profile、真实模型 + 官方 MCP client、图像、
-工作副本写入/保存/独立验证和 G01–G10。原设计中的目标目录及 API 不代表已经实现。
+后续验收仍包括完整 DSH Headless profile、真实模型 + 官方 MCP client、实际 CAD 图像、
+工作副本写入/保存/独立验证和 G01–G10。Web 已按本轮 CLI First 请求后置。
+原设计中的目标目录及 API 不代表已经实现。
 
 ## GitHub 验收入口
 
@@ -31,3 +32,17 @@
 | REQ-005 | 用户模型 API 与 YAML 配置请求 | config/models、根 .env、Main Flash / Sub Pro，连接 AutoCAD-MCP 实测；以额外 Flash VisionAgent 修正 Pro 无视觉能力，真实 7 项检查通过 |
 
 跟踪 [CADER-005 / #7](https://github.com/codesknight/Cader/issues/7)，决策见 ADR 0002。
+
+## 2026-11-19：配置整理与 CLI First
+
+| ID | 来源 | 需求与验收 |
+|---|---|---|
+| REQ-006 | 用户本轮明确要求 | 合并 config/configs；模型、MCP、运行配置、prompts、skills 统一到 configs/；加载器、命令、忽略规则和测试同步；保留本机配置 |
+| REQ-007 | 用户本轮 CLI First 请求、CLI 设计稿 | 先复用 DSH Headless / 验证社区 TUI → Cader CLI → Web / CAD 内嵌；原稿作为分阶段需求，不将建议等同已实施功能 |
+
+本轮范围是目录迁移、当前代码的回归验证、ADR 和路线及 GitHub 工作项。
+跟踪 [CADER-006 / #8](https://github.com/codesknight/Cader/issues/8)；社区 TUI 兼容性
+由 [CLI-001 / #9](https://github.com/codesknight/Cader/issues/9) 验收，可安装 CLI 基础
+由 [CLI-002 / #10](https://github.com/codesknight/Cader/issues/10) 验收。
+REQ-005 中 config/models 是历史来源，本轮统一迁到 configs/models。
+实际 CLI 命令、会话恢复和社区 TUI 接入保持待实施；原设计文件不改写。

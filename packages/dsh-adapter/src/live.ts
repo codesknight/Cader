@@ -104,7 +104,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       };
       try {
         signal.throwIfAborted();
-        const staticText = await readFile(resolve(options.root, 'prompts/static',
+        const staticText = await readFile(resolve(options.root, 'configs/prompts/static',
           profile.role === 'main' ? 'MainAgent.md' : 'SubAgent.md'), 'utf8');
         handle = await ctx.agents.create({
           sessionId: id, signal,
@@ -139,7 +139,7 @@ export async function createLiveRuntime(options: LiveOptions) {
               name: 'cader_load_skill', description: 'Load a reviewed skill by its listed name.',
               parameters: { name: { type: 'string', required: true, enum: ['cad-inspection'] } },
               output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
-              async execute() { return readFile(resolve(options.root, 'skills/cad-inspection/SKILL.md'), 'utf8'); },
+              async execute() { return readFile(resolve(options.root, 'configs/skills/cad-inspection/SKILL.md'), 'utf8'); },
             }));
             allowed.push('cader_load_skill');
             const hidden = ctx.tools.schemas().map(tool => tool.name).filter(name => !allowed.includes(name));

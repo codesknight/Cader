@@ -9,7 +9,8 @@ __pycache__/
 .env.*
 !.env.example
 configs/local.*
-config/**/*.local.yaml
+configs/**/*.local.yaml
+configs/**/*.local.json
 dist/
 build/
 node_modules/

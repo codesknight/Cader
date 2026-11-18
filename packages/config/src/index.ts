@@ -66,11 +66,11 @@ export function parseRuntime(text: string): RuntimeConfig {
 }
 
 export async function loadConfig(root: string) {
-  const runtime = parseRuntime(await readFile(resolve(root, 'config/runtime.yaml'), 'utf8'));
+  const runtime = parseRuntime(await readFile(resolve(root, 'configs/runtime.yaml'), 'utf8'));
   const ids = [runtime.main_profile, ...runtime.subagent_profiles];
   if (new Set(ids).size !== ids.length) throw new ConfigError('Agent profile references must be unique');
   const profiles = await Promise.all(ids.map(async id => {
-    const profile = parseProfile(await readFile(resolve(root, `config/models/${id}.yaml`), 'utf8'));
+    const profile = parseProfile(await readFile(resolve(root, `configs/models/${id}.yaml`), 'utf8'));
     if (profile.id !== id) throw new ConfigError('Model profile ID must match its filename');
     if ((id === runtime.main_profile) !== (profile.role === 'main'))
       throw new ConfigError('Only the configured main profile can use the main role');

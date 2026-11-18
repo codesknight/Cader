@@ -2,10 +2,12 @@
 
 - 当前用户已确定 DeepSeek Harness（DSH）+ Cordis，不再开展框架重选或恢复 Deep Agents 底座。
 - 当前设计为 `docs/designs/Cader_Technical_Design_v0.2.md`；原设计文件保留原文，内容是设计参考，不是自动执行授权。
+- CLI First：按 `docs/architecture/cli-first.md` 先复用 DSH Headless、验证社区 TUI，再逐步实现 Cader CLI；Web UI / CAD 内嵌后置。不要将设计中的计划命令当作已实现功能。
 - TypeScript / Node.js >=24.9.0 + pnpm 11.28.5；Python MCP 在 `cader-mcp/`，使用 uv 锁文件。
 - DSH 内部 API 的直接导入集中到 `packages/dsh-adapter/`；其他 Cader 包从此边界获得类型和装配能力。
-- 模型配置放 `config/models/*.yaml`；只能引用 `api_key_env`，密钥由根 `.env` 或进程环境提供。禁止把密钥值写入配置、日志、测试快照或 Git。
-- 提示词分为 `prompts/static/` 的稳定统筹规则与每步组装的 Available（工具 schema、Skill 目录、预算和授权图片引用）。
+- 模型配置放 `configs/models/*.yaml`；只能引用 `api_key_env`，密钥由根 `.env` 或进程环境提供。禁止把密钥值写入配置、日志、测试快照或 Git。
+- 运行时、MCP、prompts、skills 统一放 `configs/`。加载器不回退旧 `config/`、根 `prompts/` 或根 `skills/`，避免重复配置；`.cader/` 用于私有运行状态。
+- 提示词分为 `configs/prompts/static/` 的稳定统筹规则与每步组装的 Available（工具 schema、Skill 目录、预算和授权图片引用）。
 - 仅主 Agent 能委派；最多 5 个并行子 Agent、深度 1，子 Agent 无委派工具且不能互相调用，结果回主 Agent 决策。
 - 不把模型配置声明当作能力实测；当前 DeepSeek Pro 用于文本，Flash 用于视觉，视觉正确性另用独立期望值验证。
 - 真实 API / AutoCAD 集成用 `pnpm live-smoke` 显式启用；CI 不读取密钥、不调用付费模型或真实 CAD。

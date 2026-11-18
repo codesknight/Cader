@@ -9,6 +9,7 @@
 - [测试记录](testing.md)
 - [Bug 与排障](bugs.md)
 - [阶段路线](roadmap.md)
+- [CLI First 实施边界](../architecture/cli-first.md)
 
 原始运行输出保存在被忽略的 `.cader/runs/`；公开记录只提交脱敏证据。
 历史记录不覆盖旧失败，追加复验结果。没有执行的验证必须写“未执行”。

@@ -42,3 +42,22 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 - CI 无密钥、无付费请求；真实运行输出仅在 .cader/runs。详见 docs/research/smoke-2026-11-19.md。
 
 本轮 Python lint / format、8 项测试、协议 smoke 3/3，以及 DSH 组件 smoke 6/6 均通过。远端 [CI run 44353967017](https://github.com/codesknight/Cader/actions/runs/44353967017) 的 4 job 全部通过，对应提交 325a6cf。
+
+## 2026-11-19：configs 迁移 / CLI First（#8）
+
+环境：Windows、Node 24.9.0、pnpm 11.28.5；依赖锁未改。
+
+| 实际检查 | 结果 |
+|---|---|
+| pnpm typecheck | 通过 |
+| pnpm test | 9/9；实际 DSH loop 在无 provider I/O 下加载 configs 中的 Static 和 Skill，验证两阶段消息、角色隔离及共享预算 |
+| pnpm smoke | 组件 fixture 6/6；本地记录 .cader/runs/dsh-component-2026-11-18T17-19-18-307Z-32c25bd6-f91c-4905-b6f9-645fc931b8dc |
+| pnpm models | 三个 YAML profile 和运行配置有效，只输出 credentialConfigured，不发 API |
+| loadMcp：configs/mcp 下 example 与 local YAML | 相对 cwd 与预期相邻 AutoCAD_MCP 一致，本机 command/cwd 存在；无进程启动 |
+| uv run --project cader-mcp python：load_server | 三个迁移 JSON（HTTP 示例、stdio 示例、本机）有效，本机路径存在；无 MCP 连接 |
+| git check-ignore | .env、configs/mcp/AutoCAD.local.yaml、configs/mcp/python.local.json 均忽略 |
+| 新 CLI 原稿 SHA-256 | 与 D:/ChromeDownload/Cader_CLI_Design.md 一致；原稿不格式化 |
+| 真实 API / CAD、社区 TUI、正式 cader bin / exec | 本轮未执行或未实施；不计入通过项 |
+
+本轮不改 Python 源码，完整 Python lint / format / 8 项测试 / 协议 smoke 交由现有 Windows/Linux CI 回归。
+原研究报告及历史日志的旧路径为当时证据，不作为当前命令示例；当前命令以 README 与 model-configuration.md 为准。
