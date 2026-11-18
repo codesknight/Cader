@@ -1,0 +1,11 @@
+{
+  "servers": {
+    "autocad": {
+      "transport": "stdio",
+      "command": "C:/path/to/autocad-mcp/python.exe",
+      "args": ["-m", "autocad_mcp.server"],
+      "cwd": "C:/path/to/AutoCAD-MCP",
+      "timeout_seconds": 30
+    }
+  }
+}

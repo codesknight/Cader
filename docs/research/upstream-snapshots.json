@@ -1,0 +1,64 @@
+[
+  {
+    "repository": "langchain-ai/deepagents",
+    "commit": "16966e76e433465fcd8feb3a01534f31095c52a3",
+    "sources": [
+      "https://raw.githubusercontent.com/langchain-ai/deepagents/16966e76e433465fcd8feb3a01534f31095c52a3/libs/deepagents/pyproject.toml",
+      "https://raw.githubusercontent.com/langchain-ai/deepagents/16966e76e433465fcd8feb3a01534f31095c52a3/libs/deepagents/deepagents/graph.py",
+      "https://raw.githubusercontent.com/langchain-ai/deepagents/16966e76e433465fcd8feb3a01534f31095c52a3/LICENSE"
+    ],
+    "retrieved_date": "2026-11-18",
+    "sha256": {
+      "libs/deepagents/deepagents/graph.py": "d266ce645cbc773854d6b086049a597dd2accb70461e6545f61d6076c43310f0",
+      "libs/deepagents/pyproject.toml": "42f47763d7ac03514cd766b374c3508dbab749217712e9179bbfd6e241b73132",
+      "LICENSE": "4ec67e4ca6e6721dba849b2ca82261597c86a61ee214bbf21416006b7b2d0478"
+    }
+  },
+  {
+    "repository": "OpenHands/software-agent-sdk",
+    "commit": "7dd877ee7a4eb813a65fc539394bf4022fc1cc23",
+    "sources": [
+      "https://raw.githubusercontent.com/OpenHands/software-agent-sdk/7dd877ee7a4eb813a65fc539394bf4022fc1cc23/openhands-sdk/pyproject.toml",
+      "https://raw.githubusercontent.com/OpenHands/software-agent-sdk/7dd877ee7a4eb813a65fc539394bf4022fc1cc23/README.md",
+      "https://raw.githubusercontent.com/OpenHands/software-agent-sdk/7dd877ee7a4eb813a65fc539394bf4022fc1cc23/LICENSE"
+    ],
+    "retrieved_date": "2026-11-18",
+    "sha256": {
+      "LICENSE": "14a9b631c658eee682c6c2973525fbdf808c3457176bc47513052c559cc5ce86",
+      "openhands-sdk/pyproject.toml": "7f9fe6fa0e4d6d9f81f94e11d1ff6b95499ac6f3e5873305105d474479bf0f74",
+      "README.md": "95094c9745c7cc58136d4eaa1688fb6038aafefec2be05344293f6df7e55dbf8"
+    }
+  },
+  {
+    "repository": "earendil-works/pi",
+    "commit": "05fd3fbda0bbb9a1c7a76e4bf92ab58ed77c8d94",
+    "sources": [
+      "https://raw.githubusercontent.com/earendil-works/pi/05fd3fbda0bbb9a1c7a76e4bf92ab58ed77c8d94/packages/agent/package.json",
+      "https://raw.githubusercontent.com/earendil-works/pi/05fd3fbda0bbb9a1c7a76e4bf92ab58ed77c8d94/packages/agent/README.md",
+      "https://raw.githubusercontent.com/earendil-works/pi/05fd3fbda0bbb9a1c7a76e4bf92ab58ed77c8d94/packages/coding-agent/README.md",
+      "https://raw.githubusercontent.com/earendil-works/pi/05fd3fbda0bbb9a1c7a76e4bf92ab58ed77c8d94/LICENSE"
+    ],
+    "retrieved_date": "2026-11-18",
+    "sha256": {
+      "LICENSE": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48",
+      "packages/agent/package.json": "95152a1095f4677284afde73dcf7a8a1525f46be0831177611526c14cea2ccec",
+      "packages/agent/README.md": "3712499846ca83ed25fc317ad2b3fb099812c6e43b3ccbc5c287b1a6bc7da06d",
+      "packages/coding-agent/README.md": "fbc7abec7d0829ac8bc4b217e950794e1ba4d8d1b3e0850f970da318ad72e863"
+    }
+  },
+  {
+    "repository": "codesknight/AutoCAD-MCP",
+    "commit": "5e8379835c7dced142e6fcf9339741975b8dfae0",
+    "sources": [
+      "https://raw.githubusercontent.com/codesknight/AutoCAD-MCP/5e8379835c7dced142e6fcf9339741975b8dfae0/pyproject.toml",
+      "https://raw.githubusercontent.com/codesknight/AutoCAD-MCP/5e8379835c7dced142e6fcf9339741975b8dfae0/src/autocad_mcp/server.py",
+      "https://raw.githubusercontent.com/codesknight/AutoCAD-MCP/5e8379835c7dced142e6fcf9339741975b8dfae0/LICENSE"
+    ],
+    "retrieved_date": "2026-11-18",
+    "sha256": {
+      "LICENSE": "2ad4901eba6c89e2faa5501dbd21666fdac785e3850a42a8830b121ca4849f46",
+      "pyproject.toml": "7744a6348eba8edce8633598143339a6cb9e777aeec36069a12858c2c310d25f",
+      "src/autocad_mcp/server.py": "367c5963812589e2aa5ee952bae23fe6e0624641473b2dca51911e145b4f4b56"
+    }
+  }
+]

@@ -1,0 +1,18 @@
+{
+  "schema_version": "0.1",
+  "suite": "general-smoke",
+  "status": "specification-only",
+  "tolerance": 0.000001,
+  "tasks": [
+    {"id": "G01", "instruction": "Create layer CADER_SMOKE with color index 3.", "verification": "Re-read layer name and color; unrelated layers unchanged."},
+    {"id": "G02", "instruction": "Draw a line from (0,0,0) to (10,5,0).", "verification": "Exactly one new line; endpoints match within tolerance, either orientation."},
+    {"id": "G03", "instruction": "Draw a circle centered at (4,6,0), radius 10.", "verification": "Exactly one new circle; center and radius match within tolerance."},
+    {"id": "G04", "instruction": "Draw a closed axis-aligned rectangle with opposite corners (0,0) and (20,10).", "verification": "Closed boundary with width 20 and height 10; allow equivalent line or polyline geometry."},
+    {"id": "G05", "instruction": "Count model-space entities in the supplied fixture.", "verification": "Reported count equals independently read fixture state; no writes."},
+    {"id": "G06", "instruction": "List all entity handles on layer CADER_TARGET in the fixture.", "verification": "Exact handle set equals fixture truth; no writes."},
+    {"id": "G07", "instruction": "Move the supplied target entity by (5,-2,0).", "verification": "Target coordinates translated correctly; non-target fingerprints unchanged."},
+    {"id": "G08", "instruction": "Delete only the supplied target entity.", "verification": "Target absent; non-target fingerprints unchanged in workspace copy."},
+    {"id": "G09", "instruction": "Save the drawing to the supplied new workspace output path.", "verification": "New file exists and opens in a fresh reader/session; geometry survives; input unchanged."},
+    {"id": "G10", "instruction": "Complete the requested single line creation despite an injected transport failure.", "verification": "Fault schedule hidden from agent; reconcile state after lost write response; exactly one intended line, no duplicates."}
+  ]
+}
