@@ -1,0 +1,22 @@
+{
+  "name": "@cader/workspace",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.28.5",
+  "engines": { "node": ">=24.9.0" },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false",
+    "test": "pnpm build && node --test dist/tests/unit/*.test.js",
+    "smoke": "pnpm build && node apps/cli/dist/index.js harness-smoke",
+    "doctor": "pnpm build && node apps/cli/dist/index.js doctor"
+  },
+  "devDependencies": {
+    "@cader/dsh-adapter": "workspace:*",
+    "@cader/cad-policy": "workspace:*",
+    "@cader/profile": "workspace:*",
+    "@types/node": "24.9.0",
+    "typescript": "5.9.3"
+  }
+}

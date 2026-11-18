@@ -1,0 +1,11 @@
+{
+  "name": "@cader/profile",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": { "types": "./dist/smoke.d.ts", "default": "./dist/smoke.js" } },
+  "dependencies": {
+    "@cader/dsh-adapter": "workspace:*",
+    "@cader/cad-policy": "workspace:*"
+  }
+}

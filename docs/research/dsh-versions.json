@@ -1,0 +1,64 @@
+{
+  "retrieved_date": "2026-11-18",
+  "source_repository": "https://github.com/deepseek-ai/deepseek-harness",
+  "source_commit": "ca33fd6843b205e279c7ccb6cb73a472c78f5760",
+  "source_commit_is_npm_gitHead": false,
+  "packages": [
+    {
+      "name": "@deepseek-ai/cordis",
+      "version": "4.1.0",
+      "license": "MIT",
+      "engines": null,
+      "gitHead": null,
+      "integrity": "sha512-CJrjNyBkKn1SfvBQUcgFYKFnLjS+uKrhdMsbHU60xabvi12d+xQ+IQSNlME5Z+B+4Zi6n4BDknKY94tEPeo47w==",
+      "tarball": "https://registry.npmjs.org/@deepseek-ai/cordis/-/cordis-4.1.0.tgz"
+    },
+    {
+      "name": "@deepseek-ai/dsh",
+      "version": "0.2.2-rc.4",
+      "license": "MIT",
+      "engines": {
+        "node": ">=24.9.0"
+      },
+      "gitHead": null,
+      "integrity": "sha512-DRJaTWIk4ObkDOHxld+XjFgHdKzX5UApE7PjzE/Espy44m1fT4pY7LRJCMDCFD+ArIJ+Gwl1FL9g1/UlMwNvpw==",
+      "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.2.2-rc.4.tgz"
+    },
+    {
+      "name": "@deepseek-ai/dsh-mcp-client",
+      "version": "0.2.2-rc.4",
+      "license": "MIT",
+      "engines": null,
+      "gitHead": null,
+      "integrity": "sha512-TRv5hqJPD8OdQ7JAodBqOEDnJAZWMpnZtUjKGBKLSDpJUgYUqYri2MQ5r6bBwJmgBBMaw1jQF6fhHzlTiMI93Q==",
+      "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh-mcp-client/-/dsh-mcp-client-0.2.2-rc.4.tgz"
+    },
+    {
+      "name": "@deepseek-ai/dsh-system-prompt",
+      "version": "0.2.2-rc.4",
+      "license": "MIT",
+      "engines": null,
+      "gitHead": null,
+      "integrity": "sha512-sYeulZsfNEnHQ+ebufpXw6ideFEJoSR9p+EbrgiCDP2EZpgBs43HohbsfOHQQuvojY6dVDvW8dzSk7L2DoBauw==",
+      "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh-system-prompt/-/dsh-system-prompt-0.2.2-rc.4.tgz"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tool-executor-native",
+      "version": "0.2.2-rc.4",
+      "license": "MIT",
+      "engines": null,
+      "gitHead": null,
+      "integrity": "sha512-qaZz/E0U3E6VJdxRK8j3RrNbmsa6jM9+vpPJHDxcimWyHmEfI2NlH5yvPDJ+LX76gQ9aqRAI0td1zQ5pShdeJQ==",
+      "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh-tool-executor-native/-/dsh-tool-executor-native-0.2.2-rc.4.tgz"
+    },
+    {
+      "name": "@deepseek-ai/dsh-tools",
+      "version": "0.2.2-rc.4",
+      "license": "MIT",
+      "engines": null,
+      "gitHead": null,
+      "integrity": "sha512-sMmvpkuOtUVTWJIp+Y71DVIuyW8mMNIWkyn2X6v63CmkpfIMT455kN0RUJVIsbimF2Yz7TIWxfXD6dAujoQhRw==",
+      "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh-tools/-/dsh-tools-0.2.2-rc.4.tgz"
+    }
+  ]
+}

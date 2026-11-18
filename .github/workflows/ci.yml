@@ -3,7 +3,7 @@ on: [push, pull_request]
 permissions:
   contents: read
 jobs:
-  smoke:
+  python-mcp:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
@@ -13,9 +13,30 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.11.15"
-      - run: uv sync --locked --extra deepagents
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
-      - run: uv run pytest -q
-      - run: uv run cader smoke
-      - run: uv run cader harness-smoke
+      - run: uv sync --project cader-mcp --locked
+      - run: uv run --project cader-mcp ruff check cader-mcp
+      - run: uv run --project cader-mcp ruff format --check cader-mcp
+      - run: uv run --project cader-mcp pytest -q cader-mcp/tests
+      - run: uv run --project cader-mcp cader-mcp smoke
+  dsh-components:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: corepack enable
+      - run: corepack prepare pnpm@11.28.5 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm smoke
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dsh-smoke-${{ matrix.os }}
+          path: .cader/runs/
+          include-hidden-files: true

@@ -1,22 +1,15 @@
-# 阶段路线与维护
+# 阶段路线
 
-当前只交付 M0 的可执行起点，不一次性实现设计提案中的所有模块。
+当前用户已确定 DSH；M0 目标是验证集成，不再进行框架重选。
 
-| 阶段 | 已有 | 下一验收门槛 |
+| 工作项 | 当前状态 | 验收 / 下一步 |
 |---|---|---|
-| 初始化 | 包、锁文件、契约、CLI、CI | 远端 CI 通过 |
-| MCP 调研 | 原始工具发现、真实只读 smoke | 锁定上游干净 commit 复现 |
-| Harness 选型 | ADR、Deep Agents 确定性 spike | 真实模型 + MCP 工具适配与预算 |
-| CAD 纵向闭环 | 尚未实现 | 新图纸绘制、另存、独立重开检查 |
-| 比较评测 | G01–G10 规格 | fixture、verifier、runner、每题 3 次对照 |
-| Gateway / Skills / 扩展 | 后续 | 由闭环及失败轨迹驱动 |
+| CADER-001 TS/Python workspace | 本轮迁移 | 锁文件、编译和跨平台 CI |
+| CADER-003 AutoCAD-MCP | 初次成功、稳定性未过 | [Issue #1](https://github.com/codesknight/Cader/issues/1)：干净后端复现 |
+| CADER-004 DSH adapter/profile | 组件 smoke 已实现 | [Issue #2](https://github.com/codesknight/Cader/issues/2)：完整 app + 真模型 + 官方 MCP |
+| CADER-007 CAD 纵向闭环 | 未实现 | [Issue #3](https://github.com/codesknight/Cader/issues/3)：工作副本绘制保存并重开验证 |
+| CADER-010 基准评测 | G01–G10 规格 | [Issue #4](https://github.com/codesknight/Cader/issues/4)：独立 verifier / runner |
+| REQ-003 持续过程记录 | 本轮建立 | 后续每轮更新需求、日志、测试和 Bug |
 
-每次迭代更新 ADR、smoke 记录和相关 GitHub Issue；记录成功、失败与环境限制。
-生产模型选择、专业扩展和 UI 放在真实绘图闭环之后。
-
-## GitHub 跟踪
-
-- [CADER-003：干净后端版本的 MCP 复现](https://github.com/codesknight/Cader/issues/1)
-- [CADER-004：真实模型、MCP 适配及预算](https://github.com/codesknight/Cader/issues/2)
-- [CADER-007：隔离图纸的绘制、保存和重开验证](https://github.com/codesknight/Cader/issues/3)
-- [CADER-010：G01–G10 评测执行器与独立验证器](https://github.com/codesknight/Cader/issues/4)
+DSH Web/headless、真实模型、视觉内容、取消/预算和实际 CAD 读写需要分别留证。
+Gateway、动态路由、专业插件和新 UI 在基线建立后按需求推进，不提前创建空模块。

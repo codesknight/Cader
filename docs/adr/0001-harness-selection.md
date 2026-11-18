@@ -1,57 +1,41 @@
-# ADR 0001：选择 Deep Agents 作为 M0 Python spike 底座
+# ADR 0001：确定采用 DeepSeek Harness + Cordis
 
 - 日期：2026-11-18
-- 状态：**接受用于 M0 spike；真实模型 CAD 对照后再确定 M1 底座**
-- 原因：优先验证 SDK 扩展，不 Fork Coding Agent。
+- 状态：**用户已确定；M0 集成验证中**
+- 来源：用户调研结论与技术设计 v0.2。
+- 替代：提交 `54d2ebf` 中的 Deep Agents M0 选择；[旧 ADR 原文](archive/0001-deep-agents-spike.md)仅作为历史证据。
 
-## 证据与版本
+## 决策
 
-以下为当日读取的上游版本，不将浮动 main 当作锁文件。Python 分发包由 `uv.lock`
-固定版本、下载来源和哈希；源码 commit 是调研快照，不声称 wheel 与其逐字相同。
+Cader 的 Agent Runtime 为 DeepSeek Harness（DSH），通过 Cordis 插件和 profile 装配。
+使用 TypeScript / Node.js；CAD MCP 为独立 Python / uv 子项目。复用上游 loop 与官方
+MCP client，不复制整套运行时，不重新比较框架排名。Gemini CLI、Codex 等仅作架构参考。
 
-| 候选 | 调研版本 / commit | 许可证 | 与当前工程的关系 |
-|---|---|---|---|
-| Deep Agents | 0.7.39 / `16966e76e433465fcd8feb3a01534f31095c52a3` | MIT | Python >=3.11，首选 spike |
-| OpenHands SDK | 1.62.0 / `7dd877ee7a4eb813a65fc539394bf4022fc1cc23` | MIT | Python >=3.12，需独立候选环境 |
-| Pi agent-core | 1.5.2 / `05fd3fbda0bbb9a1c7a76e4bf92ab58ed77c8d94` | MIT | TypeScript / Node >=22.19.0，设计对照 |
+## 版本证据
 
-一手来源：
+- 上游源码调研 commit：`ca33fd6843b205e279c7ccb6cb73a472c78f5760`。
+- npm DSH 组件统一精确锁定 `0.2.2-rc.4`；Cordis `4.1.0`；`pnpm-lock.yaml` 保存完整性哈希。
+- Node.js 最低版本 `24.9.0`，pnpm `11.28.5`；本地用校验过官方 SHA256 的便携 Node 验证，未修改系统 Node。
+- 上游 MIT；实际分发包元数据及本轮选用组件均已核对，完整 app 的依赖许可审计仍待后续。
+- npm 元数据没有 gitHead，不声称 npm tarball 与上述源码 commit 字节等同。
+- 各包 `latest` 标签不一致，禁止省略精确版本混装旧接口。
 
-- Deep Agents [包声明](https://github.com/langchain-ai/deepagents/blob/16966e76e433465fcd8feb3a01534f31095c52a3/libs/deepagents/pyproject.toml)、[装配接口](https://github.com/langchain-ai/deepagents/blob/16966e76e433465fcd8feb3a01534f31095c52a3/libs/deepagents/deepagents/graph.py)、[许可证](https://github.com/langchain-ai/deepagents/blob/16966e76e433465fcd8feb3a01534f31095c52a3/LICENSE)。
-- OpenHands [包声明](https://github.com/OpenHands/software-agent-sdk/blob/7dd877ee7a4eb813a65fc539394bf4022fc1cc23/openhands-sdk/pyproject.toml)、[SDK 说明](https://github.com/OpenHands/software-agent-sdk/blob/7dd877ee7a4eb813a65fc539394bf4022fc1cc23/README.md)、[许可证](https://github.com/OpenHands/software-agent-sdk/blob/7dd877ee7a4eb813a65fc539394bf4022fc1cc23/LICENSE)。
-- Pi [包声明](https://github.com/earendil-works/pi/blob/05fd3fbda0bbb9a1c7a76e4bf92ab58ed77c8d94/packages/agent/package.json)、[Agent API](https://github.com/earendil-works/pi/blob/05fd3fbda0bbb9a1c7a76e4bf92ab58ed77c8d94/packages/agent/README.md)、[许可证](https://github.com/earendil-works/pi/blob/05fd3fbda0bbb9a1c7a76e4bf92ab58ed77c8d94/LICENSE)。
+一手来源：[上游包声明](https://github.com/deepseek-ai/deepseek-harness/blob/ca33fd6843b205e279c7ccb6cb73a472c78f5760/package.json)、
+[扩展机制](https://github.com/deepseek-ai/deepseek-harness/blob/ca33fd6843b205e279c7ccb6cb73a472c78f5760/docs/cookbook/extension-cookbook.md)、
+[工具契约](https://github.com/deepseek-ai/deepseek-harness/blob/ca33fd6843b205e279c7ccb6cb73a472c78f5760/docs/cookbook/adding-a-tool.md)、
+[MCP client](https://github.com/deepseek-ai/deepseek-harness/blob/ca33fd6843b205e279c7ccb6cb73a472c78f5760/packages/mcp/mcp-client/README.md)、
+[许可证](https://github.com/deepseek-ai/deepseek-harness/blob/ca33fd6843b205e279c7ccb6cb73a472c78f5760/LICENSE)。
 
-## 比较与决策
+## 本轮落地
 
-| 维度 | Deep Agents | OpenHands SDK | Pi |
-|---|---|---|---|
-| 当前语言约束 | 满足 Python 3.11 | 当前版本不满足 3.11 | 跨语言集成 |
-| 主要扩展入口 | tools / middleware / backend / checkpointer | 工具、事件、会话与 workspace | context 转换、工具 hooks、事件订阅 |
-| MCP | Cader 标准 SDK 客户端独立接入，尚待桥接模型工具 | 原生 SDK 路径需独立 spike | 需工具适配层，未实测 |
-| 本轮运行证据 | 确定性模型 spike | 源码调研 | 源码调研 |
-| 主要成本 | 默认附带文件及委派工具，需裁剪权限和工具面 | Python 与依赖环境迁移成本 | Python CAD 栈之外增加 Node 运行时 |
+`dsh-adapter` 集中上游导入，装配真实 Cordis Context、SystemPrompt、ToolsService 和 NativeToolExecutor。
+`cad-policy` 是独立插件，使用 pre-execute waterfall 并调用 `next()`；最终 guard 防止后续监听器撤销拒绝。
+`profile` 当前仅装配组件 fixture，CLI 记录 smoke 事件、配置哈希和验证报告。
 
-工程判断：先用 Deep Agents 验证 CAD 专属上下文、工具策略和独立验证接口最省迁移工作。
-这不是基于任务成功率的框架排名，也没有证据证明另外两个框架表现更差。
-OpenHands 当前包声明还涉及 MCP 2 依赖；保持 AutoCAD-MCP 独立环境，通过协议边界隔离。
+实测原始 tool-call 使用 `type: 'tool-call'` 和 JSON 字符串 arguments；参数 schema 校验
+发生在上游执行管线内。预先取消的 batch 返回 `ABORTED_BEFORE_DISPATCH`，不会触发普通
+`tools/result` 监听器，因此 Cader 必须在调用或 session 边界补记取消，不能只统计该监听器。
 
-采用 `deepagents==0.7.39` 可选依赖，保留 Cader 的配置、MCP 客户端、契约和评测规格独立。
-M0 用注入的确定性模型验证工具错误可见、后续调用、事件、检查点读取及步数终止。
-检查点使用内存存储，不视为断电恢复；步数上限不等于 Token、费用或工具次数预算。
-spike 不执行默认文件或委派工具，不接入 API Key，也不提供生产 Agent Loop。
-
-实测发现：本版本会将工具抛出的普通 `ValueError` 向外传播并中断运行。spike 将 MCP
-`isError` 映射为 `ToolException`，通过 `StructuredTool(handle_tool_error=True)` 产生
-模型可见的错误 `ToolMessage`，随后成功调用另一个 fixture 工具。这是需要保留的适配
-行为，不能假设框架默认会恢复所有异常。独立的非终止模型测试触发步数预算而退出。
-
-## 尚待关闭的选型门槛
-
-1. 将 Cader MCP session 包装为严格 schema 的模型工具；保留工具结果及错误语义。
-2. 模型、工具、墙钟、修复次数预算及超时后写入对账；审批和持久化恢复测试。
-3. 使用同一固定模型、工具集、后端、预算执行 G01–G10，每题至少 3 次。
-4. 比较完成率、假成功率、P50/P95、Token、工具次数、失败类型和适配改动量。
-5. 纳入独立模型/网络失败记录；基础设施失败单列，不从总运行数消失。
-
-本轮没有真实模型 CAD 对照数据，不发布成功率排名。若 Deep Agents 工具裁剪、预算或
-恢复接口代价过高，重新打开 ADR，独立环境验证 OpenHands 或 Pi。
+本轮未加载模型或完整 Web/headless app，不声称已验证默认 Agent Loop、官方 MCP client、
+图像、真实模型或 CAD 写入。后续门槛是完整 profile + 真模型工具调用、MCP 文本/图像、
+取消、工作副本保存及独立验证。选型已确定，这些是集成门槛。

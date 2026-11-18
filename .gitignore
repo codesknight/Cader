@@ -11,3 +11,6 @@ __pycache__/
 configs/local.*
 dist/
 build/
+node_modules/
+.pnpm-store/
+*.tsbuildinfo

@@ -1,0 +1,7 @@
+{
+  "name": "@cader/cli",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "dependencies": { "@cader/profile": "workspace:*" }
+}

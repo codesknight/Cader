@@ -2,9 +2,9 @@ import asyncio
 
 import pytest
 
-from cader.config import ServerConfig
-from cader.mcp_client import probe
-from cader.smoke import run_smoke
+from cader_mcp.config import ServerConfig
+from cader_mcp.mcp_client import probe
+from cader_mcp.smoke import run_smoke
 
 
 def test_real_stdio_roundtrip_and_failure():

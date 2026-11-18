@@ -7,9 +7,9 @@ import json
 import platform
 from pathlib import Path
 
-from cader.config import load_server
-from cader.mcp_client import probe
-from cader.smoke import run_smoke
+from cader_mcp.config import load_server
+from cader_mcp.mcp_client import probe
+from cader_mcp.smoke import run_smoke
 
 
 def main() -> None:
@@ -17,7 +17,6 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor", help="Local package diagnostics; no network or CAD calls")
     sub.add_parser("smoke", help="Offline real-MCP framing and failure smoke")
-    sub.add_parser("harness-smoke", help="Deep Agents deterministic model spike; requires extra")
     mcp = sub.add_parser("mcp", help="Explicitly configured local MCP discovery/probe")
     mcp.add_argument("action", choices=["list", "smoke"])
     mcp.add_argument("--config", type=Path, required=True)
@@ -26,17 +25,13 @@ def main() -> None:
     try:
         if args.command == "doctor":
             report = {"ok": True, "python": platform.python_version(), "packages": {}}
-            for package in ("cader", "mcp", "pydantic", "deepagents"):
+            for package in ("cader-mcp", "mcp", "pydantic"):
                 try:
                     report["packages"][package] = importlib.metadata.version(package)
                 except importlib.metadata.PackageNotFoundError:
                     report["packages"][package] = None
         elif args.command == "smoke":
             report = asyncio.run(run_smoke())
-        elif args.command == "harness-smoke":
-            from cader.harness_spike import run_spike
-
-            report = asyncio.run(run_spike())
         else:
             config = load_server(args.config, args.server)
             report = asyncio.run(probe(config, call=args.action == "smoke"))

@@ -3,7 +3,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from cader.config import ServerConfig, load_server
+from cader_mcp.config import ServerConfig, load_server
 
 
 @pytest.mark.parametrize(

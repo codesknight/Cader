@@ -3,15 +3,15 @@
 import json
 import sys
 
-from cader.config import ServerConfig
-from cader.mcp_client import connect, discover
+from cader_mcp.config import ServerConfig
+from cader_mcp.mcp_client import connect, discover
 
 
 async def run_smoke() -> dict:
     config = ServerConfig(
         transport="stdio",
         command=sys.executable,
-        args=["-m", "cader.smoke_server"],
+        args=["-m", "cader_mcp.smoke_server"],
     )
     async with connect(config) as session:
         tools = await discover(session)
