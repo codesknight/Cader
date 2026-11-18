@@ -64,3 +64,11 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 
 远端验收：提交 `08da13b`， [CI run 44357754943](https://github.com/codesknight/Cader/actions/runs/44357754943) 的 4 jobs 全部成功，覆盖 Windows/Linux DSH 与 Python。
 发布前实际凭据扫描 26 个暂存文件、泄漏 0；10 个迁移文件逐字节一致；25 个当前变更文档相对链接有效；git diff --cached --check 通过。
+
+## 2026-11-19：双语 README 与封面（#11）
+
+- Windows / Node 24.9.0 / pnpm 11.28.5：pnpm typecheck、pnpm test（9/9）、pnpm run doctor 和 pnpm smoke（6/6）通过。
+- README.md / README.zh-CN.md 的 48 个本地文件链接及自定义导航锚点有效；4 组 shell 块一致；pnpm 命令对应当前脚本，未把规划中的 cader 命令写成可用入口。
+- PNG 签名和尺寸检查：2172×724、3:1、1,516,186 字节。已检查生成图中的 Cader / An extensible CAD agent / CLI FIRST 文案与构图；生成方式和最终提示词可追溯。
+- pnpm doctor 首次验证执行了包管理器内置诊断，并非 Cader。更正 README 为 pnpm run doctor 后返回 Cader ok:true、DSH 0.2.2-rc.4 与 Node 版本；保留该发现于 BUG-004。
+- 本轮不改 TS/Python 源码、不新增测试依赖。真实模型/CAD 未重跑；Python 全套由现有跨平台 CI 回归。

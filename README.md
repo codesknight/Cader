@@ -1,89 +1,203 @@
-# Cader
+<p align="center">
+  <img src="docs/assets/cader-cover.png" alt="Cader — An extensible CAD agent. CAD wireframes transition into a solid mechanical assembly." width="100%">
+</p>
 
-An extensible AI agent for computer-aided design.
+<p align="center">
+  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a>
+</p>
 
-**已选定 DeepSeek Harness（DSH）+ Cordis。** 当前处于 M0 集成阶段，
-采用 TypeScript / Node.js 运行时和独立 Python MCP 工具包。首个 CAD 后端继续复用
-[AutoCAD-MCP](https://github.com/codesknight/AutoCAD-MCP)。
+<p align="center">
+  <a href="https://github.com/codesknight/Cader/actions/workflows/ci.yml"><img src="https://github.com/codesknight/Cader/actions/workflows/ci.yml/badge.svg" alt="Windows and Linux CI"></a>
+  <a href="package.json"><img src="https://img.shields.io/badge/Node.js-%3E%3D24.9-43853D?logo=nodedotjs&logoColor=white" alt="Node.js 24.9 or newer"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-0891B2" alt="MIT license"></a>
+</p>
 
-采用 **CLI First**：先复用 DSH Headless、验证社区 TUI，逐步实现 Cader CLI，
-再开发 Web UI 与 CAD 内嵌插件。当前可执行入口是下文的 `pnpm` 命令；
-设计中的 `cader exec`、交互 REPL 和社区 TUI 集成仍待实施。
+<p align="center">
+  An extensible CAD agent, built on DeepSeek Harness.<br>
+  Plan with models. Act through tools. Verify with evidence.
+</p>
 
-## 当前能力
+<p align="center">
+  <a href="#overview">Overview</a> ·
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#configuration">Configuration</a> ·
+  <a href="#roadmap">Roadmap</a> ·
+  <a href="#documentation">Documentation</a>
+</p>
 
-- pnpm workspace；DSH 组件锁定 `0.2.2-rc.4`，Cordis `4.1.0`。
-- 真实 Cordis、DSH 默认 AgentLoop、官方 OpenAI-compatible LLM adapter 与 MCP client。
-- `configs/models/*.yaml` 配置主、文本子 Agent 和视觉子 Agent；从根 `.env` 引用密钥。
-- Static / Available 提示词、按需 Skill、主 Agent 统一决策的一层子树，最多 5 个子 Agent 并行。
-- 独立 Cader 只读策略插件；验证参数、写入拒绝、取消和插件卸载。
-- Python MCP stdio / 本地 HTTP 发现与只读诊断、离线协议 smoke。
-- smoke 自动保存脱敏记录；GitHub Issues / Milestone 与仓库开发日志关联。
-- Windows / Linux CI，TypeScript 与 Python 分开验证。
+---
 
-默认 smoke 是 **DSH 组件 fixture**。本轮已通过独立 headless Cader 组合验证真实模型、
-官方 MCP、AutoCAD 只读和视觉子任务返回。DSH Web UI、实际 CAD 预览和绘图保存闭环仍待验证。
-原 Deep Agents spike 已退出当前依赖和 CI，
-仅保留历史证据。通用 CAD 不依赖电气研究，研究范围仍仅为变电站一次接线图。
+<a id="overview"></a>
 
-## 开始开发
+## Overview
 
-需要 Node.js >=24.9.0、pnpm 11.28.5、uv；Python 版本由 `cader-mcp/.python-version` 固定。
+Cader is an extensible AI agent project for computer-aided design. It combines
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) and Cordis with
+CAD tools exposed through the Model Context Protocol (MCP).
+[AutoCAD-MCP](https://github.com/codesknight/AutoCAD-MCP) is the first backend integration.
 
-```powershell
+The strategy is **CLI First**: establish the agent foundation with DSH Headless,
+evaluate a community TUI, then build Cader's own CLI. Web UI and CAD-embedded plugins
+follow once the underlying services are stable.
+
+> **Project status — M0 integration.** Model profiles, bounded delegation, and read-only
+> AutoCAD integration have smoke-test evidence. Today's entry points are the `pnpm`
+> commands below. The standalone `cader` CLI, community TUI integration, and the
+> draw–save–reopen workflow are still planned.
+
+| Capability | Current implementation |
+|---|---|
+| Agent runtime | DSH default AgentLoop, Cordis, official model adapter and MCP client |
+| Context assembly | Stable Static prompts plus dynamic Available context for tools, skills, models, and budgets |
+| Delegation | Main agent coordinates up to **5 concurrent subagents**; children return results without delegating |
+| Model profiles | YAML profiles for main, text-review, and vision agents; credentials come from environment variables |
+| CAD integration | Reviewed read-only AutoCAD tools; writes remain blocked in the M0 profile |
+| Verification | Deterministic fixtures, local smoke records, and Windows/Linux CI |
+
+```text
+CLI / scripts → Cader profile → DSH + Cordis → MCP → AutoCAD
+                    │
+                    ├── Static + Available context
+                    ├── Main agent → bounded subagents → main decision
+                    └── Policies, budgets, events, and verification
+```
+
+<a id="quick-start"></a>
+
+## Quick Start
+
+### 1. Prepare the environment
+
+| Requirement | Version / purpose |
+|---|---|
+| Node.js | **24.9.0 or newer** |
+| pnpm | **11.28.5**, managed with Corepack |
+| Git | Clone and track the workspace |
+| uv + Python | Optional Python MCP diagnostics; Python **3.11** is pinned in `cader-mcp/` |
+
+The first smoke test needs **no API key and no AutoCAD installation**.
+
+### 2. Install and run
+
+Run from a terminal with Node.js and Corepack available:
+
+```sh
+git clone https://github.com/codesknight/Cader.git
+cd Cader
 corepack enable
 corepack prepare pnpm@11.28.5 --activate
 pnpm install --frozen-lockfile
-pnpm typecheck
+pnpm run doctor
 pnpm test
-pnpm doctor
 pnpm smoke
+```
+
+`pnpm run doctor` checks the Node runtime. `pnpm smoke` exercises actual DSH components
+with deterministic tools and should report `ok: true` with six passing checks.
+It saves configuration, events, verification results, and a summary under
+`.cader/runs/<run_id>/`. This is a component fixture, not a real-model or CAD benchmark.
+
+<details>
+<summary><strong>Optional: Python MCP diagnostics</strong></summary>
+
+Install [uv](https://docs.astral.sh/uv/) and run from the repository root:
+
+```sh
 uv sync --project cader-mcp --locked
 uv run --project cader-mcp pytest -q cader-mcp/tests
 uv run --project cader-mcp cader-mcp smoke
 ```
 
-`pnpm smoke` 无需 API Key，自动写入 `.cader/runs/<run_id>/` 的配置快照、JSONL 事件、
-verification.json 与 summary.md。记录 fixture 的验证结果，不代替真实 CAD 成功率。
+The Python smoke is an offline MCP protocol fixture. Real server connections use a
+separate local JSON configuration; see the [configuration guide](docs/development/model-configuration.md).
 
-可信的 AutoCAD-MCP 服务仍使用独立 Python 环境。按 `configs/mcp/python-stdio.example.json`
-填写被忽略的本地配置后运行：
+</details>
 
-```powershell
-uv run --project cader-mcp cader-mcp mcp list --config configs/mcp/python.local.json
-uv run --project cader-mcp cader-mcp mcp smoke --config configs/mcp/python.local.json
+<a id="configuration"></a>
+
+## Configuration
+
+Editable agent assets live together under `configs/`:
+
+```text
+configs/
+├── models/                  # MainAgent, SubAgent, VisionAgent YAML profiles
+├── mcp/                     # DSH YAML and Python diagnostic JSON examples
+├── prompts/static/          # Stable role and coordination instructions
+├── skills/                  # Reviewed, on-demand skill content
+└── runtime.yaml             # Registered profiles, concurrency, budgets, tools
 ```
 
-这里只调用已审查的 `list_layers`。历史曾出现两次超时；11 月 19 日真实模型与 MCP 只读验证已通过，历史根因仍未确认。
-Python 客户端配置与 DSH profile 配置是两个独立 schema，不能直接互换。
+The root `.env` provides credentials; `.cader/` stores private runtime artifacts.
+The skill loader currently exposes the reviewed `cad-inspection` skill. Adding a file
+alone does not register a new capability.
 
-## 设计与过程记录
+### Connect your models and AutoCAD-MCP
 
-- [当前技术设计 v0.2](docs/designs/Cader_Technical_Design_v0.2.md)
-- [CLI 设计原稿](docs/designs/Cader_CLI_Design.md)
-- [CLI First 实施边界与路线](docs/architecture/cli-first.md)
-- [统一配置目录与 CLI First 决策](docs/adr/0003-config-layout-and-cli-first.md)
-- [当前选型 ADR](docs/adr/0001-harness-selection.md)
-- [开发过程入口](docs/development/README.md)：需求、开发、测试、Bug 与路线
-- [GitHub Issues](https://github.com/codesknight/Cader/issues)
-- [评测规格](benchmark/README.md)：G01–G10 尚无真实模型评分
+1. Create `.env` from [`.env.example`](.env.example) **if it does not already exist**,
+   then set `DEEPSEEK_API_KEY` locally. YAML references the variable name, never its value.
+2. Review [`configs/models/`](configs/models/). Current profiles use **deepseek-flash**
+   for main and vision agents, and **deepseek-v4-pro** for text review.
+3. Copy [`AutoCAD.example.yaml`](configs/mcp/AutoCAD.example.yaml) to
+   `configs/mcp/AutoCAD.local.yaml`. Set `command` to the separate AutoCAD-MCP Python
+   executable and `cwd` to that backend's checkout.
 
-设计文档保留原文。已实现状态以代码、测试、开发日志及 Issue 为准。
-密钥、私有图纸、上游 checkout 和原始运行日志不提交公共仓库。
-
-## 模型与真实集成测试
-
-模型、MCP、运行预算、Static 提示词和 Skill 文件统一放在 `configs/`。
-根 `.env` 提供密钥，`.cader/` 保存私有运行状态；详见[配置目录及迁移说明](docs/development/model-configuration.md)。
-
-根 `.env` 设置 `DEEPSEEK_API_KEY`；配置只保存环境变量名。
-主 Agent 使用 deepseek-flash，文本子 Agent 使用 deepseek-v4-pro，视觉子 Agent 使用 deepseek-flash。
-官方当前 Pro 不支持图像，不能通过 YAML 声明改变能力。
-
-```powershell
+```sh
 pnpm models
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml
+```
+
+`pnpm models` validates configuration without calling a provider. `live-smoke` invokes
+the paid model API and local CAD backend, checking read-only operations and delegated
+results. Real AutoCAD execution requires Windows and a working backend installation.
+
+For vision calibration, supply the image and independent expected result:
+
+```sh
 pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --image benchmark/fixtures/vision-calibration.png --expected-image benchmark/fixtures/vision-calibration.expected.json
 ```
 
-真实测试会调用付费 API 和本机 CAD；CI 不运行此命令。详见[模型配置](docs/development/model-configuration.md)、
-[ADR 0002](docs/adr/0002-model-profiles-and-agent-tree.md)、[11 月 19 日实测记录](docs/research/smoke-2026-11-19.md)。
+The root `.env` and `*.local.yaml` / `*.local.json` under `configs/` are ignored by Git.
+DSH YAML and Python diagnostic JSON use different schemas.
+See the [model and MCP guide](docs/development/model-configuration.md) for full details.
+
+<a id="roadmap"></a>
+
+## Roadmap
+
+| Stage | Focus | Status |
+|---|---|---|
+| Agent foundation | DSH, model profiles, Static / Available, read-only MCP smoke | Implemented; broader M0 validation continues |
+| Headless + community TUI | Full Headless profile, session lifecycle, Windows TUI compatibility | Next / [TUI validation #9](https://github.com/codesknight/Cader/issues/9) |
+| Cader CLI | Installable entry point, help, diagnostics, `exec`, structured events, sessions | Planned / [CLI foundation #10](https://github.com/codesknight/Cader/issues/10) |
+| CAD workflow | Working copies, draw–save–reopen, independent verification, benchmarks | Planned / [CAD workflow #3](https://github.com/codesknight/Cader/issues/3) |
+| Additional interfaces | Web UI and CAD-embedded plugins sharing the same services | Later |
+
+See the [CLI First plan](docs/architecture/cli-first.md) for stage acceptance criteria.
+
+<a id="documentation"></a>
+
+## Documentation
+
+| Resource | Contents |
+|---|---|
+| [Technical design v0.2](docs/designs/Cader_Technical_Design_v0.2.md) · [CLI design](docs/designs/Cader_CLI_Design.md) | Original proposals; planned APIs are not shipped features |
+| [Architecture decisions](docs/adr/) | Harness selection, model roles, configuration layout, CLI First |
+| [Model and MCP guide](docs/development/model-configuration.md) | Profiles, credentials, local MCP setup, live smoke |
+| [Development records](docs/development/README.md) | Requirements, logs, tests, bugs, and iteration history |
+| [Live smoke evidence](docs/research/smoke-2026-11-19.md) | Real-model, read-only AutoCAD, and synthetic vision-calibration results |
+| [Benchmark specification](benchmark/README.md) | G01–G10 scenarios; real-model benchmark scores are not yet published |
+
+Detailed design and development notes are currently mostly in Chinese.
+The cover is conceptual artwork, not an application screenshot or CAD test result.
+
+## Contributing
+
+Start with the [open issues](https://github.com/codesknight/Cader/issues) and
+[development process](docs/development/process.md). Run `pnpm typecheck` and `pnpm test`
+before submitting changes; add `pnpm smoke` for Harness changes. Keep credentials,
+private drawings, and raw live-run artifacts out of commits.
+
+## License
+
+[MIT](LICENSE) · Copyright © 2026 codesknight

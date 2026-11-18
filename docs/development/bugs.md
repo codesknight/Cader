@@ -44,3 +44,11 @@
 - RetryPolicy：锁定 DSH 的类型不支持 mode=none，改为 normal / maxRetries=0；没有开启未知重试。
 
 - 初始文本探测中，Pro 未满足逐字 CADER_OK 的格式断言，但请求为 HTTP 200；该格式检查不标为通过，也不归因为连接失败。后续以实际 DSH 请求、工具结果、子返回和独立图片期望分别验收；没有声称逐字输出问题已修复。
+
+## BUG-004：README doctor 命令被 pnpm 内置子命令截获（Resolved）
+
+- 来源：#11 Quick Start 命令复验；旧 README 使用 pnpm doctor。
+- 现象：pnpm 11.28.5 输出包管理器版本、缓存、registry、global bin 等诊断，而不是 Cader 的 JSON。
+- 根因：pnpm 自带 doctor 子命令，与 package.json 中同名 script 冲突；省略 run 时先执行内置命令。
+- 修复：中英文 README 显式使用 pnpm run doctor，不修改已可用的 Cader 脚本或历史运行记录。
+- 复验：运行构建及 apps/cli/dist/index.js doctor，返回 ok:true、Node 24.9.0、DSH 0.2.2-rc.4。

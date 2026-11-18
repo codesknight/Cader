@@ -49,3 +49,12 @@ REQ-005 中 config/models 是历史来源，本轮统一迁到 configs/models。
 
 REQ-006 目录迁移及 REQ-007 路线决策已由 `08da13b` 和 4/4 Windows/Linux CI 验收；
 REQ-007 的产品阶段按 #9、#10 及 roadmap 继续实施。
+
+## 2026-11-19：双语 README 与封面
+
+| ID | 来源 | 需求与验收 |
+|---|---|---|
+| REQ-008 | 用户要求专业、美观的 README，中英文切换、封面、说明与 Quick Start | README.md / README.zh-CN.md 双向链接；共用封面；提供定位、已实现能力、环境、可执行入门命令、配置、路线与文档；链接、命令等价与页面显示检查 |
+
+跟踪 [CADER-008 / #11](https://github.com/codesknight/Cader/issues/11)。本轮仅文档与资源，
+不扩展运行时能力；原始设计文件、真实凭据与本机配置不修改。
