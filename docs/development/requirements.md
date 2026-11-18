@@ -46,3 +46,6 @@
 由 [CLI-002 / #10](https://github.com/codesknight/Cader/issues/10) 验收。
 REQ-005 中 config/models 是历史来源，本轮统一迁到 configs/models。
 实际 CLI 命令、会话恢复和社区 TUI 接入保持待实施；原设计文件不改写。
+
+REQ-006 目录迁移及 REQ-007 路线决策已由 `08da13b` 和 4/4 Windows/Linux CI 验收；
+REQ-007 的产品阶段按 #9、#10 及 roadmap 继续实施。

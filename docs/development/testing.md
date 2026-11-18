@@ -61,3 +61,6 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 
 本轮不改 Python 源码，完整 Python lint / format / 8 项测试 / 协议 smoke 交由现有 Windows/Linux CI 回归。
 原研究报告及历史日志的旧路径为当时证据，不作为当前命令示例；当前命令以 README 与 model-configuration.md 为准。
+
+远端验收：提交 `08da13b`， [CI run 44357754943](https://github.com/codesknight/Cader/actions/runs/44357754943) 的 4 jobs 全部成功，覆盖 Windows/Linux DSH 与 Python。
+发布前实际凭据扫描 26 个暂存文件、泄漏 0；10 个迁移文件逐字节一致；25 个当前变更文档相对链接有效；git diff --cached --check 通过。

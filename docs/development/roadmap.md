@@ -12,7 +12,7 @@
 | CADER-007 CAD 纵向闭环 | 未实现 | [Issue #3](https://github.com/codesknight/Cader/issues/3)：工作副本绘制保存并重开验证 |
 | CADER-010 基准评测 | G01–G10 规格 | [Issue #4](https://github.com/codesknight/Cader/issues/4)：独立 verifier / runner |
 | REQ-003 持续过程记录 | 机制已验收 | [Issue #6](https://github.com/codesknight/Cader/issues/6)；后续每轮持续维护 |
-| CADER-006 配置统一 / CLI First | 本轮迁移与路线落实 | [Issue #8](https://github.com/codesknight/Cader/issues/8)：configs 加载、引用与 CI |
+| CADER-006 配置统一 / CLI First | 已验收，4/4 CI 通过 | [Issue #8](https://github.com/codesknight/Cader/issues/8)：configs 加载、引用与路线；后续功能见 #9 / #10 |
 | CLI-001 社区 TUI | 已调研候选，未集成 | [Issue #9](https://github.com/codesknight/Cader/issues/9)：锁定版本 / Windows / Cader profile 兼容 smoke |
 | CLI-002 Cader CLI 基础 | 待实施 | [Issue #10](https://github.com/codesknight/Cader/issues/10)：bin、keyless help/version、参数错误与命令边界 |
 
