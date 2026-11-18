@@ -72,3 +72,7 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 - PNG 签名和尺寸检查：2172×724、3:1、1,516,186 字节。已检查生成图中的 Cader / An extensible CAD agent / CLI FIRST 文案与构图；生成方式和最终提示词可追溯。
 - pnpm doctor 首次验证执行了包管理器内置诊断，并非 Cader。更正 README 为 pnpm run doctor 后返回 Cader ok:true、DSH 0.2.2-rc.4 与 Node 版本；保留该发现于 BUG-004。
 - 本轮不改 TS/Python 源码、不新增测试依赖。真实模型/CAD 未重跑；Python 全套由现有跨平台 CI 回归。
+- GitHub GFM API：英文/中文各保留 4 张图片、4 张表格、1 个折叠区、语言切换及 pnpm run doctor。辅助检查最初误写 5 张表，核对文档实际结构后修正为 4，再次通过；不是渲染器丢表。
+- 浏览器截图/点击视觉验收未执行成功：IAB 两次超时，Windows Computer Use 因无法可靠确认 URL 停止；保留该限制，不以 API 结构检查代替视觉通过。
+- 发布前 8 文件凭据扫描泄漏 0；提示词文件末尾空行导致一次 diff --check 失败，修正后通过。
+- 远端提交 0a417b2：[CI run 44360225897](https://github.com/codesknight/Cader/actions/runs/44360225897) 的 Windows/Linux DSH 与 Python 共 4/4 jobs 通过。
