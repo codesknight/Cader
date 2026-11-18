@@ -9,14 +9,17 @@ An extensible AI agent for computer-aided design.
 ## 当前能力
 
 - pnpm workspace；DSH 组件锁定 `0.2.2-rc.4`，Cordis `4.1.0`。
-- 真实 Cordis、DSH tools、system-prompt 和 native executor 装配。
+- 真实 Cordis、DSH 默认 AgentLoop、官方 OpenAI-compatible LLM adapter 与 MCP client。
+- `config/models/*.yaml` 配置主、文本子 Agent 和视觉子 Agent；从根 `.env` 引用密钥。
+- Static / Available 提示词、按需 Skill、主 Agent 统一决策的一层子树，最多 5 个子 Agent 并行。
 - 独立 Cader 只读策略插件；验证参数、写入拒绝、取消和插件卸载。
 - Python MCP stdio / 本地 HTTP 发现与只读诊断、离线协议 smoke。
 - smoke 自动保存脱敏记录；GitHub Issues / Milestone 与仓库开发日志关联。
 - Windows / Linux CI，TypeScript 与 Python 分开验证。
 
-当前 smoke 是 **DSH 组件 fixture**，尚未启动完整 DSH Web/headless profile、真实模型、
-官方 DSH MCP client 或真实 CAD 绘图闭环。原 Deep Agents spike 已退出当前依赖和 CI，
+默认 smoke 是 **DSH 组件 fixture**。本轮已通过独立 headless Cader 组合验证真实模型、
+官方 MCP、AutoCAD 只读和视觉子任务返回。DSH Web UI、实际 CAD 预览和绘图保存闭环仍待验证。
+原 Deep Agents spike 已退出当前依赖和 CI，
 仅保留历史证据。通用 CAD 不依赖电气研究，研究范围仍仅为变电站一次接线图。
 
 ## 开始开发
@@ -47,7 +50,7 @@ uv run --project cader-mcp cader-mcp mcp list --config configs/local.mcp.json
 uv run --project cader-mcp cader-mcp mcp smoke --config configs/local.mcp.json
 ```
 
-这里只调用已审查的 `list_layers`。此前实机初次成功、最终两次超时；稳定性问题仍未关闭。
+这里只调用已审查的 `list_layers`。历史曾出现两次超时；11 月 19 日真实模型与 MCP 只读验证已通过，历史根因仍未确认。
 Python 客户端配置与 DSH profile 配置是两个独立 schema，不能直接互换。
 
 ## 设计与过程记录
@@ -60,3 +63,17 @@ Python 客户端配置与 DSH profile 配置是两个独立 schema，不能直�
 
 设计文档保留原文。已实现状态以代码、测试、开发日志及 Issue 为准。
 密钥、私有图纸、上游 checkout 和原始运行日志不提交公共仓库。
+
+## 模型与真实集成测试
+
+根 `.env` 设置 `DEEPSEEK_API_KEY`；配置只保存环境变量名。
+主 Agent 使用 deepseek-flash，文本子 Agent 使用 deepseek-v4-pro，视觉子 Agent 使用 deepseek-flash。
+官方当前 Pro 不支持图像，不能通过 YAML 声明改变能力。
+
+```powershell
+pnpm models
+pnpm live-smoke --mcp config/mcp/AutoCAD.local.yaml --image benchmark/fixtures/vision-calibration.png --expected-image benchmark/fixtures/vision-calibration.expected.json
+```
+
+真实测试会调用付费 API 和本机 CAD；CI 不运行此命令。详见[模型配置](docs/development/model-configuration.md)、
+[ADR 0002](docs/adr/0002-model-profiles-and-agent-tree.md)、[11 月 19 日实测记录](docs/research/smoke-2026-11-19.md)。

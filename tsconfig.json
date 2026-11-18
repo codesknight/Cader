@@ -1,11 +1,27 @@
 {
   "extends": "./tsconfig.base.json",
-  "compilerOptions": { "rootDir": "tests", "outDir": "dist/tests" },
-  "include": ["tests/**/*.ts"],
+  "compilerOptions": {
+    "rootDir": "tests",
+    "outDir": "dist/tests"
+  },
+  "include": [
+    "tests/**/*.ts"
+  ],
   "references": [
-    { "path": "packages/dsh-adapter" },
-    { "path": "packages/plugins/cad-policy" },
-    { "path": "packages/profile" },
-    { "path": "apps/cli" }
+    {
+      "path": "packages/config"
+    },
+    {
+      "path": "packages/dsh-adapter"
+    },
+    {
+      "path": "packages/plugins/cad-policy"
+    },
+    {
+      "path": "packages/profile"
+    },
+    {
+      "path": "apps/cli"
+    }
   ]
 }

@@ -31,3 +31,14 @@ DSH fixture 覆盖实际组件装配、参数 schema 校验、合成写入拒绝
 
 代码提交：`ce7e9ce`。CI：[run 44324330594](https://github.com/codesknight/Cader/actions/runs/44324330594)，4 个任务全部 success。
 DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执行真实模型或 AutoCAD。
+
+## 2026-11-19：YAML / 真实 DSH / MCP
+
+- TypeScript 配置与运行测试：9 passed，typecheck / frozen lock 通过；新增配置秘密隔离、非法 YAML、Pro 图像拒绝、5 槽队列、realpath 越界和实际 DSH loop 的离线消息/预算测试。
+- 真实 CLI 7/7 检查通过：MCP 发现、实际 AutoCAD 只读调用、子返回主、主完成、子无委派入口、图片输入、独立视觉验证。
+- 实际子 Agent 并行峰值 2；7 个 fixture 子任务测得峰值 5，无泄漏槽位。
+- 图像测试为合成校准图，通过附件服务输入；不声称 MCP CAD 图片链路或图纸识别性能已验收。
+- 实机上游 HEAD c9a348d1，既有 web 改动保持原样，MCP 发现 36 工具；没有 CAD 写入。
+- CI 无密钥、无付费请求；真实运行输出仅在 .cader/runs。详见 docs/research/smoke-2026-11-19.md。
+
+本轮 Python lint / format、8 项测试、协议 smoke 3/3，以及 DSH 组件 smoke 6/6 均通过。远端 4 job CI 在推送后核对。

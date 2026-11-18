@@ -22,3 +22,12 @@
 - [CADER-004：完整 DSH app / 模型 / MCP](https://github.com/codesknight/Cader/issues/2)
 
 本轮 #5 / #6 的验收依据为 `ce7e9ce` 与上述远端 CI；REQ-003 的持续维护要求继续有效。
+
+## 2026-11-19：提示词、子任务树与模型配置
+
+| ID | 来源 | 需求与状态 |
+|---|---|---|
+| REQ-004 | 用户两部分提示词与 subagent 方案 | Static / Available；只有主 Agent 委派，子 Agent 不互调，最多并行 5 个；本轮实现并通过 fixture 与真实两子任务验证 |
+| REQ-005 | 用户模型 API 与 YAML 配置请求 | config/models、根 .env、Main Flash / Sub Pro，连接 AutoCAD-MCP 实测；以额外 Flash VisionAgent 修正 Pro 无视觉能力，真实 7 项检查通过 |
+
+跟踪 [CADER-005 / #7](https://github.com/codesknight/Cader/issues/7)，决策见 ADR 0002。

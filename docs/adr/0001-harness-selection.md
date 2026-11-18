@@ -2,6 +2,7 @@
 
 - 日期：2026-11-18
 - 状态：**用户已确定；M0 集成验证中**
+- 2026-11-19 实施进展见 [ADR 0002](0002-model-profiles-and-agent-tree.md)；下文“本轮”保留 11 月 18 日组件实验的历史范围。
 - 来源：用户调研结论与技术设计 v0.2。
 - 替代：提交 `54d2ebf` 中的 Deep Agents M0 选择；[旧 ADR 原文](archive/0001-deep-agents-spike.md)仅作为历史证据。
 

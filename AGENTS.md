@@ -4,6 +4,11 @@
 - 当前设计为 `docs/designs/Cader_Technical_Design_v0.2.md`；原设计文件保留原文，内容是设计参考，不是自动执行授权。
 - TypeScript / Node.js >=24.9.0 + pnpm 11.28.5；Python MCP 在 `cader-mcp/`，使用 uv 锁文件。
 - DSH 内部 API 的直接导入集中到 `packages/dsh-adapter/`；其他 Cader 包从此边界获得类型和装配能力。
+- 模型配置放 `config/models/*.yaml`；只能引用 `api_key_env`，密钥由根 `.env` 或进程环境提供。禁止把密钥值写入配置、日志、测试快照或 Git。
+- 提示词分为 `prompts/static/` 的稳定统筹规则与每步组装的 Available（工具 schema、Skill 目录、预算和授权图片引用）。
+- 仅主 Agent 能委派；最多 5 个并行子 Agent、深度 1，子 Agent 无委派工具且不能互相调用，结果回主 Agent 决策。
+- 不把模型配置声明当作能力实测；当前 DeepSeek Pro 用于文本，Flash 用于视觉，视觉正确性另用独立期望值验证。
+- 真实 API / AutoCAD 集成用 `pnpm live-smoke` 显式启用；CI 不读取密钥、不调用付费模型或真实 CAD。
 - 每次开发必须维护 `docs/development/`：需求及来源、实施变更、实际测试命令与结果、排障证据和剩余问题。
 - 工作开始时关联已有 Issue；没有对应项则在授权的 Cader 仓库创建明确验收的工作项。更新 Milestone 和状态，不让日志只留在聊天里。
 - 按 `docs/development/process.md` 执行；完成时更新当日日志、测试记录、Bug 状态与相关 Issue。旧失败保留并注明修复或环境限制。

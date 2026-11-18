@@ -7,6 +7,10 @@ import ToolsService, { defineTool } from '@deepseek-ai/dsh-tools';
 import type { ToolCallId } from '@deepseek-ai/dsh-llm';
 
 export { Context, defineTool };
+export { createLiveRuntime } from './live.js';
+export type { AgentResult, PublicEvent } from './live.js';
+export type { StreamChunk } from '@deepseek-ai/dsh-llm';
+export { ChildPool } from './pool.js';
 export type { ToolExecution, ToolExecutionResult, PreToolDecision } from '@deepseek-ai/dsh-tools';
 
 export async function createToolRuntime(): Promise<Context> {

@@ -59,7 +59,62 @@
       "gitHead": null,
       "integrity": "sha512-sMmvpkuOtUVTWJIp+Y71DVIuyW8mMNIWkyn2X6v63CmkpfIMT455kN0RUJVIsbimF2Yz7TIWxfXD6dAujoQhRw==",
       "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh-tools/-/dsh-tools-0.2.2-rc.4.tgz"
+    },
+    {
+      "name": "@deepseek-ai/dsh-agent-loop",
+      "version": "0.2.2-rc.4",
+      "license": "MIT",
+      "engines": null,
+      "gitHead": null,
+      "integrity": "sha512-pQ+phYVEcVqBXzjspHJ1Kp5Vuf4x88q39PwNBGkif7HyV2/V7a2M+IQwdvlR2miykG33uwxAXhYn0LCkQJSosQ==",
+      "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh-agent-loop/-/dsh-agent-loop-0.2.2-rc.4.tgz"
+    },
+    {
+      "name": "@deepseek-ai/dsh-llm-deepseek-api-key",
+      "version": "0.2.2-rc.4",
+      "license": "MIT",
+      "engines": null,
+      "gitHead": null,
+      "integrity": "sha512-3KnPi0AZNaz+Jlzpdr0JD+u0TFnZpEkec0wUM80clr/E0vV3u94O+KEffoKCL0rcwGEBjQmv13lEOc+NF3EiAg==",
+      "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh-llm-deepseek-api-key/-/dsh-llm-deepseek-api-key-0.2.2-rc.4.tgz"
+    },
+    {
+      "name": "@deepseek-ai/dsh-llm-pi-ai",
+      "version": "0.2.2-rc.4",
+      "license": "MIT",
+      "engines": null,
+      "gitHead": null,
+      "integrity": "sha512-OwUrClxpGlg1XSHfMUYMGXx96hoUcnHXvac/aHpWobTaUFaD/hoq93rMh414xObtVUWMK95S06DW1a5hN+ifZQ==",
+      "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh-llm-pi-ai/-/dsh-llm-pi-ai-0.2.2-rc.4.tgz"
+    },
+    {
+      "name": "@deepseek-ai/dsh-sdk-minimal",
+      "version": "0.2.2-rc.4",
+      "license": "MIT",
+      "engines": null,
+      "gitHead": null,
+      "integrity": "sha512-Vz6j/pi+lvfisBaqWJ7HSLsfDjBhuzjDncOFr4YtyZ76ezFr00k2cr9jo15ulVZQTJAgkWcmkshyVNqnYr03Tg==",
+      "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh-sdk-minimal/-/dsh-sdk-minimal-0.2.2-rc.4.tgz"
+    },
+    {
+      "name": "@deepseek-ai/dsh-session",
+      "version": "0.2.2-rc.4",
+      "license": "MIT",
+      "engines": null,
+      "gitHead": null,
+      "integrity": "sha512-ueihaLUzcinYhrsSmuPsYrwaJeVg8uJfLn4NuCRNhnY+pEadcfYV4kjw+qD613ihULM5rGYWBcUdl4B4wc6Vng==",
+      "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh-session/-/dsh-session-0.2.2-rc.4.tgz"
+    },
+    {
+      "name": "@deepseek-ai/dsh-subagent",
+      "version": "0.2.2-rc.4",
+      "license": "MIT",
+      "engines": null,
+      "gitHead": null,
+      "integrity": "sha512-NPKtiyqmyHimyCRIHJJhIJf+NyhsFD5TDPZuMCcUuNWnjjUrWzP43h/S59nJqjTcAJkViPZanON/zw8MzBgHSg==",
+      "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh-subagent/-/dsh-subagent-0.2.2-rc.4.tgz"
     }
   ],
-  "scope": "Metadata research snapshot; installed dependencies are defined by pnpm-lock.yaml."
+  "scope": "Metadata research snapshot; installed dependencies are defined by pnpm-lock.yaml.",
+  "integration_reviewed_date": "2026-11-19"
 }

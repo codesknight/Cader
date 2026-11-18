@@ -1,6 +1,21 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": "src", "outDir": "dist" },
-  "include": ["src/**/*.ts"],
-  "references": [{ "path": "../dsh-adapter" }, { "path": "../plugins/cad-policy" }]
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "references": [
+    {
+      "path": "../dsh-adapter"
+    },
+    {
+      "path": "../plugins/cad-policy"
+    },
+    {
+      "path": "../config"
+    }
+  ]
 }

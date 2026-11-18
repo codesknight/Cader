@@ -3,5 +3,8 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "dependencies": { "@cader/profile": "workspace:*" }
+  "dependencies": {
+    "@cader/profile": "workspace:*",
+    "@cader/config": "workspace:*"
+  }
 }

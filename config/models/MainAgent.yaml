@@ -1,0 +1,13 @@
+version: 1
+id: MainAgent
+role: main
+provider: openai-compatible
+base_url: https://api.deepseek.com
+api_key_env: DEEPSEEK_API_KEY
+model: deepseek-flash
+input: [text, image]
+generation:
+  max_output_tokens: 2048
+  reasoning_effort: off
+timeout_ms: 120000
+can_delegate: true

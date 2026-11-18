@@ -1,5 +1,6 @@
 import { createToolRuntime, defineTool, invokeTool } from '@cader/dsh-adapter';
 import * as policy from '@cader/cad-policy';
+export { runLiveSmoke } from './live-smoke.js';
 
 export async function runHarnessSmoke() {
   const ctx = await createToolRuntime();
