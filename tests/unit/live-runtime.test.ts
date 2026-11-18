@@ -31,6 +31,8 @@ test('actual DSH loop sends Static/Available, isolates worker tools and stops at
     assert.equal(requests.length, 2);
     assert.ok(!requests[0]?.tools.includes('cader_delegate'));
     assert.ok(requests[1]?.tools.includes('cader_delegate'));
+    assert.ok(requests[1]?.messages.includes('worker_profiles'));
+    assert.ok(requests[1]?.messages.includes('deepseek-v4-pro'));
     assert.ok(requests.every(request => request.messages.includes('remaining_model_steps')));
     assert.ok(requests.every(request => !request.messages.includes('sk-fixture-not-a-live-key')));
     await assert.rejects(runtime.run('SubAgent', 'Read image.', { image: 'anything.png' }), /UNSUPPORTED_IMAGE_INPUT/);

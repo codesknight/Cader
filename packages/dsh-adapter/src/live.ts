@@ -161,6 +161,8 @@ export async function createLiveRuntime(options: LiveOptions) {
                 remaining_model_steps: Math.max(0, options.runtime.max_model_steps - steps),
                 remaining_tool_calls: Math.max(0, options.runtime.max_tool_calls - calls),
                 max_parallel_subagents: profile.can_delegate ? pool.limit : 0,
+                worker_profiles: profile.can_delegate ? options.profiles.filter(worker => worker.role !== 'main')
+                  .map(worker => ({ id: worker.id, role: worker.role, model: worker.model, input: worker.input })) : [],
                 image_refs: profile.can_delegate ? [...images.keys()] : [],
                 document_identity_and_units: 'not verified; do not assume target identity or units',
               }) });
