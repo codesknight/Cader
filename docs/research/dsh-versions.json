@@ -60,5 +60,6 @@
       "integrity": "sha512-sMmvpkuOtUVTWJIp+Y71DVIuyW8mMNIWkyn2X6v63CmkpfIMT455kN0RUJVIsbimF2Yz7TIWxfXD6dAujoQhRw==",
       "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh-tools/-/dsh-tools-0.2.2-rc.4.tgz"
     }
-  ]
+  ],
+  "scope": "Metadata research snapshot; installed dependencies are defined by pnpm-lock.yaml."
 }

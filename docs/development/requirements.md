@@ -20,3 +20,5 @@
 - [CADER-001：本轮 workspace / 组件 CI](https://github.com/codesknight/Cader/issues/5)
 - [REQ-003：持续过程记录机制](https://github.com/codesknight/Cader/issues/6)
 - [CADER-004：完整 DSH app / 模型 / MCP](https://github.com/codesknight/Cader/issues/2)
+
+本轮 #5 / #6 的验收依据为 `ce7e9ce` 与上述远端 CI；REQ-003 的持续维护要求继续有效。
