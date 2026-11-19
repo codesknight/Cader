@@ -71,3 +71,17 @@ REQ-007 的产品阶段按 #9、#10 及 roadmap 继续实施。
 | REQ-012 | Windows JSON 编码稳定 | Python CLI stdout/stderr 显式 UTF-8；GB18030 环境下中文重定向与参数错误测试 |
 
 本轮工作项 [CADER-009 / #12](https://github.com/codesknight/Cader/issues/12)。未新增绘图白名单，未修改 AutoCAD-MCP，未调用真实付费模型或 CAD。
+
+## 2026-11-19：上游 Redraw Skills 调研后接入
+
+来源：用户重新要求深入分析上游 CAD Skill，再修改项目和更新 README；此前暂不处理的要求被本次指令取代。
+跟踪 [CADER-011 / #13](https://github.com/codesknight/Cader/issues/13)。
+
+| ID | 需求 | 验收范围 |
+|---|---|---|
+| REQ-013 | 先调研再实施，结合 Cader 框架 | 固定 ed182ec 快照、审查工作流/脚本/依赖/许可与副作用，研究报告和 ADR 0004 先于代码 |
+| REQ-014 | 项目内可用的 Skill 接入 | Cader 独立编写重绘评估指引；共享显式清单、角色/资源加载、CLI list/show，拒绝脚本/越界/未注册目录 |
+| REQ-015 | 可体验的图片评估与文档升级 | exec --skill / --image、PNG 输入预检、DSH 离线附件/资源链路测试、中英文 README 与使用指南 |
+
+上游固定版本没有明确 LICENSE，故不复制分发其文件；本轮没有安装 Codex 主机 Skill。
+这是自有评估工作流与加载机制接入，不是完整 DWG/PDF/DXF 重绘移植；确定性 verifier 和受控绘图分别继续在 #4/#3 验收。

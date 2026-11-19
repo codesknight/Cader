@@ -1,13 +1,13 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { resolve, join } from 'node:path';
-import { loadConfig, loadMcp, redactSecrets } from '@cader/config';
+import { loadConfig, loadMcp, loadSkills, readPng, redactSecrets, ConfigError } from '@cader/config';
 import { createLiveRuntime } from '@cader/dsh-adapter';
 import type { AgentResult, PublicEvent } from '@cader/dsh-adapter';
 import { agentFailure, describeFailure, failureFromError } from './failure.js';
 
 /** User tasks use the same default read-only runtime, never the smoke's fixed instruction. */
-export async function runTask(root: string, input: { task: string; mcpPath?: string },
+export async function runTask(root: string, input: { task: string; mcpPath?: string; skill?: string; image?: string },
   factory: typeof createLiveRuntime = createLiveRuntime) {
   if (!input.task.trim()) throw new Error('USAGE_ERROR');
   const config = await loadConfig(root);
@@ -21,11 +21,18 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
   let cleanupError: string | undefined;
   let stage: 'configuration' | 'runtime' | 'mcp' = 'configuration';
   try {
+    if (input.skill) await (await loadSkills(root)).read(input.skill, 'main');
+    if (input.image) {
+      if (!config.profiles.find(profile => profile.id === config.runtime.main_profile)?.input.includes('image'))
+        throw new ConfigError('The main model does not accept image input');
+      await readPng(root, input.image);
+    }
     const mcp = input.mcpPath ? await loadMcp(resolve(root, input.mcpPath)) : undefined;
     stage = mcp ? 'mcp' : 'runtime';
-    runtime = await factory({ root, runDirectory: directory, ...config, mcp, onEvent: event => events.push(event) });
+    runtime = await factory({ root, runDirectory: directory, ...config, mcp,
+      images: input.image ? { 'image-1': input.image } : {}, onEvent: event => events.push(event) });
     stage = 'runtime';
-    result = await runtime.run(config.runtime.main_profile, input.task);
+    result = await runtime.run(config.runtime.main_profile, input.task, { skill: input.skill, image: input.image });
     failure = agentFailure(runtime.completed(), events, result.id);
   } catch (error) { failure = failureFromError(error, stage); }
   finally {
@@ -33,6 +40,7 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
     catch { cleanupError = 'CLEANUP_FAILED'; failure ??= describeFailure(cleanupError, 'runtime'); }
   }
   const report = { ok: !failure && result?.status === 'succeeded', runId, kind: 'user-task', mode: 'read-only',
+    selectedSkill: input.skill ?? null, imageProvided: Boolean(input.image),
     text: result?.text ?? '', ...failure, cleanupError, runDirectory: directory };
   const redact = (text: string) => redactSecrets(text, config.profiles);
   await Promise.all([

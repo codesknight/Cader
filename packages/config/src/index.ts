@@ -1,4 +1,4 @@
-import { readFile, realpath } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import { dirname, resolve, relative, isAbsolute } from 'node:path';
 import { parseDocument } from 'yaml';
 import { z } from 'zod';
@@ -105,4 +105,67 @@ export async function workspacePath(root: string, path: string): Promise<string>
   if (rel === '..' || rel.startsWith('..' + (process.platform === 'win32' ? '\\' : '/')) || isAbsolute(rel))
     throw new ConfigError('File must stay inside the workspace');
   return target;
+}
+
+const skillName = z.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/).max(64);
+const Catalog = z.object({ version: z.literal(1), skills: z.array(z.object({
+  name: skillName, description: z.string().min(1).max(400),
+  roles: z.array(z.enum(['main', 'subagent', 'vision'])).min(1),
+  mode: z.literal('read-only'),
+  resources: z.record(skillName, z.string().regex(/^references\/[A-Za-z0-9_-]+\.md$/)).default({}),
+}).strict()).min(1).max(32) }).strict();
+export type SkillRole = ModelProfile['role'];
+
+/** Explicit registration only. Files are data; this registry has no execution API. */
+export async function loadSkills(root: string) {
+  try {
+    const base = await workspacePath(root, 'configs/skills');
+    const readAsset = async (directory: string, path: string) => {
+      const target = await workspacePath(directory, path);
+      const info = await stat(target);
+      if (!info.isFile() || info.size > 65536) throw new ConfigError('Invalid Skill asset');
+      return readFile(target, 'utf8');
+    };
+    const catalog = Catalog.parse(parseYaml(await readAsset(base, 'catalog.yaml')));
+    if (new Set(catalog.skills.map(skill => skill.name)).size !== catalog.skills.length)
+      throw new ConfigError('Duplicate Skill names');
+    // Validate registered assets before publishing metadata to any role.
+    for (const skill of catalog.skills) {
+      const directory = await workspacePath(base, skill.name);
+      const body = await readAsset(directory, 'SKILL.md');
+      const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(body);
+      const header = frontmatter ? parseYaml(frontmatter[1]!) as { name?: string } : undefined;
+      if (header?.name !== skill.name) throw new ConfigError('Skill name mismatch');
+      for (const resource of Object.values(skill.resources)) await readAsset(directory, resource);
+    }
+    const list = (role: SkillRole) => catalog.skills.filter(skill => skill.roles.includes(role))
+      .map(skill => ({ name: skill.name, description: skill.description, mode: skill.mode,
+        resources: Object.keys(skill.resources) }));
+    return {
+      list,
+      async read(name: string, role: SkillRole, resource?: string) {
+        const skill = catalog.skills.find(skill => skill.name === name && skill.roles.includes(role));
+        if (!skill || (resource !== undefined && !Object.hasOwn(skill.resources, resource)))
+          throw new ConfigError('Skill or resource is unavailable to this role');
+        // Resolve again at read time so changed links do not escape the registered boundary.
+        const directory = await workspacePath(base, skill.name);
+        return readAsset(directory, resource === undefined ? 'SKILL.md' : skill.resources[resource]!);
+      },
+    };
+  } catch { throw new ConfigError('Invalid Skill catalog or asset'); }
+}
+
+/** Current attachment contract: bounded PNG inside the workspace, no implicit URL/file reads. */
+export async function readPng(root: string, path: string) {
+  const target = await workspacePath(root, path);
+  const info = await stat(target);
+  if (!info.isFile() || info.size < 33 || info.size > 10 * 1024 * 1024)
+    throw new ConfigError('PNG must be a regular file no larger than 10 MiB');
+  const data = await readFile(target);
+  if (data.length < 33 || data.length > 10 * 1024 * 1024
+    || !data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    || data.toString('ascii', 12, 16) !== 'IHDR' || !data.readUInt32BE(16) || !data.readUInt32BE(20)
+    || data.readUInt32BE(16) * data.readUInt32BE(20) > 40_000_000)
+    throw new ConfigError('Unsupported or oversized PNG header');
+  return data;
 }

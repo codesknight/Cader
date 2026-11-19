@@ -1,0 +1,13 @@
+version: 1
+skills:
+  - name: cad-inspection
+    description: Inspect CAD layers through reviewed read-only MCP tools.
+    roles: [main, subagent, vision]
+    mode: read-only
+    resources: {}
+  - name: cad-redraw-review
+    description: Assess reference evidence, scale uncertainty and acceptance gaps before a CAD redraw. Planning only; no DWG generation.
+    roles: [main, vision]
+    mode: read-only
+    resources:
+      assessment-format: references/assessment-format.md

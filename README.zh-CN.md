@@ -46,7 +46,7 @@ Cader 是面向计算机辅助设计的可扩展 AI Agent 项目，以
 | 能力 | 当前实现 |
 |---|---|
 | Agent 运行时 | DSH 默认 AgentLoop、Cordis、官方模型适配器与 MCP 客户端 |
-| 上下文组装 | 稳定的 Static 提示词，结合工具、Skill、模型及预算动态生成 Available |
+| 上下文组装 | 稳定 Static 与动态 Available；显式 Skill 清单、角色可见性与按需引用资料 |
 | 子任务委派 | 主 Agent 最多协调 **5 个并行子 Agent**；子 Agent 返回结果，不继续委派 |
 | 模型配置 | 主 Agent、文本审查和视觉子任务使用 YAML profile；凭据通过环境变量提供 |
 | CAD 集成 | 已审查的 AutoCAD 只读工具；M0 profile 保持禁止写入 |
@@ -140,7 +140,25 @@ configs/
 ```
 
 根 `.env` 提供凭据，`.cader/` 保存私有运行记录。
-当前 Skill 加载器只开放已审查的 `cad-inspection`，添加文件不等于自动注册新能力。
+[`configs/skills/catalog.yaml`](configs/skills/catalog.yaml) 显式注册 `cad-inspection` 和
+`cad-redraw-review`，CLI 发现与 DSH 加载共用清单。新增文件夹不自动注册能力，也不授予执行权限。
+
+### CAD 重绘评估
+
+```sh
+pnpm run cader skills list
+pnpm run cader skills show cad-redraw-review
+pnpm run cader exec "评估参考图，列出尺度证据缺口和后续验证步骤" --skill cad-redraw-review --image benchmark/fixtures/vision-calibration.png
+```
+
+前两条命令无需密钥或 CAD。最后一条调用支持图像的主模型；仓库校准图仅演示附件链路，
+不是图纸评测。实际评估时换成工作区内的 PNG（最大 10 MiB、4000 万像素）。
+
+这份 Cader 自有 Skill 用于证据审查与重绘准备，**不生成 DWG**，不执行脚本，也不开放写工具。
+接入方案参考了 [AutoCAD Redraw Skills](https://github.com/pengxiaoan/autocad-dwg-redraw-skill) 的工作方法；
+固定版本未发现明确许可证，因此没有复制分发上游文件。
+[深入分析报告](docs/research/redraw-skill-integration-2026-11-19.md)说明了工作流映射、代码审查发现，
+以及后续 MCP 执行和独立 verifier 的分层路线。
 
 ### 连接模型与 AutoCAD-MCP
 
@@ -193,6 +211,7 @@ DSH YAML 与 Python 诊断 JSON 使用不同 schema，不能互换。
 | [技术设计 v0.2](docs/designs/Cader_Technical_Design_v0.2.md) · [CLI 设计](docs/designs/Cader_CLI_Design.md) | 原始设计稿；规划接口不等同于已实现功能 |
 | [架构决策](docs/adr/) | Harness 选型、模型角色、配置目录与 CLI First |
 | [模型与 MCP 指南](docs/development/model-configuration.md) | 模型 profile、凭据、本机 MCP 与真实 smoke |
+| [Skill 接入分析](docs/research/redraw-skill-integration-2026-11-19.md) · [ADR 0004](docs/adr/0004-reviewed-skill-catalog-and-redraw-assessment.md) | 上游研究、Cader 自有评估、注册机制与能力边界 |
 | [开发过程记录](docs/development/README.md) | 需求、日志、测试、Bug 与迭代历史 |
 | [真实 smoke 证据](docs/research/smoke-2026-11-19.md) | 真实模型、AutoCAD 只读及合成图视觉校准记录 |
 | [评测规格](benchmark/README.md) | G01–G10 场景；尚未发布真实模型基准评分 |

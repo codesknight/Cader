@@ -48,7 +48,7 @@ follow once the underlying services are stable.
 | Capability | Current implementation |
 |---|---|
 | Agent runtime | DSH default AgentLoop, Cordis, official model adapter and MCP client |
-| Context assembly | Stable Static prompts plus dynamic Available context for tools, skills, models, and budgets |
+| Context assembly | Stable Static prompts plus dynamic Available context; explicit, role-scoped Skill catalog and on-demand references |
 | Delegation | Main agent coordinates up to **5 concurrent subagents**; children return results without delegating |
 | Model profiles | YAML profiles for main, text-review, and vision agents; credentials come from environment variables |
 | CAD integration | Reviewed read-only AutoCAD tools; writes remain blocked in the M0 profile |
@@ -143,8 +143,28 @@ configs/
 ```
 
 The root `.env` provides credentials; `.cader/` stores private runtime artifacts.
-The skill loader currently exposes the reviewed `cad-inspection` skill. Adding a file
-alone does not register a new capability.
+[`configs/skills/catalog.yaml`](configs/skills/catalog.yaml) registers `cad-inspection` and
+`cad-redraw-review`. CLI discovery and DSH loading use the same catalog. Adding a folder
+alone does not register a capability or grant tool execution.
+
+### CAD redraw assessment
+
+```sh
+pnpm run cader skills list
+pnpm run cader skills show cad-redraw-review
+pnpm run cader exec "Assess the reference, identify missing scale evidence, and propose verification steps" --skill cad-redraw-review --image benchmark/fixtures/vision-calibration.png
+```
+
+The first two commands need no key or CAD. The last calls your image-capable main model;
+the bundled image is a synthetic attachment demo, not a drawing benchmark. Replace it with
+your own workspace PNG for reference review (up to 10 MiB / 40 million pixels).
+
+This Cader-authored Skill assesses evidence and redraw readiness. It does **not generate DWG**,
+execute scripts, or open write tools. It follows a review of
+[AutoCAD Redraw Skills](https://github.com/pengxiaoan/autocad-dwg-redraw-skill);
+the pinned upstream snapshot had no explicit license, so its files are not redistributed.
+See the [research and integration analysis](docs/research/redraw-skill-integration-2026-11-19.md)
+for the workflow mapping, code-review findings, and planned MCP execution/verifier layers.
 
 ### Connect your models and AutoCAD-MCP
 
@@ -198,6 +218,7 @@ See the [CLI First plan](docs/architecture/cli-first.md) for stage acceptance cr
 | [Technical design v0.2](docs/designs/Cader_Technical_Design_v0.2.md) · [CLI design](docs/designs/Cader_CLI_Design.md) | Original proposals; planned APIs are not shipped features |
 | [Architecture decisions](docs/adr/) | Harness selection, model roles, configuration layout, CLI First |
 | [Model and MCP guide](docs/development/model-configuration.md) | Profiles, credentials, local MCP setup, live smoke |
+| [Skill integration analysis](docs/research/redraw-skill-integration-2026-11-19.md) · [ADR 0004](docs/adr/0004-reviewed-skill-catalog-and-redraw-assessment.md) | Upstream research, Cader-owned assessment, registration and capability boundaries |
 | [Development records](docs/development/README.md) | Requirements, logs, tests, bugs, and iteration history |
 | [Live smoke evidence](docs/research/smoke-2026-11-19.md) | Real-model, read-only AutoCAD, and synthetic vision-calibration results |
 | [Benchmark specification](benchmark/README.md) | G01–G10 scenarios; real-model benchmark scores are not yet published |

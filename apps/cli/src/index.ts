@@ -1,12 +1,12 @@
 import { runHarnessSmoke, runLiveSmoke, runTask, failureFromError } from '@cader/profile';
 import { recordSmoke } from './record.js';
-import { loadConfig, redactSecrets } from '@cader/config';
+import { loadConfig, loadSkills, redactSecrets } from '@cader/config';
 
 const command = process.argv[2];
-const usage = 'Cader CLI (read-only)\nUsage: cader exec "<task>" [--mcp <local.yaml>] | doctor | models | harness-smoke | live-smoke --mcp <local.yaml> [--image <file> --expected-image <json>]';
+const usage = 'Cader CLI (read-only)\nUsage: cader exec "<task>" [--mcp <local.yaml>] [--skill <name>] [--image <workspace.png>] | skills list | skills show <name> [--resource <id>] | doctor | models | harness-smoke | live-smoke --mcp <local.yaml> [--image <file> --expected-image <json>]';
 try {
   // Parse before loading credentials or starting any runtime.
-  let taskInput: { task: string; mcpPath?: string } | undefined;
+  let taskInput: { task: string; mcpPath?: string; skill?: string; image?: string } | undefined;
   let smokeInput: { mcpPath: string; image?: string; expectedImage?: string } | undefined;
   if (command === 'live-smoke') {
     const flags = new Map<string, string>();
@@ -22,17 +22,18 @@ try {
   }
   if (command === 'exec' && !process.argv.slice(3).includes('--help')) {
     const args = process.argv.slice(3);
-    let task: string | undefined, mcpPath: string | undefined;
+    let task: string | undefined;
+    const flags = new Map<string, string>();
     for (let index = 0; index < args.length; index++) {
       const arg = args[index]!;
-      if (arg === '--mcp') {
-        if (mcpPath !== undefined || !args[index + 1]?.trim() || args[index + 1]!.startsWith('--')) throw new Error('USAGE_ERROR');
-        mcpPath = args[++index];
+      if (['--mcp', '--skill', '--image'].includes(arg)) {
+        if (flags.has(arg) || !args[index + 1]?.trim() || args[index + 1]!.startsWith('--')) throw new Error('USAGE_ERROR');
+        flags.set(arg, args[++index]!);
       } else if (arg.startsWith('--') || task !== undefined) throw new Error('USAGE_ERROR');
       else task = arg;
     }
     if (!task?.trim()) throw new Error('USAGE_ERROR');
-    taskInput = { task, mcpPath };
+    taskInput = { task, mcpPath: flags.get('--mcp'), skill: flags.get('--skill'), image: flags.get('--image') };
   }
   if (command === '--help' || command === 'help' || (command === 'exec' && process.argv.includes('--help'))) {
     console.log(usage);
@@ -41,7 +42,16 @@ try {
       try { process.loadEnvFile('.env'); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('INVALID_ENV_FILE'); }
     }
-    if (command === 'exec') {
+    if (command === 'skills') {
+      const args = process.argv.slice(3);
+      if (args[0] === 'list' && args.length === 1) {
+        console.log(JSON.stringify({ ok: true, skills: (await loadSkills(process.cwd())).list('main') }, null, 2));
+      } else if (args[0] === 'show' && args[1] && (args.length === 2
+        || (args.length === 4 && args[2] === '--resource' && args[3]?.trim()))) {
+        const text = await (await loadSkills(process.cwd())).read(args[1], 'main', args[3]);
+        console.log(JSON.stringify({ ok: true, name: args[1], resource: args[3] ?? null, text }, null, 2));
+      } else throw new Error('USAGE_ERROR');
+    } else if (command === 'exec') {
       const result = await runTask(process.cwd(), taskInput!);
       console.log(JSON.stringify(result, null, 2));
       process.exitCode = result.ok ? 0 : 1;

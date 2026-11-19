@@ -16,6 +16,9 @@ configs/
   prompts/static/MainAgent.md
   prompts/static/SubAgent.md
   skills/cad-inspection/SKILL.md
+  skills/catalog.yaml
+  skills/cad-redraw-review/SKILL.md
+  skills/cad-redraw-review/references/assessment-format.md
 ```
 
 根 `.env` 只需设置 `DEEPSEEK_API_KEY=...`。YAML 使用 `api_key_env: DEEPSEEK_API_KEY`
@@ -24,7 +27,11 @@ configs/
 `runtime.yaml` 管运行限制和已注册模型；`models/` 管模型 profile；`mcp/` 管连接；
 `prompts/static/` 管稳定角色规则；`skills/` 管按需加载的指引。
 Available 仍由运行时按当前模型、工具 schema、Skill 目录和预算动态组装，不保存易过期的工具清单。
-目前 Skill 加载器只允许已审查的 `cad-inspection`，把新文件放入目录不等于自动获得调用权限。
+Skill 清单显式列出 name、description、roles、mode 与 resource ID → Markdown 路径。
+当前 cad-inspection 对全部角色可见；cad-redraw-review 仅对 main / vision 可见。
+未注册目录不会自动被发现；资源只能按注册 ID 加载，不执行文件或开放新工具。
+加载器拒绝重复名称、错误角色、额外 command 字段、越界路径/链接及超过 64 KiB 的资源；
+SKILL.md frontmatter 的 name 必须与清单一致。清单是发现元数据的来源，正文是按需上下文。
 
 2026-11-19 迁移：旧 `config/*` 对应 `configs/*`，根 `prompts/`、`skills/` 分别迁入
 `configs/prompts/`、`configs/skills/`；旧 `configs/local.mcp.json` 对应

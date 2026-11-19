@@ -94,6 +94,7 @@ test('exec passes the user task through the real DSH loop while preserving tool 
 test('CLI help and invalid exec arguments do not require repository config, credentials or CAD', () => {
   const cli = fileURLToPath(new URL('../../../apps/cli/dist/index.js', import.meta.url));
   for (const args of [['--help'], ['exec', '--help'], ['exec'], ['exec', '任务', '--write'], ['exec', '任务', '--mcp'],
+    ['exec', '任务', '--image'], ['exec', '任务', '--skill', 'cad-inspection', '--skill', 'cad-inspection'],
     ['live-smoke', '--mcp', 'local.yaml', '--task', '画圆']]) {
     const result = spawnSync(process.execPath, [cli, ...args], { cwd: process.env.TEMP ?? '/tmp', encoding: 'utf8' });
     if (args.includes('--help')) {

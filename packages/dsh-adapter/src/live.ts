@@ -19,7 +19,7 @@ import * as mcpClient from '@deepseek-ai/dsh-mcp-client';
 import Attachments from '@deepseek-ai/dsh-attachment-local';
 import FileSystem from '@deepseek-ai/dsh-fs-local';
 import type { ModelProfile, RuntimeConfig, McpConfig } from '@cader/config';
-import { requireCredential, workspacePath } from '@cader/config';
+import { requireCredential, loadSkills, readPng } from '@cader/config';
 import { ChildPool } from './pool.js';
 
 export interface PublicEvent { type: string; agentId?: string; role?: string; [key: string]: unknown }
@@ -34,6 +34,7 @@ interface LiveOptions {
 }
 
 export async function createLiveRuntime(options: LiveOptions) {
+  const skills = await loadSkills(options.root);
   const ctx = new Context();
   const pool = new ChildPool(options.runtime.max_parallel_subagents);
   const profiles = new Map(options.profiles.map(profile => [profile.id, profile]));
@@ -84,13 +85,14 @@ export async function createLiveRuntime(options: LiveOptions) {
     }
 
     async function run(profileId: string, instruction: string, request: {
-      parent?: Agent; image?: string; signal?: AbortSignal;
+      parent?: Agent; image?: string; skill?: string; signal?: AbortSignal;
     } = {}): Promise<AgentResult> {
       const profile = profiles.get(profileId as ModelProfile['id']);
       if (!profile) throw new Error('UNKNOWN_MODEL_PROFILE');
       if (request.parent && (roles.get(request.parent) !== 'main' || profile.role === 'main'
         || !options.runtime.subagent_profiles.includes(profileId))) throw new Error('CHILD_DELEGATION_DENIED');
       if (request.image && !profile.input.includes('image')) throw new Error('UNSUPPORTED_IMAGE_INPUT');
+      const selectedSkill = request.skill ? await skills.read(request.skill, profile.role) : undefined;
       const id = brandString<SessionId>(`cader-${profile.role}-${randomUUID()}`);
       const signal = AbortSignal.any([lifetime.signal, request.signal ?? new AbortController().signal,
         AbortSignal.timeout(Math.min(profile.timeout_ms, options.runtime.timeout_ms))]);
@@ -115,6 +117,7 @@ export async function createLiveRuntime(options: LiveOptions) {
             reasoningEffort: brandString<ReasoningEffortId>(profile.generation.reasoning_effort) },
           async setup(agentCtx, agent) {
             roles.set(agent, profile.role);
+            const roleSkills = skills.list(profile.role);
             const allowed = options.runtime.read_only_tools.filter(name => Boolean(ctx.tools.get(name)));
             if (profile.can_delegate) {
               agentCtx.tools.register(defineTool({
@@ -135,13 +138,16 @@ export async function createLiveRuntime(options: LiveOptions) {
               }));
               allowed.push('cader_delegate');
             }
-            agentCtx.tools.register(defineTool({
-              name: 'cader_load_skill', description: 'Load a reviewed skill by its listed name.',
-              parameters: { name: { type: 'string', required: true, enum: ['cad-inspection'] } },
-              output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
-              async execute() { return readFile(resolve(options.root, 'configs/skills/cad-inspection/SKILL.md'), 'utf8'); },
-            }));
-            allowed.push('cader_load_skill');
+            if (roleSkills.length) {
+              agentCtx.tools.register(defineTool({
+                name: 'cader_load_skill', description: 'Read a registered skill, or one of its listed resource IDs. This grants no execution rights.',
+                parameters: { name: { type: 'string', required: true, enum: roleSkills.map(skill => skill.name) },
+                  resource: { type: 'string', description: 'Optional resource ID listed for this skill; never a path.' } },
+                output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+                async execute(args) { return skills.read(args.name, profile.role, args.resource); },
+              }));
+              allowed.push('cader_load_skill');
+            }
             const hidden = ctx.tools.schemas().map(tool => tool.name).filter(name => !allowed.includes(name));
             if (hidden.length) agentCtx.tools.restrict({ deny: hidden });
             agentCtx.tools.guard(exec => {
@@ -154,10 +160,13 @@ export async function createLiveRuntime(options: LiveOptions) {
               return undefined;
             });
             agentCtx.systemPrompt.section({ name: 'cader:static', order: 0, text: staticText, interpolate: false });
+            if (selectedSkill) agentCtx.systemPrompt.context({ name: 'cader:selected-skill', order: 121,
+              required: true, interpolate: false, text: selectedSkill });
             agentCtx.systemPrompt.context({ name: 'cader:available', order: 120, required: true,
               interpolate: false, text: () => JSON.stringify({ role: profile.role, model: profile.model,
                 tools: agentCtx.tools.schemas(agent).map(tool => tool.name),
-                skills: [{ name: 'cad-inspection', description: 'Read-only CAD layer inspection; load with cader_load_skill.' }],
+                skills: roleSkills,
+                selected_skill: request.skill ?? null,
                 remaining_model_steps: Math.max(0, options.runtime.max_model_steps - steps),
                 remaining_tool_calls: Math.max(0, options.runtime.max_tool_calls - calls),
                 max_parallel_subagents: profile.can_delegate ? pool.limit : 0,
@@ -205,8 +214,7 @@ export async function createLiveRuntime(options: LiveOptions) {
         if (signal.aborted) abort();
         const content: ContentBlock[] = [{ type: 'text', text: instruction }];
         if (request.image) {
-          const path = await workspacePath(options.root, request.image);
-          const image = await ctx.attachments.saveImage({ data: await readFile(path), mediaType: 'image/png' });
+          const image = await ctx.attachments.saveImage({ data: await readPng(options.root, request.image), mediaType: 'image/png' });
           content.push({ type: 'image', attachment: image });
         }
         emit({ type: 'agent.started', agentId: id, role: profile.role, parentId: request.parent?.id });

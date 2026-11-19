@@ -87,3 +87,12 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 - 初次 TS 检查中，spawnSync 收到 URL 类型、CLI 测试路径多退一层导致失败，已修正；首次 thrown LlmError 漏报根因，补 agent/error 后通过。没有把这些初次失败记成成功。
 - 本轮没有真实 API/CAD/写入测试。用户反馈的 QUOTA、40 工具及旧 GB18030 字节为外部实测线索，未声称本轮实机重现。
 - 远端验收：实现 `92b79dd`，[CI run 44460992169](https://github.com/codesknight/Cader/actions/runs/44460992169) 的 4 jobs 全部通过，覆盖 Windows/Linux DSH 与 Python；22 文件实际凭据扫描泄漏 0，55 个本地文档链接和暂存 whitespace 检查通过。
+
+## 2026-11-19：Skill 目录与重绘评估（#13）
+
+- Windows / Node 24.9.0 / pnpm 11.28.5：typecheck、18 项 TS 测试、组件 smoke 6/6 通过；pnpm run cader skills list 与 skills show ... --resource assessment-format 实际输出正确 JSON。
+- 新增 5 项有效场景：目录/角色/未注册文件；禁止脚本字段、重复名称、路径和大小；目录链接越界；坏 Skill/PNG 在 MCP/模型工厂前拒绝；真实 DSH loop 中的选定 Skill、按需资源、PNG 附件与只读 schema。
+- CLI 进程在仅有 Skill 文件、没有 models/runtime 配置且无 API key 的临时工程中，list/show 成功；验证确定性发现不依赖 provider。
+- 图片链路测试使用已存在的合成校准 PNG 和离线响应，不评估视觉正确性；只验证附件/上下文传递和权限。PNG 预检为边界、大小和头信息检查，不宣称完整解码或图像质量分析。
+- 未执行上游脚本、真实 API/CAD、DWG/PDF/DXF 重绘或视觉指标计算；10 脚本的检查为静态分析，非第三方测试通过。
+- 不改 Python 代码或依赖；完整 Python 回归由现有 Windows/Linux CI 执行。原设计、密钥与相邻 MCP 仓库未修改。
