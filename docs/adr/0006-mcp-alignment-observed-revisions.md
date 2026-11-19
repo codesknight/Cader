@@ -1,7 +1,7 @@
 # ADR 0006：MCP对齐后的权限、revision与对账语义
 
 - 日期：2026-11-19
-- 状态：Cader侧修订2已实施；待MCP确认，不是双方冻结
+- 状态：修订2/映射修订1已确认，固定几何实机已通过；不是联合发布冻结
 - 关联：[#15](https://github.com/codesknight/Cader/issues/15)，补充ADR0005
 
 MCP审阅发现原Cader契约把managed同时用于工作图和验收图，并把revision当提交事务计数。
@@ -15,5 +15,6 @@ job以operation/request_document_id/result_document_id/source_artifact_id区分�
 缩小ID字符集到MCP交集；审计hash不替代Bridge去重hash，不修改原生journal。
 
 发布共享正反例和文件hash manifest，草案修订号为2。旧journal不自动迁移、重放或解锁，
-DTO到原生请求的映射仍待MCP确认。专用profile不存在时不得切换旧工具假装兼容。
+MCP现已确认DTO映射并提供managed_server，Cader已[独立实机验收](../validation/2026-11-19-cader-cli-real-loop.md)。
+在未部署专用profile的环境仍不得切换旧工具假装兼容。
 完整回应、例子和真实验收门槛见[对齐文档](../contracts/mcp-alignment-response-2026-11-19.md)。

@@ -144,3 +144,5 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 - 真实CAD仅此固定计划：未调用模型、未图片重绘、未真实写响应丢失注入。原MCP团队两轮验收属于外部证据，与本轮独立运行分开。原始完整日志和私有资料仅留.cader；仓库只提交合成图元的脱敏摘要。
 - 文档/配置维护后本地pnpm typecheck、pnpm test（38/38）、pnpm smoke（6/6）通过；新增AutoCAD.managed.example.yaml实际经loadMcp解析，入口与两项env引用正确。没有新增与实现镜像的测试或修改运行时策略。
 - 原schema e239266e和cases 9e33ab75仍完全相同，hash manifest未改；当前无acad进程。完整Python回归由跨平台CI执行，Python源码未改。
+- 发布验收：提交3d471ea，[CI run 44525767262](https://github.com/codesknight/Cader/actions/runs/44525767262) 的Windows/Linux DSH与Python共4/4 jobs成功，覆盖38项TS、10项Python及各自smoke/lint/format。
+- 发布前15文件扫描实际模型密钥和Bridge令牌两类凭据，泄漏0；82个本地文档链接有效，暂存whitespace通过。原始资料、DWG、完整request_json和私有日志未提交。普通Git因既有未监听代理失败，核对完整tree/commit后非强制API同步，不更改全局代理。
