@@ -169,3 +169,6 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 - stdio会话覆盖16根Slash的离线分支，MCP未选择，/compact为空会话不发请求，Shell被deny拒绝；未做真实模型摘要、实际MCP连接或CAD操作。已有交互/DSH回归另由44项测试执行，不将示例核对计为真实CAD验证。
 - harness-smoke六项组件检查通过；redraw返回退出3/WRITE_CAPABILITY_UNAVAILABLE且artifact=null，非法选项退出2。校准图裁剪示例在原图边界内。
 - 初次完整手册检查167个相对链接、24个文档锚点有效，语言切换互通；最终记录追加后再查。原始检查JSON/会话在.cader，不上传私人输入或历史会话。Windows/Linux CI待发布后补记。
+
+- 发布验收：实现fb2d766的[CI run 44551809258](https://github.com/codesknight/Cader/actions/runs/44551809258)共4/4 jobs成功，Windows/Linux 44项TS、10项Python、DSH/协议smoke及Python lint/format通过。最终手册与日志检查171个本地链接、24个锚点有效，16个暂存文件实际模型凭据扫描0泄漏，whitespace通过。
+- 普通push因既有127.0.0.1:10809代理未监听失败，核对完整tree/commit后通过既有API回退非强制推进，未更改代理或覆盖提交。真实模型/MCP/CAD未执行，文档验证不改变历史能力验收。

@@ -128,3 +128,5 @@ BUG-016验收补充：实现c68dffc的[CI run 44539527045](https://github.com/co
 
 - 用户反馈：CLI说明分散在README、架构和开发记录，缺少专门的开源用户手册。新增中英文手册与文档导航，入口和更新责任写入README、AGENTS及开发流程。
 - 这是文档缺口修复，不增加运行时Bug编号；命令/链接/离线示例核对通过，CI结果另记。既有QUOTA、BUG-010复杂图片识别及CAD接口缺口状态不变。
+
+#17文档缺口验收补充：fb2d766的[CI run 44551809258](https://github.com/codesknight/Cader/actions/runs/44551809258)共4/4 jobs通过，公开双语手册与维护入口已验收；没有据此关闭运行时或CAD能力问题。
