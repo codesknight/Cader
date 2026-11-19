@@ -106,3 +106,4 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 - 本地pnpm typecheck、20项TS、组件smoke6/6通过；新增头信息测试不是完整JPEG解码，真实JPEG请求才提供附件兼容证据。
 - runner默认离线测试无Key；测试--live的缺凭据路径使用独立临时工作区和空Key，在provider装配前失败，无真实API请求，并验证独立期望快照。
 - 原始运行、清单、任务与期望均在.cader；公开报告只保留聚合结论。根tests/images被忽略，不上传用户数据或将其放入CI。
+- 远端：实现855b10a，[CI run 44467176367](https://github.com/codesknight/Cader/actions/runs/44467176367) 的4/4 jobs全部成功（Windows/Linux TS20项、Python10项及smoke）。20个暂存文件实际凭据扫描泄漏0；66个文档链接/锚点及暂存whitespace检查通过。
