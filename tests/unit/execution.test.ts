@@ -68,6 +68,8 @@ test('same-batch unknown dispatch stops all remaining writes and preserves first
     const results = await Promise.all(Array.from({ length: 5 }, () => invokeTool(f.ctx, 'mcp__autocad__draw_circle', {})));
     assert.ok(results.every(result => result.isError)); assert.equal(f.calls.filter(name => name === 'draw_circle').length, 1);
     assert.equal(f.owner.facts(mark).counts.unknown, 1); assert.equal(f.owner.facts(mark).counts.blocked_not_dispatched, 4);
+    f.owner.mode = 'full-access'; assert.equal(f.owner.toolAvailable('cader_shell'), false);
+    assert.equal((await invokeTool(f.ctx, 'cader_shell', { command: 'echo must-not-execute' })).isError, true);
     const journal = await readFile(join(f.root, '.cader/runs/test/execution.jsonl'), 'utf8');
     assert.match(journal, /RPC call rejected/); assert.match(journal, /-2147418111/); assert.match(journal, /tool_call_id/);
     await f.owner.probe(); assert.equal((await f.owner.recover()).recovered, false);

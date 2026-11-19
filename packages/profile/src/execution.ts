@@ -52,7 +52,7 @@ export class ExecutionSession {
     exposed: this.definitions().length, scratch: this.scratch, frozen: this.frozen,
     health: this.facts(), backend: await this.client.call('get_backend_status', {}) } : { connected: false, frozen: this.frozen, health: this.facts(), hint: '/mcp use <configuration>; /mcp tools' }; }
   mark() { return this.operations.length; }
-  toolAvailable(name: string) { return !this.frozen || !name.startsWith('mcp__') || reads.has(name.split('__').at(-1)!); }
+  toolAvailable(name: string) { return !this.frozen || (name !== 'cader_shell' && (!name.startsWith('mcp__') || reads.has(name.split('__').at(-1)!))); }
   controlTools(): ToolDefinition[] {
     const output = { schema: { type: 'string' as const }, render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: String(value) }] };
     return [defineTool({ name: 'cader_cad_health', description: 'Read authoritative Cader execution/lock state. COM null status fields mean unavailable metadata, not missing binding.', parameters: {}, output,
@@ -316,6 +316,7 @@ export class ExecutionSession {
     defineTool({ name: 'cader_shell', description: 'Run a host shell command in the workspace (not a sandbox). Always asks except full-access; bounded output/time. Output returns to the model.',
       parameters: { command: { type: 'string', required: true } }, output,
       execute: (args, exec) => this.serial(async () => {
+        if (this.frozen) throw new Error('CAD_WRITE_BARRIER_AGENT_SHELL_NOT_DISPATCHED');
         await this.authorize(`Agent Shell (host access)\n${this.clean(args.command)}`, true, confirm, true);
         exec.signal.throwIfAborted(); const commandHash = createHash('sha256').update(args.command).digest('hex');
         await this.audit({ phase: 'prepared', tool: 'cader_shell', commandHash });

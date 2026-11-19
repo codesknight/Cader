@@ -434,3 +434,5 @@ pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --visual
 边界与失败证据见[本轮报告](../validation/2026-11-20-reliable-execution.md)。原Drawing8未知结果屏障仍保留；full-access和切换模型不能清除它。相邻MCP修补需另有授权，当前未修改。
 
 CAD失败行现在直接显示错误码、阶段与“已派发/未派发”，完整异常留在私有JSONL。
+
+冻结同时隐藏并阻止Agent Shell，即使full-access也不能经Shell绕开写屏障；用户主动!命令仍是独立逐条审批通道。

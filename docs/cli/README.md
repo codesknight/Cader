@@ -434,3 +434,5 @@ Reliability is deterministic real-CAD A/B/E reproduction, with no model calls. F
 See [actual results and failures](../validation/2026-11-20-reliable-execution.md). The original Drawing8 barrier remains intact. Full-access and model changes cannot clear it. Adjacent MCP changes require separate authorization and have not been applied.
 
 CAD failure lines display the code, stage and dispatched/not-dispatched status; full errors stay in private JSONL.
+
+A CAD freeze also hides and blocks Agent Shell, including full-access, to prevent bypassing the write barrier. Direct user ! commands remain a separate individually approved host channel.
