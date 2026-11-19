@@ -42,8 +42,8 @@ follow once the underlying services are stable.
 
 > **Project status — M0 integration.** Model profiles, bounded delegation, and read-only
 > AutoCAD integration have smoke-test evidence. Today's entry points are the `pnpm`
-> commands below. The standalone `cader` CLI, community TUI integration, and the
-> draw–save–reopen workflow are still planned.
+> commands below, including user tasks through read-only `exec`. An installable
+> `cader` binary, community TUI integration, and draw–save–reopen remain planned.
 
 | Capability | Current implementation |
 |---|---|
@@ -113,6 +113,20 @@ separate local JSON configuration; see the [configuration guide](docs/developmen
 
 </details>
 
+### 3. Try a user task
+
+With your root `.env` and local MCP configuration ready:
+
+```sh
+pnpm run cader --help
+pnpm run cader exec "Inspect layers without editing the drawing" --mcp configs/mcp/AutoCAD.local.yaml
+```
+
+`exec` accepts your task; `live-smoke` remains a fixed diagnostic. Both retain the current
+read-only policy. Real tasks call the paid provider. Failures now include a sanitized
+`errorCode`, `source`, and actionable `hint`; `QUOTA` is a provider failure, not proof of MCP failure.
+See [CLI usage and diagnostics](docs/development/cli.md) for direct JSON output and limits.
+
 <a id="configuration"></a>
 
 ## Configuration
@@ -169,7 +183,7 @@ See the [model and MCP guide](docs/development/model-configuration.md) for full 
 |---|---|---|
 | Agent foundation | DSH, model profiles, Static / Available, read-only MCP smoke | Implemented; broader M0 validation continues |
 | Headless + community TUI | Full Headless profile, session lifecycle, Windows TUI compatibility | Next / [TUI validation #9](https://github.com/codesknight/Cader/issues/9) |
-| Cader CLI | Installable entry point, help, diagnostics, `exec`, structured events, sessions | Planned / [CLI foundation #10](https://github.com/codesknight/Cader/issues/10) |
+| Cader CLI | Read-only `exec`, help and diagnostics available; packaging, event stream and sessions pending | Partial / [CLI foundation #10](https://github.com/codesknight/Cader/issues/10) |
 | CAD workflow | Working copies, draw–save–reopen, independent verification, benchmarks | Planned / [CAD workflow #3](https://github.com/codesknight/Cader/issues/3) |
 | Additional interfaces | Web UI and CAD-embedded plugins sharing the same services | Later |
 

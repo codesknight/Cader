@@ -40,7 +40,8 @@ Cader 是面向计算机辅助设计的可扩展 AI Agent 项目，以
 再逐步实现 Cader CLI。待底层服务稳定后，继续开发 Web UI 与 CAD 内嵌插件。
 
 > **当前阶段：M0 集成。** 模型配置、受限子任务委派和 AutoCAD 只读集成已有 smoke 验证记录。
-> 当前可用入口是下文的 `pnpm` 命令；独立 `cader` CLI、社区 TUI 接入及绘制—保存—重开闭环仍在规划中。
+> 当前可用入口是下文的 `pnpm` 命令，已增加接收用户任务的只读 `exec`；
+> 可安装的 `cader` 产品入口、社区 TUI 接入及绘制—保存—重开闭环仍在规划中。
 
 | 能力 | 当前实现 |
 |---|---|
@@ -109,6 +110,20 @@ Python smoke 是离线 MCP 协议 fixture。连接真实服务需另行配置本
 
 </details>
 
+### 3. 体验用户任务
+
+根 `.env` 和本机 MCP 配置就绪后执行：
+
+```sh
+pnpm run cader --help
+pnpm run cader exec "读取图层并总结，不修改图纸" --mcp configs/mcp/AutoCAD.local.yaml
+```
+
+`exec` 接收用户任务，`live-smoke` 保持固定诊断；两者均保留当前只读策略。
+真实任务会调用付费模型。失败摘要包含脱敏的 `errorCode`、`source` 和可操作的 `hint`；
+`QUOTA` 表示 provider 配额故障，不代表 MCP 不通。
+严格 JSON 输出和当前限制见 [CLI 使用与诊断](docs/development/cli.md)。
+
 <a id="configuration"></a>
 
 ## 配置说明
@@ -163,7 +178,7 @@ DSH YAML 与 Python 诊断 JSON 使用不同 schema，不能互换。
 |---|---|---|
 | Agent 基础 | DSH 集成、模型配置、Static / Available、MCP 只读 smoke | 已实现；M0 继续扩展验证 |
 | Headless + 社区 TUI | 完整 Headless profile、会话生命周期、Windows TUI 兼容性 | 下一阶段 / [TUI 验证 #9](https://github.com/codesknight/Cader/issues/9) |
-| Cader CLI | 可安装入口、帮助、诊断、`exec`、结构化事件与会话 | 规划中 / [CLI 基础 #10](https://github.com/codesknight/Cader/issues/10) |
+| Cader CLI | 已有只读 `exec`、帮助和诊断；打包入口、事件流及会话待完成 | 部分实现 / [CLI 基础 #10](https://github.com/codesknight/Cader/issues/10) |
 | CAD 操作闭环 | 工作副本、绘制—保存—重开、独立验证与基准评测 | 规划中 / [CAD 闭环 #3](https://github.com/codesknight/Cader/issues/3) |
 | 更多交互入口 | 共享底层服务的 Web UI 与 CAD 内嵌插件 | 后续阶段 |
 

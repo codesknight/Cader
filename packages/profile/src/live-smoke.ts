@@ -4,9 +4,11 @@ import { resolve, join } from 'node:path';
 import { loadConfig, loadMcp, redactSecrets } from '@cader/config';
 import { createLiveRuntime } from '@cader/dsh-adapter';
 import type { PublicEvent } from '@cader/dsh-adapter';
+import { agentFailure, describeFailure, failureFromError } from './failure.js';
 
 /** Paid and local integration checks are opt-in; CI never invokes this entry. */
-export async function runLiveSmoke(root: string, input: { mcpPath: string; image?: string; expectedImage?: string }) {
+export async function runLiveSmoke(root: string, input: { mcpPath: string; image?: string; expectedImage?: string },
+  factory: typeof createLiveRuntime = createLiveRuntime) {
   const runId = `live-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID()}`;
   const directory = resolve(root, '.cader/runs', runId);
   await mkdir(directory, { recursive: true });
@@ -22,12 +24,17 @@ export async function runLiveSmoke(root: string, input: { mcpPath: string; image
     main_completed: false, child_has_no_delegation_tool: false, vision_input: null, vision_verified: null,
   };
   let runtime: Awaited<ReturnType<typeof createLiveRuntime>> | undefined;
-  let errorCode: string | undefined;
+  let failure: ReturnType<typeof describeFailure> | undefined;
+  let cleanupError: string | undefined;
+  let stage: 'configuration' | 'mcp' | 'runtime' = 'configuration';
   const results = [];
   try {
-    runtime = await createLiveRuntime({ root, runDirectory: directory, ...config,
+    const mcp = await loadMcp(resolve(root, input.mcpPath));
+    stage = 'mcp';
+    runtime = await factory({ root, runDirectory: directory, ...config,
       images: input.image ? { 'image-1': input.image } : {},
-      mcp: await loadMcp(resolve(root, input.mcpPath)), onEvent: event => events.push(event) });
+      mcp, onEvent: event => events.push(event) });
+    stage = 'runtime';
     checks.mcp_discovery = runtime.toolNames().includes('mcp__autocad__list_layers');
     const main = await runtime.run(config.runtime.main_profile,
       'Perform a read-only connectivity smoke test. Call mcp__autocad__list_layers once. ' +
@@ -35,6 +42,7 @@ export async function runLiveSmoke(root: string, input: { mcpPath: string; image
       (input.image ? `Also delegate to ${visionProfile!.id} with image_ref image-1: read the large four-digit code, count blue circles and red rectangles, and return only JSON with keys code (string), blue_circles (integer), red_rectangles (integer). Do not guess. ` : '') +
       'After the child results return, report the observed layer count and findings. Do not draw, save or delete.');
     results.push(...runtime.completed());
+    failure = agentFailure(results, events, main.id);
     checks.model_mcp_call = events.some(event => event.type === 'tool.result' &&
       event.tool === 'mcp__autocad__list_layers' && event.isError === false);
     checks.child_returned_to_main = events.some(event => event.type === 'tool.result' &&
@@ -57,19 +65,21 @@ export async function runLiveSmoke(root: string, input: { mcpPath: string; image
       }
     }
   } catch (error) {
-    errorCode = error instanceof Error ? error.name : 'Error';
+    failure = failureFromError(error, stage);
   } finally {
-    try { await runtime?.dispose(); } catch { errorCode = 'CLEANUP_FAILED'; }
+    try { await runtime?.dispose(); }
+    catch { cleanupError = 'CLEANUP_FAILED'; failure ??= describeFailure(cleanupError, 'runtime'); }
   }
-  const ok = !errorCode && Object.values(checks).filter(value => value !== null).every(Boolean);
-  const report = { ok, runId, kind: 'live-dsh-model-mcp', checks, errorCode,
+  const ok = !failure && Object.values(checks).filter(value => value !== null).every(Boolean);
+  if (!ok) failure ??= describeFailure('VERIFICATION_FAILED', 'verification');
+  const report = { ok, runId, kind: 'live-dsh-model-mcp', checks, ...failure, cleanupError,
     peakChildren: runtime?.pool.peak ?? 0, results, configHash };
   const redact = (text: string) => redactSecrets(text, config.profiles);
   await Promise.all([
     writeFile(join(directory, 'config.snapshot.json'), snapshot),
     writeFile(join(directory, 'events.jsonl'), redact(events.map(event => JSON.stringify({ runId, ...event })).join('\n') + '\n')),
     writeFile(join(directory, 'verification.json'), redact(JSON.stringify(report, null, 2) + '\n')),
-    writeFile(join(directory, 'summary.md'), `# ${runId}\n\n${ok ? 'Passed' : 'Failed'}.\n\nChecks: ${JSON.stringify(checks)}\n`),
+    writeFile(join(directory, 'summary.md'), `# ${runId}\n\n${ok ? 'Passed' : 'Failed'}.\n\n${failure ? JSON.stringify(failure) + '\n\n' : ''}Checks: ${JSON.stringify(checks)}\n`),
   ]);
-  return { ok, runId, checks, errorCode, peakChildren: report.peakChildren, runDirectory: directory };
+  return { ok, runId, checks, ...failure, cleanupError, peakChildren: report.peakChildren, runDirectory: directory };
 }

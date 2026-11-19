@@ -14,9 +14,11 @@
 | REQ-003 持续过程记录 | 机制已验收 | [Issue #6](https://github.com/codesknight/Cader/issues/6)；后续每轮持续维护 |
 | CADER-006 配置统一 / CLI First | 已验收，4/4 CI 通过 | [Issue #8](https://github.com/codesknight/Cader/issues/8)：configs 加载、引用与路线；后续功能见 #9 / #10 |
 | CLI-001 社区 TUI | 已调研候选，未集成 | [Issue #9](https://github.com/codesknight/Cader/issues/9)：锁定版本 / Windows / Cader profile 兼容 smoke |
-| CLI-002 Cader CLI 基础 | 待实施 | [Issue #10](https://github.com/codesknight/Cader/issues/10)：bin、keyless help/version、参数错误与命令边界 |
+| CLI-002 Cader CLI 基础 | 已有 keyless help / 只读 exec / 参数校验 | [Issue #10](https://github.com/codesknight/Cader/issues/10)：bin、version、完整命令边界继续推进；本轮 #12 |
 
 Headless app、真实模型、视觉内容、取消/预算和实际 CAD 读写需要分别留证。
+本轮 [#12](https://github.com/codesknight/Cader/issues/12) 交付只读用户任务、错误摘要与 Python UTF-8；
+不是绘图能力。写入按[独立契约](../architecture/controlled-writes.md)在 #3 验收。
 CLI 后续按原稿 CLI-003–010 逐项推进工程初始化、诊断、exec / JSONL、工作副本读写、
 简单 REPL、配置与会话、受控 shell 和 Windows E2E；复用社区 TUI 后再决定 CLI-011 的自建范围。
 CLI-012 评测与 #4 关联，避免重复实现。Gateway、动态路由和专业插件在基线建立后按需推进。

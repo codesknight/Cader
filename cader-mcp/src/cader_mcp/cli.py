@@ -5,6 +5,7 @@ import asyncio
 import importlib.metadata
 import json
 import platform
+import sys
 from pathlib import Path
 
 from cader_mcp.config import load_server
@@ -13,6 +14,10 @@ from cader_mcp.smoke import run_smoke
 
 
 def main() -> None:
+    # Explicit byte contract for Windows pipes/redirection, independent of locale.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="backslashreplace")
     parser = argparse.ArgumentParser(description="Cader research and smoke tooling")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor", help="Local package diagnostics; no network or CAD calls")

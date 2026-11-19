@@ -76,3 +76,13 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 - 浏览器截图/点击视觉验收未执行成功：IAB 两次超时，Windows Computer Use 因无法可靠确认 URL 停止；保留该限制，不以 API 结构检查代替视觉通过。
 - 发布前 8 文件凭据扫描泄漏 0；提示词文件末尾空行导致一次 diff --check 失败，修正后通过。
 - 远端提交 0a417b2：[CI run 44360225897](https://github.com/codesknight/Cader/actions/runs/44360225897) 的 Windows/Linux DSH 与 Python 共 4/4 jobs 通过。
+
+## 2026-11-19：CLI 反馈维护（#12）
+
+- Node 24.9.0 / pnpm 11.28.5：typecheck 通过；13 项 TS 测试通过；组件 smoke 6/6；pnpm run cader --help 实际可用。
+- 真实 DSH loop 的离线 QUOTA：覆盖 provider finish(error) 和抛出 LlmError 两条通路，故障同时注入清理异常；exec/live-smoke 的终态和 verification 保留 QUOTA/source/provider hint，事件与报告无 fixture 密钥。工具发现成功与 provider 故障独立。
+- 用户任务实际进入模型消息，输出中文结果；工具 schema 保持只读范围。CLI 子进程在仓库外、无配置/凭据条件下验证帮助与空任务/缺失参数/未知 --write/烟测 --task 拒绝。
+- MCP 启动异常、ConfigError 和不可信错误码覆盖来源区分与脱敏。
+- Python ruff check/format 通过；10 项 pytest 通过；MCP 协议 smoke 3/3。新子进程在 PYTHONUTF8=0、PYTHONIOENCODING=gb18030 下验证重定向 JSON 及 stderr 中文可按严格 UTF-8 解码。
+- 初次 TS 检查中，spawnSync 收到 URL 类型、CLI 测试路径多退一层导致失败，已修正；首次 thrown LlmError 漏报根因，补 agent/error 后通过。没有把这些初次失败记成成功。
+- 本轮没有真实 API/CAD/写入测试。用户反馈的 QUOTA、40 工具及旧 GB18030 字节为外部实测线索，未声称本轮实机重现。

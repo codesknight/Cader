@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Context } from '@deepseek-ai/cordis';
 import { brandString } from '@deepseek-ai/dsh-brand';
-import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm';
+import LlmRuntime, { createUserMessage, LlmError } from '@deepseek-ai/dsh-llm';
 import type { ContentBlock, ReasoningEffortId } from '@deepseek-ai/dsh-llm';
 import AgentRegistry from '@deepseek-ai/dsh-agent';
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent';
@@ -177,6 +177,11 @@ export async function createLiveRuntime(options: LiveOptions) {
               emit({ type: 'model.error', agentId: id, role: profile.role, code: errorCode,
                 status: payload.failure.status });
               return next();
+            });
+            agentCtx.on('agent/error', ({ error }) => {
+              errorCode ??= error instanceof LlmError ? error.code : 'AGENT_FAILED';
+              emit({ type: error instanceof LlmError ? 'model.error' : 'agent.error',
+                agentId: id, role: profile.role, code: errorCode });
             });
             agentCtx.on('agent/assistant-stream', ({ frame }) => {
               if (frame.type === 'start') currentText = '';

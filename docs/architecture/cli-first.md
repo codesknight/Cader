@@ -2,7 +2,7 @@
 
 依据用户本轮要求和 [CLI 设计原稿](../designs/Cader_CLI_Design.md)，
 执行顺序为 DSH Headless / 社区 TUI → Cader CLI → Web UI / CAD 内嵌插件。
-原稿是目标接口；当前只提供 README 列出的 pnpm 诊断与 smoke 命令。
+原稿是目标接口；当前提供 README 列出的 pnpm 诊断、smoke，以及只读用户任务 exec。
 
 ## 当前基线与边界
 
@@ -38,6 +38,7 @@ sessionId、type 和 payload；stdout JSONL 与 stderr 诊断分开，恰好一�
 不解析面向人的 TUI 文本，不原样转发上游全部事件。上游 Headless 可能输出 reasoning，
 Cader 展示与持久化层需过滤 reasoning；密钥和私有图纸不写公开日志。
 当前 smoke JSONL 不是承诺稳定的 RunEvent v1，正式 schema 和退出码以 CLI-005 验收为准。
+2026-11-19 的 exec 先返回单个终态 JSON，默认只读；稳定事件流、恢复和绘图仍待后续验收。
 
 沿用 DSH `0.2.2-rc.4`、Cordis `4.1.0`、Node >=24.9 和 pnpm 11.28.5。
 先做 keyless CLI 基础和非交互链路，再决定是否采用 Commander；UI 需求明确前不加入 Ink / React。

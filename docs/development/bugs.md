@@ -52,3 +52,23 @@
 - 根因：pnpm 自带 doctor 子命令，与 package.json 中同名 script 冲突；省略 run 时先执行内置命令。
 - 修复：中英文 README 显式使用 pnpm run doctor，不修改已可用的 Cader 脚本或历史运行记录。
 - 复验：运行构建及 apps/cli/dist/index.js doctor，返回 ok:true、Node 24.9.0、DSH 0.2.2-rc.4。
+
+## BUG-005：模型失败未汇总到 CLI（Resolved in #12）
+
+- 用户反馈：QUOTA 只保存在 results / model.error，终态只显示 checks=false，易误判 MCP 连接。
+- 根因：runLiveSmoke 只在 throw 分支设置 errorCode，没有检查返回的 failed AgentResult；顶层 catch 只输出异常类型。另有 agent/error 通路未捕获，离线 LlmError 注入发现漏报。
+- 修复：共用固定错误码白名单与提示、区分 provider/mcp/configuration；捕获两条 DSH 错误通路；清理失败不覆盖主因。
+- 复验：实际 DSH loop 的 QUOTA 帧/异常、MCP 发现成功、cleanup 失败组合通过；未重复真实付费 quota 请求。
+
+## BUG-006：Python Windows JSON 重定向编码依赖环境（Resolved in #12）
+
+- 用户反馈：默认输出含 GB18030，PYTHONUTF8=1 后可严格 UTF-8 解析。
+- 根因：CLI 使用 print / ensure_ascii=False，但没有约定 stdout/stderr 编码。
+- 修复：入口显式 reconfigure 为 UTF-8；不修改外部 MCP 服务或调用者系统设置。
+- 复验：真实子进程强制 GB18030/关闭 UTF8 模式，中文 JSON 重定向和中文参数错误均通过严格 UTF-8 解码。
+
+## BUG-007：smoke 静默忽略未知任务参数（Resolved in #12）
+
+- 代码复核：旧 CLI 只查找已知参数，不拒绝 --task 等附加内容，但发送的仍为固定只读指令。
+- 修复：严格校验 smoke 参数；用户任务走独立 exec。非法参数退出码 2，不加载凭据或启动 CAD。
+- 绘图未实现属于既有需求，不将其归因为 MCP 故障；受控写入继续在 #3 验收。

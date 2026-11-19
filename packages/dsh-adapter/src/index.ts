@@ -10,6 +10,7 @@ export { Context, defineTool };
 export { createLiveRuntime } from './live.js';
 export type { AgentResult, PublicEvent } from './live.js';
 export type { StreamChunk } from '@deepseek-ai/dsh-llm';
+export { LlmError } from '@deepseek-ai/dsh-llm';
 export { ChildPool } from './pool.js';
 export type { ToolExecution, ToolExecutionResult, PreToolDecision } from '@deepseek-ai/dsh-tools';
 

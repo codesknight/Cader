@@ -8,6 +8,7 @@
     "node": ">=24.9.0"
   },
   "scripts": {
+    "cader": "pnpm build && node apps/cli/dist/index.js",
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false",
     "test": "pnpm build && node --test dist/tests/unit/*.test.js",

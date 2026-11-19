@@ -58,3 +58,16 @@ REQ-007 的产品阶段按 #9、#10 及 roadmap 继续实施。
 
 跟踪 [CADER-008 / #11](https://github.com/codesknight/Cader/issues/11)。本轮仅文档与资源，
 不扩展运行时能力；原始设计文件、真实凭据与本机配置不修改。
+
+## 2026-11-19：AutoCAD-MCP 开发方反馈
+
+来源：用户转交的四点反馈，后续明确继续完善 CLI、暂不调研外部 CAD Skill。
+
+| ID | 需求 | 实施与验收 |
+|---|---|---|
+| REQ-009 | 提供自然语言 exec，固定 smoke 与绘图能力分开 | 本轮新增只读用户任务入口；不是绘图；接收任务、参数校验与隔离 fixture |
+| REQ-010 | 完整受控写入契约 | [#3](https://github.com/codesknight/Cader/issues/3) 保持打开；新建工作图、文档/实例/revision 绑定、授权与未知结果对账，见 architecture/controlled-writes.md |
+| REQ-011 | CLI 汇总 provider 根因，避免混淆 MCP 故障 | QUOTA/errorCode/source/hint 汇总至终态与 verification；主因不被清理失败覆盖，实际 DSH 故障注入 |
+| REQ-012 | Windows JSON 编码稳定 | Python CLI stdout/stderr 显式 UTF-8；GB18030 环境下中文重定向与参数错误测试 |
+
+本轮工作项 [CADER-009 / #12](https://github.com/codesknight/Cader/issues/12)。未新增绘图白名单，未修改 AutoCAD-MCP，未调用真实付费模型或 CAD。
