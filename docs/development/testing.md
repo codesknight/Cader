@@ -130,3 +130,6 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 - 新测试初次typecheck因assert.throws的undefined参数不满足Node类型定义失败，改为Error谓词后通过；保留该记录，不当作产品运行失败。
 - 最终本地复验：pnpm typecheck、pnpm test（38/38）、pnpm smoke（6/6）通过；uv run --project cader-mcp cader-mcp smoke（离线协议3/3）通过。Python smoke有既有Pydantic lifespan前向引用警告，没有抑制或归因到本轮协议。
 - 旧journal的真实CLI子进程返回退出3和LEGACY_REQUEST_REQUIRES_REVIEW，不建立MCP连接；失败核验锁标记、只读重开和请求审计补充均已进入本次最终复验。完整Python lint/pytest留给跨平台CI，Python源码未改。
+- 远端实现eed2f33：[CI run 44480295260](https://github.com/codesknight/Cader/actions/runs/44480295260) 的Windows/Linux DSH及Python共4/4 jobs成功，含38项TS、10项Python、组件/协议smoke及Python lint/format。
+- 发布前26文件实际凭据扫描0泄漏、11个Markdown的69个本地链接有效、schema/examples暂存字节与manifest一致、whitespace检查通过。普通git push因既有127.0.0.1:10809代理未监听失败，使用既有API回退核对完整tree/commit后非强制推进，未改系统代理或覆盖提交。
+- 本轮无真实MCP/模型/CAD请求。schema与例子的Cader验证通过不等于MCP profile已实现或双方冻结；#15/#3/#14的真实验收条件继续开放。
