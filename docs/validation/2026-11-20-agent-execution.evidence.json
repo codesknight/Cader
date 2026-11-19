@@ -1,0 +1,311 @@
+{
+  "source": "real DeepSeek Pro + real AutoCAD COM, CLI InteractiveSession/DSH loop",
+  "run_id": "agent-execution-01b35dc7-f3f9-4bef-b1e5-55816aa4dde8",
+  "checks": {
+    "discovery": true,
+    "line": true,
+    "modifiedCircle": true,
+    "rectangle": true,
+    "layer": true,
+    "exactEntityCount": true,
+    "approval": true,
+    "modelTurns": true,
+    "multipleToolCalls": true,
+    "savedDwg": true,
+    "nativeDocumentIdentity": true,
+    "layerColor": true,
+    "rectangleVertices": true,
+    "disconnectedStatus": true,
+    "disconnectedGuidance": true
+  },
+  "independent": {
+    "entities": [
+      {
+        "object_id": 2711397607584,
+        "type": "AcDbLine",
+        "layer": "CADER_ACCEPTANCE",
+        "start_point": [
+          0,
+          0,
+          0
+        ],
+        "end_point": [
+          100,
+          0,
+          0
+        ],
+        "bounding_box": {
+          "min": [
+            0,
+            0,
+            0
+          ],
+          "max": [
+            100,
+            0,
+            0
+          ]
+        }
+      },
+      {
+        "object_id": 2711397607600,
+        "type": "AcDb2dPolyline",
+        "layer": "CADER_ACCEPTANCE",
+        "bounding_box": {
+          "min": [
+            0,
+            0,
+            0
+          ],
+          "max": [
+            100,
+            60,
+            0
+          ]
+        }
+      },
+      {
+        "object_id": 2711397607696,
+        "type": "AcDbCircle",
+        "layer": "CADER_ACCEPTANCE",
+        "center": [
+          55,
+          30,
+          0
+        ],
+        "radius": 15,
+        "bounding_box": {
+          "min": [
+            40,
+            15,
+            0
+          ],
+          "max": [
+            70,
+            45,
+            0
+          ]
+        }
+      }
+    ],
+    "layers": [
+      "0",
+      "CADER_ACCEPTANCE"
+    ],
+    "native": {
+      "file_matches": true,
+      "version": "25.1s (LMS Tech)",
+      "layer_color": 1,
+      "rectangles": [
+        {
+          "closed": true,
+          "coordinates": [
+            0,
+            0,
+            0,
+            100,
+            0,
+            0,
+            100,
+            60,
+            0,
+            0,
+            60,
+            0
+          ]
+        }
+      ]
+    }
+  },
+  "artifact": {
+    "path": ".cader/runs/agent-execution-01b35dc7-f3f9-4bef-b1e5-55816aa4dde8/agent-result.dwg",
+    "bytes": 16479,
+    "sha256": "96b646609046f59af390e0a7f52e83f0017908cb8dd42843009c2c9063a0beb1"
+  },
+  "cad_approvals": 7,
+  "events": [
+    {
+      "at": "2026-11-19T17:09:34.847Z",
+      "type": "model.step",
+      "role": "main",
+      "model": "deepseek-v4-pro"
+    },
+    {
+      "at": "2026-11-19T17:09:38.017Z",
+      "type": "tool.result",
+      "role": "main",
+      "tool": "mcp__autocad__new_drawing",
+      "isError": false
+    },
+    {
+      "at": "2026-11-19T17:09:38.020Z",
+      "type": "model.step",
+      "role": "main",
+      "model": "deepseek-v4-pro"
+    },
+    {
+      "at": "2026-11-19T17:09:39.192Z",
+      "type": "tool.result",
+      "role": "main",
+      "tool": "mcp__autocad__create_layer",
+      "isError": false
+    },
+    {
+      "at": "2026-11-19T17:09:39.194Z",
+      "type": "model.step",
+      "role": "main",
+      "model": "deepseek-v4-pro"
+    },
+    {
+      "at": "2026-11-19T17:09:42.004Z",
+      "type": "tool.result",
+      "role": "main",
+      "tool": "mcp__autocad__draw_line",
+      "isError": false
+    },
+    {
+      "at": "2026-11-19T17:09:42.067Z",
+      "type": "tool.result",
+      "role": "main",
+      "tool": "mcp__autocad__draw_rectangle",
+      "isError": false
+    },
+    {
+      "at": "2026-11-19T17:09:42.134Z",
+      "type": "tool.result",
+      "role": "main",
+      "tool": "mcp__autocad__draw_circle",
+      "isError": false
+    },
+    {
+      "at": "2026-11-19T17:09:42.135Z",
+      "type": "model.step",
+      "role": "main",
+      "model": "deepseek-v4-pro"
+    },
+    {
+      "at": "2026-11-19T17:09:43.595Z",
+      "type": "tool.result",
+      "role": "main",
+      "tool": "mcp__autocad__query_entities",
+      "isError": false
+    },
+    {
+      "at": "2026-11-19T17:09:43.611Z",
+      "type": "tool.result",
+      "role": "main",
+      "tool": "mcp__autocad__list_layers",
+      "isError": false
+    },
+    {
+      "at": "2026-11-19T17:09:43.612Z",
+      "type": "model.step",
+      "role": "main",
+      "model": "deepseek-v4-pro"
+    },
+    {
+      "at": "2026-11-19T17:09:48.746Z",
+      "type": "agent.completed",
+      "role": "main",
+      "status": "succeeded"
+    },
+    {
+      "at": "2026-11-19T17:09:48.806Z",
+      "type": "model.step",
+      "role": "main",
+      "model": "deepseek-v4-pro"
+    },
+    {
+      "at": "2026-11-19T17:09:51.028Z",
+      "type": "tool.result",
+      "role": "main",
+      "tool": "mcp__autocad__get_entity",
+      "isError": false
+    },
+    {
+      "at": "2026-11-19T17:09:51.029Z",
+      "type": "model.step",
+      "role": "main",
+      "model": "deepseek-v4-pro"
+    },
+    {
+      "at": "2026-11-19T17:09:52.661Z",
+      "type": "tool.result",
+      "role": "main",
+      "tool": "mcp__autocad__move_entity",
+      "isError": false
+    },
+    {
+      "at": "2026-11-19T17:09:52.662Z",
+      "type": "model.step",
+      "role": "main",
+      "model": "deepseek-v4-pro"
+    },
+    {
+      "at": "2026-11-19T17:09:55.292Z",
+      "type": "tool.result",
+      "role": "main",
+      "tool": "mcp__autocad__save_drawing",
+      "isError": false
+    },
+    {
+      "at": "2026-11-19T17:09:55.293Z",
+      "type": "model.step",
+      "role": "main",
+      "model": "deepseek-v4-pro"
+    },
+    {
+      "at": "2026-11-19T17:09:56.925Z",
+      "type": "tool.result",
+      "role": "main",
+      "tool": "cader_shell",
+      "isError": true
+    },
+    {
+      "at": "2026-11-19T17:09:56.926Z",
+      "type": "model.step",
+      "role": "main",
+      "model": "deepseek-v4-pro"
+    },
+    {
+      "at": "2026-11-19T17:10:02.714Z",
+      "type": "agent.completed",
+      "role": "main",
+      "status": "succeeded"
+    },
+    {
+      "at": "2026-11-19T17:10:05.504Z",
+      "type": "model.step",
+      "role": "main",
+      "model": "deepseek-v4-pro"
+    },
+    {
+      "at": "2026-11-19T17:10:07.331Z",
+      "type": "tool.result",
+      "role": "main",
+      "tool": "cader_list_files",
+      "isError": false
+    },
+    {
+      "at": "2026-11-19T17:10:07.333Z",
+      "type": "model.step",
+      "role": "main",
+      "model": "deepseek-v4-pro"
+    },
+    {
+      "at": "2026-11-19T17:10:17.111Z",
+      "type": "agent.completed",
+      "role": "main",
+      "status": "succeeded"
+    }
+  ],
+  "limitations": [
+    "Native read-only COM inspection is used for layer color, polygon vertices and saved document identity.",
+    "COM MCP has no controlled reopen API; saved/reopened acceptance is not claimed."
+  ],
+  "prior_failed_run": {
+    "run_id": "agent-execution-95792f37-23bf-4e52-8e2c-39857157c4fe",
+    "ok": false,
+    "reason": "Verifier expected AcDbPolyline but native COM returns AcDb2dPolyline; original report retained locally"
+  }
+}

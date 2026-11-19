@@ -137,3 +137,10 @@ REQ-024：用户要求同步维护专门介绍Cader CLI功能与用法的开源�
 验收为独立中英文用户手册与语言切换、可发现的项目/文档入口、安装到排障的完整已实现命令说明、
 配置/权限/数据与CAD能力边界，以及同提交同步文档/帮助的开发约束。
 关联M0 [DOCS-001 / #17](https://github.com/codesknight/Cader/issues/17)。本轮只维护Markdown与开发规范，不改Harness、MCP、图纸或真实模型状态。
+
+
+## 2026-11-20：Agent Execution Enablement（#18）
+REQ-025：来源为用户运行日志与v0.3.0纠偏指令。优先打通真实模型→工具→AutoCAD→独立验证；保留DSH/Cordis与独立MCP。
+验收为自动连接、状态、新建、直线/圆/矩形、图层颜色、编辑、保存、独立回读、多轮自主调用及断线引导十项任务。
+实现四权限（默认ask）、Agent文件与Shell、程序审批/工作图绑定/审计/未知写入冻结；不新增复杂协议与子Agent平台。
+关联[v0.3.0 / #18](https://github.com/codesknight/Cader/issues/18)。真实证据见[验收报告](../validation/2026-11-20-agent-execution.md)，CI及剩余项单独标记。

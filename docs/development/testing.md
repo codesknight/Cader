@@ -172,3 +172,16 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 
 - 发布验收：实现fb2d766的[CI run 44551809258](https://github.com/codesknight/Cader/actions/runs/44551809258)共4/4 jobs成功，Windows/Linux 44项TS、10项Python、DSH/协议smoke及Python lint/format通过。最终手册与日志检查171个本地链接、24个锚点有效，16个暂存文件实际模型凭据扫描0泄漏，whitespace通过。
 - 普通push因既有127.0.0.1:10809代理未监听失败，核对完整tree/commit后通过既有API回退非强制推进，未更改代理或覆盖提交。真实模型/MCP/CAD未执行，文档验证不改变历史能力验收。
+
+
+## 2026-11-20：v0.3 Agent Execution Enablement（#18）
+- 首次pnpm build/typecheck在PATH Node22.19执行，出现引擎警告；不作为受支持环境验收。随后切换24.22.1并最终使用仓库私有Node24.9.0，pnpm11.28.5。
+- 独立MCP真实发现44工具；new_drawing/list_layers/query_entities创建新空白图并读取默认层与空实体，证据.cader/runs/execution-probe/result.json。
+- pnpm test：原44/44通过；新增回归首次46/47（绝对私有路径误拦），修复后47/47通过；旧失败保留于本记录。
+- pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --execution：首轮真实执行成功但矩形类型误判导致ok=false；第二轮13/13实测通过。第三轮增加断线后的真实模型引导并使用固定Node24.9，结果补记。
+- 已测试：程序ask/read-only、workspace-write删除审批、未知写入持久冻结与无重放、文件写/编辑/Glob/私有与CAD路径保护。真实CAD响应丢失故障注入未执行；COM受控重开不可用。
+- 真实模型自然语言运行与确定性组件fixture分开；原始记录留在.cader/runs，公开脱敏结论见[验收报告](../validation/2026-11-20-agent-execution.md)。本轮不修改Python MCP，无Python源码检查要求；CI仍运行其原有检查。
+
+最终固定Node24.9.0：pnpm typecheck通过，pnpm test 47/47通过，pnpm smoke 6/6组件门槛通过；真实live-smoke第三轮15/15通过（含真实模型断线引导），无固定操作计划。CI等待提交后执行。
+
+Windows真实PTY补测：直接启动 cader.cmd（0.3.0），自动发现44/暴露27项CAD工具；选择真实Pro模型，用自然语言新建空图并绘制半径2圆。分别在new_drawing和draw_circle审批框输入y，真实执行后query_entities回读一个AcDbCircle（中心0,0,0，半径2）。未保存，未执行Shell；/exit正常保存会话并释放MCP。此为真实终端审批，区别于自动验收回调。

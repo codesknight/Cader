@@ -43,10 +43,10 @@ The strategy is **CLI First**: establish the agent foundation with DSH Headless,
 evaluate a community TUI, then build Cader's own CLI. Web UI and CAD-embedded plugins
 follow once the underlying services are stable.
 
-> **Project status — M0 integration.** Model profiles, bounded delegation, and read-only
+> **Project status — v0.3 execution enablement.** Model profiles, bounded delegation, and read-only
 > AutoCAD integration have smoke-test evidence. The **persistent `cader` terminal** provides
 > a colored banner, Slash commands, resumable sessions, references and streamed replies.
-> Read-only `exec` remains available for scripts. Community TUI compatibility has only been
+> `exec` and the terminal now default to ask permissions and expose program-controlled CAD/file/Shell tools. Community TUI compatibility has only been
 > statically reviewed. A controlled CAD scheduler
 > passes component fixtures and a **real AutoCAD draw–save–read-only reopen** test for
 > the reviewed line/circle/text plan. Image-to-DWG execution remains blocked.
@@ -58,7 +58,7 @@ follow once the underlying services are stable.
 | Context assembly | Stable Static prompts plus dynamic Available context; explicit, role-scoped Skill catalog and on-demand references |
 | Delegation | Main agent coordinates up to **5 concurrent subagents**; children return results without delegating |
 | Model profiles | YAML profiles for main, text-review, and vision agents; credentials come from environment variables |
-| CAD integration | Read-only Agent profile; separate program-controlled scheduler for a reviewed geometry fixture |
+| CAD integration | Model-driven scratch drawing, editing and saving with approvals; separate HTTP fixture scheduler |
 | Verification | Independent entity/file/reopen checks, image fact/graph gates, deterministic fixtures and Windows/Linux CI |
 
 ```text
@@ -164,7 +164,7 @@ pnpm run cader exec "Inspect layers without editing the drawing" --mcp configs/m
 ```
 
 `exec` accepts your task; `live-smoke` remains a fixed diagnostic. Both retain the current
-read-only policy. Real tasks call the paid provider. Failures now include a sanitized
+permission policy (ask by default). Real tasks call the paid provider. Failures now include a sanitized
 `errorCode`, `source`, and actionable `hint`; `QUOTA` is a provider failure, not proof of MCP failure.
 See [CLI usage and diagnostics](docs/development/cli.md) for direct JSON output and limits.
 
@@ -287,7 +287,7 @@ See the [model and MCP guide](docs/development/model-configuration.md) for full 
 |---|---|---|
 | Agent foundation | DSH, model profiles, Static / Available, read-only MCP smoke | Implemented; broader M0 validation continues |
 | Headless + community TUI | Full Headless profile, session lifecycle, Windows TUI compatibility | Next / [TUI validation #9](https://github.com/codesknight/Cader/issues/9) |
-| Cader CLI | Local launcher, persistent terminal, visible sessions and read-only `exec`; structured event stream pending | [Interactive terminal #16](https://github.com/codesknight/Cader/issues/16) / [CLI foundation #10](https://github.com/codesknight/Cader/issues/10) |
+| Cader CLI | Local launcher, persistent terminal, visible sessions and permission-controlled `exec`; structured event stream pending | [Interactive terminal #16](https://github.com/codesknight/Cader/issues/16) / [CLI foundation #10](https://github.com/codesknight/Cader/issues/10) |
 | CAD workflow | Working copies, draw–save–reopen, independent verification, benchmarks | Planned / [CAD workflow #3](https://github.com/codesknight/Cader/issues/3) |
 | Additional interfaces | Web UI and CAD-embedded plugins sharing the same services | Later |
 
@@ -322,3 +322,5 @@ private drawings, and raw live-run artifacts out of commits.
 ## License
 
 [MIT](LICENSE) · Copyright © 2026 codesknight
+
+Real-model CAD execution evidence: [acceptance report](docs/validation/2026-11-20-agent-execution.md).

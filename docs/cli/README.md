@@ -2,7 +2,7 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Project home](../../README.md) · [Documentation](../README.md)
 
-**Applies to Cader 0.2.0 · Updated 2026-11-19**
+**Applies to Cader 0.3.0 · Updated 2026-11-20**
 
 Cader CLI is a CAD agent terminal built on DeepSeek Harness. Describe tasks in a persistent conversation, select models and skills, reference images, inspect CAD status, or use a single command from a script.
 
@@ -102,7 +102,7 @@ Explain which symbols, text and connections should be checked in a circuit diagr
 /exit
 ```
 
-These are input examples, not an expected verbatim model answer. Configure MCP below before using real CAD. Starting the terminal does not automatically start AutoCAD or connect to MCP.
+These are input examples, not an expected verbatim model answer. Startup automatically connects `configs/mcp/AutoCAD.local.yaml` when present and shows connection, discovered and exposed tool counts. COM `not_probed` is lifecycle metadata, not proof of a detected CAD version; actual CAD calls establish the native connection.
 
 | Entry | Behavior |
 |---|---|
@@ -122,7 +122,7 @@ Enter Slash commands inside the Cader session. Angle brackets denote a value to 
 | `/help` | Show commands and shortcuts |
 | `/open <path>` | Select PNG/JPEG for subsequent turns; DWG registers metadata and reports `CAD_OPEN_UNAVAILABLE`, without opening AutoCAD |
 | `/cd [path]` | Show or change workspace and clear reference grants; the parent Shell directory is unchanged |
-| `/status` | Show workspace, model and read-only state; probe the selected MCP backend once |
+| `/status` | Show workspace, model, permissions, MCP connection and scratch binding; COM reports lifecycle metadata |
 | `/model [ID]` | List or select a configured model, e.g. `/model MainAgent`; changes the current main conversation selection |
 | `/mcp list` | List configuration files |
 | `/mcp use <config-path>` | Select MCP, e.g. `/mcp use configs/mcp/AutoCAD.local.yaml` |
@@ -136,10 +136,19 @@ Enter Slash commands inside the Cader session. Angle brackets denote a value to 
 | `/resume [session-ID]` | List or restore visible dialogue, summary and selections; never replay tools, Shell or CAD requests |
 | `/undo` | Report `CAD_UNDO_UNAVAILABLE`; there is no controlled CAD undo interface yet |
 | `/checkpoint` | Save the conversation and project-reference hashes; not a DWG backup or CAD database restore point |
-| `/permissions [shell ask or shell deny]` | Inspect permissions or enter `/permissions shell ask` / `/permissions shell deny`; agent CAD access stays read-only |
+| `/permissions [mode]` | read-only / ask (default) / workspace-write / full-access; also supports shell ask / shell deny |
 | `/exit` | Save and exit |
 
-Subcommands are expanded above; there are 16 Slash root commands. `/status` and `/mcp tools` may launch the selected stdio MCP process and dispose the client after probing.
+Subcommands are expanded above; there are 16 Slash root commands. MCP connections persist across turns. Switching configuration/workspace, clearing/resuming a session, disabling MCP or exiting releases the connection. Resume resets permission to ask and grants no prior CAD write binding; a fresh connection requires a fresh scratch drawing.
+
+| Mode | Queries | Scratch drawing/editing | Delete/overwrite |
+|---|---|---|---|
+| read-only | Automatic | Denied | Denied |
+| ask (default) | Automatic | Approval | Approval |
+| workspace-write | Automatic | Automatic within this connection's scratch drawing | Approval |
+| full-access | Automatic | Automatic within this connection's scratch drawing | Automatic within authorized scope |
+
+CAD writes target only scratch drawings created through this connection's `new_drawing`, never an inherited desktop drawing. Saving outside the workspace requires approval in workspace-write. Writes query actual entities afterward. Uncertain outcomes persist `.cader/locks/managed-write.json` and freeze further writes; COM lacks request reconciliation, so inspect the original journal and drawing manually without deleting the lock and retrying. The fixed-plan scheduler shares this write lock.
 
 <a id="interaction"></a>
 
@@ -182,7 +191,7 @@ Cancellation waits for the current runtime to clean up and never replays request
 ```
 
 On Linux/macOS use an appropriate command such as `!ls`. Only direct user `!` input triggers Shell execution. Inspect the command and workspace, then type `y` to approve that invocation; the default is no. Windows uses PowerShell; Linux/macOS uses `/bin/sh`.
-Execution uses your OS account and **is not sandboxed**. The agent's read-only policy does not restrict this user-approved OS command. Shell is not a model tool and its output is not automatically added to model context.
+Execution uses your OS account and **is not sandboxed**. User `!` commands always ask and keep output outside model context. The separate `cader_shell` model tool returns output to the model: denied in read-only, approval in ask/workspace-write, automatic in full-access. `shell deny` hides Agent Shell and blocks user Shell.
 The time limit is 30 seconds and the output cap is 64 KiB. Cancellation targets the owned process tree; prior side effects are not rolled back. Piped sessions cannot approve Shell.
 
 <a id="configuration"></a>
@@ -216,7 +225,7 @@ Editable assets live in `configs/`; credentials come from the root `.env` or pro
 Profiles reference credentials through `api_key_env: DEEPSEEK_API_KEY`; the configured `base_url` is `https://api.deepseek.com`. Never put the key value in YAML.
 `/model` does not change worker configurations or permissions. Only the main agent delegates: up to five concurrent children, depth one. Declared image input does not prove recognition accuracy.
 
-### Connect read-only MCP
+### Connect MCP and draw through natural language
 
 Copy the example only when no local configuration exists:
 
@@ -236,6 +245,16 @@ Read and summarize the current layers without editing the drawing.
 ```
 
 The MCP config path is relative to, and must stay inside, the Cader configuration root. Ordinary and managed HTTP profiles have different purposes. Selection does not start AutoCAD or switch backends.
+
+Short names such as `/mcp use AutoCAD.local.yaml` also work. `/mcp tools`, status or the next task establishes the selected connection. Discovery of 44 tools does not expose them all: the dynamic executor reviews a subset of ordinary COM tools and excludes incompatible HTTP atomic APIs, VQA and arbitrary scripts.
+
+```text
+/permissions ask
+Create a blank scratch drawing, a red layer, a 100 by 60 rectangle and a centered circle of radius 15. Query the result.
+Move that circle five units right and save as test.dwg in the workspace.
+```
+
+The model chooses tools; the program shows concrete arguments and waits for `y`. A blank drawing requires no existing DWG or reference image. Agent file tools include `cader_read_file`, `cader_write_file`, `cader_edit_file`, `cader_glob` and `cader_list_files`, plus controlled Shell. File tools handle workspace UTF-8 text up to 64 KiB and exclude `.env*`, `.git`, `.cader` and CAD files. Overwrite/Edit ask except in full-access. Glob skips symlinks and private directories. Explicitly authorized host Shell does not provide a filesystem sandbox.
 The current agent exposes only reviewed backend-status, layer and symbol-library reads; discovery may list additional tools.
 
 ### Select a Skill and domain
@@ -263,7 +282,7 @@ Skill and domain guidance support planning and checking, without Shell, COM or C
 | `cader models` | Show redacted model settings and whether credentials are configured | None |
 | `cader skills list` | List main-agent skills | None |
 | `cader skills show <name> [--resource <ID>]` | Read registered content or a resource | None |
-| `cader exec "<task>" [options]` | Single read-only natural-language task | Paid model; optional MCP |
+| `cader exec "<task>" [options]` | Single natural-language task, default ask; calls requiring approval are denied without an interactive approver | Paid model; optional MCP |
 | `cader harness-smoke` | Offline DSH component check; pnpm script name is `smoke` | No real model/CAD |
 | `cader live-smoke --mcp <config> [--image <image> --expected-image <JSON>]` | Fixed read-only diagnostic; image expectation is optional | Real model and selected MCP/CAD |
 | `cader cad-contract` | Export the controlled CAD contract | None |
@@ -279,7 +298,7 @@ cader exec "Assess this image" --skill cad-redraw-review --image benchmark/fixtu
 cader exec "Inspect the upper-left region" --image benchmark/fixtures/vision-calibration.png --crop 0,0,128,128 --rotate 90
 ```
 
-Ensure crop coordinates fit the original image. `exec` accepts `--mcp`, `--skill`, `--image`, `--crop x,y,w,h`, `--rotate 0|90|180|270` and `--intent assess|redraw`. Cropping uses original pixels before clockwise rotation.
+Ensure crop coordinates fit the original image. `exec` accepts `--permissions read-only|ask|workspace-write|full-access`, `--mcp`, `--skill`, `--image`, `--crop x,y,w,h`, `--rotate 0|90|180|270` and `--intent assess|redraw`. Cropping uses original pixels before clockwise rotation. Exec has no interactive approver; explicitly select workspace-write for automatic drawing and create a scratch drawing in that same task.
 `assess` is the default; `redraw` currently returns `blocked / WRITE_CAPABILITY_UNAVAILABLE` without starting a model or MCP.
 Selections made with `/model`, `/mcp` or `/skills` do not affect a separate `exec`; that command uses configuration and its own arguments.
 
@@ -330,7 +349,13 @@ Visible dialogue can contain project information even after credential redaction
 
 ## CAD capabilities and verification
 
-The interactive agent and `exec` are read-only. A separate scheduler has passed a reviewed line/circle/text fixture, DWG save, read-only reopen and independent entity comparison. This does not establish natural-language drawing or arbitrary image-to-DWG reconstruction.
+The interactive agent and `exec` default to ask. A real text model has autonomously created a drawing/layer, drawn a line/rectangle/circle, moved the circle and saved a DWG with independent checks; see [execution acceptance](../validation/2026-11-20-agent-execution.md). The separate fixed-plan HTTP scheduler retains its save/reopen acceptance. Dynamic COM has no controlled reopen capability; these are distinct evidence paths.
+
+Explicit paid-model/real-CAD acceptance (creates a scratch drawing and saves to the private run directory; approves CAD operations only):
+
+```powershell
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --execution
+```
 
 For advanced integration testing, first follow the [controlled execution guide](../development/cli.md#controlled-execution), configure the dedicated HTTP profile and authenticated Bridge, and choose a fresh output name. The following writes a real new working drawing; run it only after preparing that environment and deciding to execute:
 
@@ -340,7 +365,7 @@ cader cad-test --backend http --mcp configs/mcp/AutoCAD.managed.local.yaml --pla
 
 `--backend http` requires a capability and does not switch the server automatically. Only the reviewed fixture hash is permitted; files are not overwritten by default. Unknown writes freeze further writes. Reconcile the original request without replay; do not delete locks and resubmit.
 
-Unavailable features include arbitrary controlled DWG opening, CAD undo, CAD snapshot recovery, natural-language drawing, full image-to-DWG execution, stable RunEvent JSONL and a public npm release.
+Unavailable features include arbitrary existing-DWG editing, controlled COM reopen, CAD undo, CAD snapshot recovery, full image-to-DWG execution, stable RunEvent JSONL and a public npm release.
 See the [write policy](../architecture/controlled-writes.md), [real fixed-geometry report](../validation/2026-11-19-cader-cli-real-loop.md) and [terminal validation](../validation/2026-11-19-interactive-terminal.md).
 
 <a id="troubleshooting"></a>

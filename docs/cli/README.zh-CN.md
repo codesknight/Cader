@@ -2,7 +2,7 @@
 
 [English](README.md) · **简体中文** · [项目首页](../../README.zh-CN.md) · [文档导航](../README.md)
 
-**适用版本：Cader 0.2.0 · 更新日期：2026-11-19**
+**适用版本：Cader 0.3.0 · 更新日期：2026-11-20**
 
 Cader CLI 是基于 DeepSeek Harness 的 CAD Agent 终端：在一个持续会话中描述任务、选择模型和技能、引用图片、查看 CAD 状态，或用单次命令接入脚本。
 
@@ -102,7 +102,7 @@ Linux/macOS 对应命令为 `test -f .env || cp .env.example .env`。在本机�
 /exit
 ```
 
-这是输入示例，模型回答不保证逐字相同。首次真实 CAD 使用前，先完成下文的 MCP 配置。进入终端不会自动启动 AutoCAD 或连接 MCP。
+这是输入示例，模型回答不保证逐字相同。首次真实 CAD 使用前，先完成下文的 MCP 配置。启动时自动连接 `configs/mcp/AutoCAD.local.yaml`（若存在），显示服务连接状态、发现与暴露的工具数量。COM 状态的 `not_probed` 不代表已经探测到 CAD 版本；执行实际 CAD 工具才会建立原生连接。
 
 | 启动方式 | 行为 |
 |---|---|
@@ -122,7 +122,7 @@ Slash 命令在 Cader 会话内部输入。尖括号表示需要替换的参数�
 | `/help` | 查看命令及快捷键 |
 | `/open <路径>` | 选择 PNG/JPEG 供后续对话使用；DWG 仅登记元数据，明确返回 `CAD_OPEN_UNAVAILABLE`，未在 AutoCAD 中打开 |
 | `/cd [路径]` | 查看或切换工作目录，清空原附件引用；不改变父 Shell 目录 |
-| `/status` | 查看目录、模型及只读状态；已选 MCP 时发起一次真实只读后端探测 |
+| `/status` | 查看目录、模型、权限、MCP连接与工作图绑定；COM仅返回生命周期状态 |
 | `/model [ID]` | 列出或选择已配置模型，例如 `/model MainAgent`；只影响当前主会话模型选择 |
 | `/mcp list` | 列出配置文件 |
 | `/mcp use <配置路径>` | 选择 MCP 配置，例如 `/mcp use configs/mcp/AutoCAD.local.yaml` |
@@ -136,10 +136,19 @@ Slash 命令在 Cader 会话内部输入。尖括号表示需要替换的参数�
 | `/resume [会话ID]` | 列出或恢复可见对话、摘要和选择，不重放工具、Shell 或 CAD 请求 |
 | `/undo` | 明确返回 `CAD_UNDO_UNAVAILABLE`；当前没有受控 CAD 撤销接口 |
 | `/checkpoint` | 保存会话及工程引用哈希清单；不备份 DWG 或创建 CAD 数据库恢复点 |
-| `/permissions [shell ask或shell deny]` | 查看权限，或用 `/permissions shell ask`、`/permissions shell deny` 设置 Shell 策略；Agent CAD 保持只读 |
+| `/permissions [模式]` | read-only / ask（默认）/ workspace-write / full-access；另支持 shell ask / shell deny |
 | `/exit` | 保存会话并退出 |
 
-上表按子命令展开，包含 16 个 Slash 根命令。`/status`、`/mcp tools` 可能启动所选 stdio MCP 子进程；探测结束后释放客户端。
+上表按子命令展开，包含 16 个 Slash 根命令。MCP连接跨轮保持；`/mcp off`、切换配置、工作目录、清空/恢复会话或退出时释放。恢复会话重置为 ask，不恢复 CAD 写入绑定；新连接必须新建工作图。
+
+| 模式 | 查询 | 工作图绘制/编辑 | 删除、覆盖 |
+|---|---|---|---|
+| read-only | 自动 | 拒绝 | 拒绝 |
+| ask（默认） | 自动 | 每次审批 | 每次审批 |
+| workspace-write | 自动 | 本连接工作图内自动 | 审批 |
+| full-access | 自动 | 本连接工作图内自动 | 授权范围内自动 |
+
+CAD写入只作用于本连接通过 `new_drawing` 新建的工作图；不继承桌面既有图纸的写权限。保存工作区外路径在 workspace-write 下仍需审批。写后查询实际实体；失败或结果不明保留 `.cader/locks/managed-write.json` 并冻结，当前 COM 无请求日志自动对账，需人工检查原记录与图纸，不删除锁后重试。另一固定计划调度器共用写锁。
 
 <a id="interaction"></a>
 
@@ -182,7 +191,7 @@ Slash 命令在 Cader 会话内部输入。尖括号表示需要替换的参数�
 ```
 
 `!` 仅响应用户直接输入，逐条展示命令与工作目录，输入 `y` 批准本次执行；默认拒绝。Windows 使用 PowerShell，Linux/macOS 使用 `/bin/sh`。
-命令以本机账号执行，**不是沙箱**；Agent 只读策略不限制这条由用户批准的操作系统命令。Shell 不是模型工具，输出不会自动加入模型上下文。
+命令以本机账号执行，**不是沙箱**。用户 `!` 命令与 Agent 的 `cader_shell` 分开：前者始终逐条审批且输出不入模型上下文；后者输出回传模型，在 read-only 禁止，ask/workspace-write 逐条审批，full-access 自动执行。`shell deny` 隐藏 Agent Shell 并禁止用户 Shell。
 执行时间上限为 30 秒，输出上限为 64 KiB；取消针对本次进程树，已有副作用不自动回滚。管道会话不批准 Shell。
 
 <a id="configuration"></a>
@@ -216,7 +225,7 @@ Slash 命令在 Cader 会话内部输入。尖括号表示需要替换的参数�
 配置通过 `api_key_env: DEEPSEEK_API_KEY` 引用凭据，当前 `base_url` 为 `https://api.deepseek.com`。不要在 YAML 中填写密钥值。
 `/model` 不改变子 Agent 的模型配置或工具权限；只有主 Agent 可委派，最多 5 个并行子 Agent、深度 1。模型声明支持图片不等于图片识别准确度已通过验证。
 
-### 连接只读 MCP
+### 连接 MCP 与自然语言绘图
 
 先复制示例，已有本机配置请直接编辑：
 
@@ -236,6 +245,16 @@ if (-not (Test-Path configs/mcp/AutoCAD.local.yaml)) {
 ```
 
 MCP 配置路径以 Cader 配置根目录为基准，须在其中。普通 profile 与受控 HTTP profile 用途不同，不能互换；`/mcp use` 不自动启动 AutoCAD 或切换后端。
+
+也可用短文件名 `/mcp use AutoCAD.local.yaml`；配置选择后在 `/mcp tools`、状态查询或下一轮任务建立连接。发现44个工具不代表全部开放：当前动态执行审核普通 COM 工具的子集，不开放不匹配的 HTTP 原子接口、VQA 或任意脚本入口。
+
+```text
+/permissions ask
+新建空白工作图，在红色图层上画100×60矩形和中心半径15的圆，然后查询验证。
+把刚才的圆向右移动5个单位，保存为工作目录下 test.dwg。
+```
+
+模型自主选择工具，程序展示具体参数并等待 `y`；新建空白图无需提供已有DWG或参考图。模型还可使用 `cader_read_file`、`cader_write_file`、`cader_edit_file`、`cader_glob`、`cader_list_files` 和受控 Shell。文件工具限工作区、64KiB文本，排除 `.env*`、`.git`、`.cader` 与CAD文件；覆盖和Edit需要审批（full-access除外）。Glob跳过符号链接及私有目录。Shell是用户显式授权的本机通道，不提供文件沙箱保证。
 当前 Agent 仅暴露已审查的后端状态、图层、符号库读取工具；工具发现清单可能更长。
 
 ### 使用 Skill 与专业指导
@@ -263,7 +282,7 @@ Skill 和专业指导用于规划与检查，不授予 Shell、COM 或 CAD 写�
 | `cader models` | 显示模型配置及凭据是否设置，脱敏输出 | 无 |
 | `cader skills list` | 列出主 Agent 可见的技能 | 无 |
 | `cader skills show <名称> [--resource <ID>]` | 读取已注册正文或资源 | 无 |
-| `cader exec "<任务>" [选项]` | 单次只读自然语言任务 | 调用模型；可选 MCP |
+| `cader exec "<任务>" [选项]` | 单次自然语言任务，默认 ask；非交互时需要审批的调用拒绝 | 调用模型；可选 MCP |
 | `cader harness-smoke` | 离线 DSH 组件检查；pnpm 脚本名为 `smoke` | 无真实模型/CAD |
 | `cader live-smoke --mcp <配置> [--image <图片> --expected-image <JSON>]` | 固定只读诊断，图片期望参数可选 | 真实模型及所选 MCP/CAD |
 | `cader cad-contract` | 导出受控 CAD 契约 | 无 |
@@ -279,7 +298,7 @@ cader exec "评估图中信息" --skill cad-redraw-review --image benchmark/fixt
 cader exec "检查左上区域" --image benchmark/fixtures/vision-calibration.png --crop 0,0,128,128 --rotate 90
 ```
 
-裁剪示例须匹配所选原图尺寸。`exec` 支持 `--mcp`、`--skill`、`--image`、`--crop x,y,w,h`、`--rotate 0|90|180|270` 和 `--intent assess|redraw`；先按原图像素裁剪，再顺时针旋转。
+裁剪示例须匹配所选原图尺寸。`exec` 支持 `--permissions read-only|ask|workspace-write|full-access`、`--mcp`、`--skill`、`--image`、`--crop x,y,w,h`、`--rotate 0|90|180|270` 和 `--intent assess|redraw`；先按原图像素裁剪，再顺时针旋转。exec无交互审批；需要自动绘图时显式选 workspace-write，并在同一任务先新建工作图。
 `assess` 为默认；`redraw` 当前返回 `blocked / WRITE_CAPABILITY_UNAVAILABLE`，不调用模型或 MCP。
 交互会话的 `/model`、`/mcp`、`/skills` 选择不影响另一次 `exec`，单次任务从配置及本次参数装配。
 
@@ -330,7 +349,13 @@ node apps/cli/dist/index.js exec "说明检查步骤，不调用工具"
 
 ## CAD 能力与验收
 
-交互 Agent 和 `exec` 默认只读。当前已验证的是独立调度器执行审核过的直线/圆/文字固定计划，再保存 DWG、只读重开并比较实体；并非自然语言或任意图片重绘已经可用。
+交互 Agent 与 `exec` 默认 ask。真实文本模型已经自主完成新建、建层、直线/矩形/圆、移动圆、保存DWG与独立查询验收，见[执行验收](../validation/2026-11-20-agent-execution.md)。另外，固定计划调度器仍保留其HTTP保存/重开验收；COM动态路径尚无受控重开能力，不将两条链路的验收混用。
+
+显式真实模型/真实CAD验收命令（会付费、创建新工作图并保存到私有运行目录；仅审批CAD操作）：
+
+```powershell
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --execution
+```
 
 高级集成测试先参照[受控执行指南](../development/cli.md#controlled-execution)，配置专用 HTTP profile、认证 Bridge 和新的输出文件名。此命令会真实写入新工作图，仅在准备好环境并决定执行时运行：
 
@@ -340,7 +365,7 @@ cader cad-test --backend http --mcp configs/mcp/AutoCAD.managed.local.yaml --pla
 
 `--backend http` 是能力要求，不会自动切换服务端后端。仅允许审核哈希对应的固定计划；默认不覆盖文件。未知写入结果会冻结后续写入，只按原请求对账，不自动重放，也不要删除锁后重复提交。
 
-尚未开放：任意 DWG 受控打开、CAD 撤销、CAD 快照恢复、自然语言绘图、图片到 DWG 的完整闭环、稳定 RunEvent JSONL、公共 npm 发布。
+尚未开放：任意既有 DWG 受控编辑、COM受控重开、CAD 撤销、CAD 快照恢复、图片到 DWG 的完整闭环、稳定 RunEvent JSONL、公共 npm 发布。
 边界和证据见[受控写入设计](../architecture/controlled-writes.md)、[真实固定几何报告](../validation/2026-11-19-cader-cli-real-loop.md)和[交互终端验证](../validation/2026-11-19-interactive-terminal.md)。
 
 <a id="troubleshooting"></a>

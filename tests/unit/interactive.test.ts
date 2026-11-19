@@ -69,7 +69,7 @@ test('real DSH turns receive prior dialogue, scoped model and domain; compaction
     await chat.execute('What did I say earlier?');
     assert.match(requests[1]!.messages, /Project ALPHA17/); assert.match(requests[1]!.messages, /ports/);
     assert.equal(requests[1]!.model, 'deepseek-v4-pro'); assert.ok(deltas.includes('ALPHA17'));
-    assert.ok(requests.every(row => row.tools.every(tool => ['cader_delegate', 'cader_load_skill'].includes(tool))));
+    assert.ok(requests.every(row => row.tools.every(tool => ['cader_delegate', 'cader_load_skill', 'cader_read_file', 'cader_list_files', 'cader_glob', 'cader_edit_file', 'cader_write_file', 'cader_shell'].includes(tool))));
     const compact = await chat.execute('/compact'); assert.equal(compact.error, undefined);
     assert.equal(requests[2]!.tools.length, 0); assert.equal(chat.state.contextFrom, 4); assert.equal(chat.state.messages.length, 4);
     const resumed = await InteractiveSession.create(f.root, f.root, runner);

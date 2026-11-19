@@ -7,6 +7,7 @@ import { workspacePath } from '@cader/config';
 export const Session = z.object({ version: z.literal(1), id: z.string().regex(/^session-[a-f0-9-]{36}$/),
   created: z.string(), updated: z.string(), workspace: z.string(), model: z.string(), domain: z.string(),
   mcp: z.string().nullable(), skill: z.string().nullable(), shell: z.enum(['ask', 'deny']),
+  permission: z.enum(['read-only', 'ask', 'workspace-write', 'full-access']).default('ask'),
   summary: z.string().max(12000), contextFrom: z.int().nonnegative(),
   messages: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(100000),
     status: z.string(), at: z.string() }).strict()).max(2000),
@@ -17,7 +18,7 @@ export type ChatSession = z.infer<typeof Session>;
 export function newSession(workspace: string, model: string): ChatSession {
   const now = new Date().toISOString();
   return { version: 1, id: `session-${randomUUID()}`, created: now, updated: now, workspace, model, domain: 'general',
-    mcp: null, skill: null, shell: 'ask', summary: '', contextFrom: 0, messages: [], references: [] };
+    mcp: null, skill: null, shell: 'ask', permission: 'ask', summary: '', contextFrom: 0, messages: [], references: [] };
 }
 export async function privateDirectory(root: string, child: string) {
   await mkdir(resolve(root, '.cader'), { recursive: true });

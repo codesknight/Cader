@@ -3,19 +3,20 @@ import { resolve, relative, extname, join } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { z } from 'zod';
 import { loadConfig, loadMcp, loadSkills, readReferenceImage, workspacePath, parseYaml } from '@cader/config';
-import { createManagedClient } from '@cader/dsh-adapter';
 import type { PublicEvent } from '@cader/dsh-adapter';
 import { runTask } from './task.js';
 import { SessionStore, newSession, privateDirectory, environmentRedactor, terminalText } from './session-store.js';
 import type { ChatSession } from './session-store.js';
 import { runUserShell } from './interactive-shell.js';
+import { ExecutionSession, PERMISSION_MODES } from './execution.js';
+import type { PermissionMode } from './execution.js';
 
 export const SLASH_COMMANDS = [
   ['/help', '命令与快捷键'], ['/open', '选择图片或DWG引用；CAD打开需后端能力'], ['/cd', '切换工作目录'],
   ['/status', '工作区与CAD状态'], ['/model', '查看或切换配置模型'], ['/mcp', 'list / use <配置> / tools / off'],
   ['/skills', 'list / use <技能> / off'], ['/domain', '查看或切换专业'], ['/context', '上下文统计'],
   ['/compact', '用模型总结上下文，保留原始对话'], ['/clear', '保存并新建空白会话'], ['/resume', '列出或恢复会话ID'],
-  ['/undo', '检查受控撤销能力'], ['/checkpoint', '创建会话与工程引用检查点'], ['/permissions', '查看权限；shell ask|deny'], ['/exit', '保存并退出'],
+  ['/undo', '检查受控撤销能力'], ['/checkpoint', '创建会话与工程引用检查点'], ['/permissions', 'read-only | ask | workspace-write | full-access；shell ask|deny'], ['/exit', '保存并退出'],
 ] as const;
 const Domains = z.object({ version: z.literal(1), domains: z.array(z.object({ id: z.string().regex(/^[a-z][a-z0-9-]*$/),
   label: z.string(), instruction: z.string().max(4000) }).strict()).min(1) }).strict();
@@ -33,11 +34,14 @@ export class InteractiveSession {
   readonly secrets: string[];
   lastUsage: unknown = null;
   private active = false;
+  execution: ExecutionSession;
+  startupStatus = 'MCP 未配置；使用 /mcp use <配置>。';
   private constructor(readonly configRoot: string, workspace: string, readonly config: Awaited<ReturnType<typeof loadConfig>>,
     readonly domains: z.infer<typeof Domains>['domains'], private readonly runner: TaskRunner) {
     const redaction = environmentRedactor(); this.secrets = redaction.secrets;
     this.clean = text => terminalText(redaction.clean(text));
     this.state = newSession(workspace, config.runtime.main_profile);
+    this.execution = new ExecutionSession(workspace, join(workspace, '.cader/runs', `execution-${randomUUID()}`), this.clean);
     this.store = new SessionStore(configRoot, this.clean);
   }
   static async create(configRoot: string, workspace = configRoot, runner: TaskRunner = runTask) {
@@ -47,6 +51,14 @@ export class InteractiveSession {
     if (new Set(domains.map(domain => domain.id)).size !== domains.length) throw new Error('DOMAIN_DUPLICATE');
     if (!domains.some(domain => domain.id === 'general')) throw new Error('GENERAL_DOMAIN_REQUIRED');
     const session = new InteractiveSession(configRoot, workspace, config, domains, runner);
+    const local = join(configRoot, 'configs/mcp/AutoCAD.local.yaml');
+    try {
+      await stat(local); session.state.mcp = local;
+      const status = await session.execution.connect(local);
+      const backend = status.backend as { backend?: string; connection_state?: string };
+      session.startupStatus = session.clean(`MCP 已连接 · 发现 ${status.discovered} 工具 · Agent CAD ${status.exposed} 工具 · ${backend.backend ?? 'unknown'} · CAD ${backend.connection_state ?? '未探测'}`);
+    }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') session.startupStatus = 'MCP 连接失败；检查 /mcp tools、Python路径和依赖。'; }
     await session.store.save(session.state); return session;
   }
   get model() { return this.config.profiles.find(profile => profile.id === this.state.model)!; }
@@ -77,9 +89,9 @@ export class InteractiveSession {
   }
   async mcpProbe(tools = false) {
     if (!this.state.mcp) return 'MCP 未选择。使用 /mcp list 或 /mcp use <配置路径>。';
-    const client = await createManagedClient(await loadMcp(this.state.mcp));
-    try { return this.clean(JSON.stringify(tools ? { tools: client.toolNames() } : await client.call('get_backend_status', {}), null, 2)); }
-    finally { await client.dispose(); }
+    const status = await this.execution.status();
+    if (!status.connected) await this.execution.connect(this.state.mcp);
+    return this.clean(JSON.stringify(tools ? { tools: this.execution.definitions().map(tool => tool.name) } : await this.execution.status(), null, 2));
   }
   async complete(line: string): Promise<string[]> {
     if (line.startsWith('/') && !line.includes(' ')) return SLASH_COMMANDS.map(([name]) => name).filter(name => name.startsWith(line));
@@ -128,12 +140,13 @@ export class InteractiveSession {
       switch (name) {
         case '/help': return { text: SLASH_COMMANDS.map(([key, description]) => `${key.padEnd(15)} ${description}`).join('\n')
           + '\n\n自然语言持续对话 · @"路径含空格.png" 引用 · !dir 用户Shell\nEsc/Ctrl+C 中断当前任务 · Tab 补全 · 上下键历史 · Ctrl+D 或 /exit 退出\n/open DWG仅引用元数据，后端尚无任意DWG受控打开接口；/undo同样按能力拒绝。' };
-        case '/exit': await this.store.save(this.state); return { text: `会话已保存：${this.state.id}`, exit: true };
+        case '/exit': await this.store.save(this.state); await this.dispose(); return { text: `会话已保存：${this.state.id}`, exit: true };
         case '/context': return { text: JSON.stringify(this.context(), null, 2) };
-        case '/status': return { text: `工作目录 ${this.state.workspace}\n模型 ${this.model.model} (${this.state.model})\nCAD 权限 read-only\n${await this.mcpProbe()}` };
+        case '/status': return { text: `工作目录 ${this.state.workspace}\n模型 ${this.model.model} (${this.state.model})\nCAD 权限 ${this.state.permission}\n${await this.mcpProbe()}` };
         case '/cd': {
           if (!arg) return { text: this.state.workspace };
           const next = await realpath(resolve(this.state.workspace, arg)); if (!(await stat(next)).isDirectory()) throw new Error('NOT_A_DIRECTORY');
+          await this.dispose(); this.execution = new ExecutionSession(next, join(next, '.cader/runs', `execution-${randomUUID()}`), this.clean);
           this.state.workspace = next; this.state.references = []; await this.store.save(this.state);
           return { text: `工作目录 ${next}\n附件授权已清空；父Shell目录不变。` };
         }
@@ -158,14 +171,16 @@ export class InteractiveSession {
         case '/mcp': {
           if (!arg || arg === 'list') return { text: (await readdir(join(this.configRoot, 'configs/mcp'))).filter(file => /\.(yaml|json)$/.test(file)).join('\n') + `\n当前 ${this.state.mcp ?? '未选择'}\n/mcp use <配置路径> 选择；/mcp tools 发现；/mcp off 禁用连接。` };
           if (arg === 'tools') return { text: await this.mcpProbe(true) };
+          await this.dispose();
           if (arg === 'off') this.state.mcp = null;
-          else { const path = await workspacePath(this.configRoot, arg.replace(/^use\s+/, '')); await loadMcp(path); this.state.mcp = path; }
+          else { const selected = arg.replace(/^use\s+/, ''); const path = await workspacePath(this.configRoot, /[\\/]/.test(selected) ? selected : join('configs/mcp', selected)); await loadMcp(path); this.state.mcp = path; }
           await this.store.save(this.state); return { text: `MCP ${this.state.mcp ?? '已禁用'}；连接在任务/状态探测时建立。` };
         }
         case '/permissions': {
           if (arg === 'shell ask' || arg === 'shell deny') { this.state.shell = arg.endsWith('ask') ? 'ask' : 'deny'; await this.store.save(this.state); }
-          else if (arg) return { text: '支持 /permissions shell ask|deny。CAD保持read-only；受控写入使用独立cad-test。', error: true };
-          return { text: `CAD read-only · Shell ${this.state.shell}\nShell仅用户直接!输入，经逐条确认，不是Agent工具。` };
+          else if (PERMISSION_MODES.includes(arg as PermissionMode)) { this.state.permission = arg as PermissionMode; await this.store.save(this.state); }
+          else if (arg) return { text: '支持 /permissions read-only|ask|workspace-write|full-access 或 shell ask|deny。', error: true };
+          return { text: `执行权限 ${this.state.permission} · Shell ${this.state.shell}\nCAD写入仅绑定本连接新建的工作图。Agent Shell为本机执行，除full-access外逐条审批。` };
         }
         case '/open': {
           if (!arg) return { text: '/open <工作区图片或DWG路径>', error: true };
@@ -182,7 +197,8 @@ export class InteractiveSession {
         }
         case '/clear': {
           await this.store.save(this.state); const prior = this.state;
-          this.state = { ...newSession(prior.workspace, prior.model), domain: prior.domain, mcp: prior.mcp, skill: prior.skill, shell: prior.shell };
+          await this.dispose();
+          this.state = { ...newSession(prior.workspace, prior.model), domain: prior.domain, mcp: prior.mcp, skill: prior.skill, shell: prior.shell, permission: prior.permission };
           this.lastUsage = null; await this.store.save(this.state); return { text: `已开始新会话 ${this.state.id}；旧会话可 /resume。` };
         }
         case '/resume': {
@@ -192,7 +208,8 @@ export class InteractiveSession {
           if (!this.config.profiles.some(profile => profile.id === next.model) || !this.domains.some(domain => domain.id === next.domain)) throw new Error('SESSION_CONFIG_UNAVAILABLE');
           if (next.skill) await (await loadSkills(this.configRoot)).read(next.skill, 'main');
           if (next.mcp) await loadMcp(await workspacePath(this.configRoot, next.mcp));
-          await this.store.save(this.state); this.state = next; this.lastUsage = null;
+          await this.store.save(this.state); await this.dispose(); this.state = { ...next, permission: 'ask' }; this.lastUsage = null;
+          this.execution = new ExecutionSession(next.workspace, join(next.workspace, '.cader/runs', `execution-${randomUUID()}`), this.clean);
           return { text: `已恢复 ${next.id} · ${next.messages.length}条可见消息\n恢复对话与选择，不重放工具、Shell或CAD请求。` };
         }
         case '/compact': return this.compact(callbacks);
@@ -227,9 +244,14 @@ export class InteractiveSession {
     const history = this.state.messages.slice(this.state.contextFrom).map(({ role, content, status }) => ({ role, content, status }));
     const content = this.clean(line), userIndex = this.state.messages.length;
     this.state.messages.push({ role: 'user', content, status: 'submitted', at: new Date().toISOString() }); await this.store.save(this.state);
+    if (this.state.mcp && !(await this.execution.status()).connected) await this.execution.connect(this.state.mcp);
+    this.execution.mode = this.state.permission;
     const report = await this.runner(this.configRoot, { task: content + '\nAuthorized reference metadata (DWG content is NOT decoded):\n'
       + JSON.stringify(this.state.references.map(ref => ({ ...ref, path: relative(this.state.workspace, ref.path) }))),
-      workspaceRoot: this.state.workspace, modelProfile: this.state.model, mcpPath: this.state.mcp ?? undefined,
+      workspaceRoot: this.state.workspace, modelProfile: this.state.model,
+      executionTools: [...this.execution.definitions(callbacks.confirm), ...this.execution.fileTools(callbacks.confirm).filter(tool => this.state.shell !== 'deny' || tool.name !== 'cader_shell')],
+      permissionMode: this.state.permission,
+      executionAuditDirectory: this.execution.runDirectory,
       skill: this.state.skill ?? undefined, image: image?.path, history, summary: this.state.summary,
       domain: this.domains.find(domain => domain.id === this.state.domain)!.instruction,
       signal: callbacks.signal, onEvent: event => { if (event.type === 'model.usage' && event.role === 'main') this.lastUsage = event.usage; callbacks.onEvent?.(event); } });
@@ -237,7 +259,8 @@ export class InteractiveSession {
     this.state.messages.push({ role: 'assistant', content: this.clean(report.text || (report.run_status === 'cancelled' ? '[已取消，未形成完整结论]' : `[失败 ${report.errorCode ?? 'UNKNOWN'}]`)),
       status: report.run_status, at: new Date().toISOString() });
     await this.store.save(this.state);
-    return { text: this.clean(report.text), error: !report.ok, note: '只读会话 · CAD与文件验收未执行',
+    return { text: this.clean(report.text), error: !report.ok, note: `${this.state.permission} · 工具执行以审计为准，模型回复不等于独立验收`,
       ...(!report.ok ? { text: this.clean(`${report.text}\n${report.errorCode ?? report.run_status}: ${report.hint ?? report.blocked_reasons.join(', ')}`) } : {}) };
   }
+  async dispose() { await this.execution.dispose(); }
 }

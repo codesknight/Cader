@@ -13,6 +13,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session';
 import SessionProjections from '@deepseek-ai/dsh-session-projection';
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt';
 import ToolsService, { defineTool } from '@deepseek-ai/dsh-tools';
+import type { ToolDefinition } from '@deepseek-ai/dsh-tools';
 import * as nativeExecutor from '@deepseek-ai/dsh-tool-executor-native';
 import * as piAi from '@deepseek-ai/dsh-llm-pi-ai';
 import * as mcpClient from '@deepseek-ai/dsh-mcp-client';
@@ -35,6 +36,8 @@ interface LiveOptions {
   images?: Record<string, string>;
   workspaceRoot?: string;
   disableTools?: boolean;
+  executionTools?: ToolDefinition[];
+  permissionMode?: string;
 }
 
 export async function createLiveRuntime(options: LiveOptions) {
@@ -158,6 +161,9 @@ export async function createLiveRuntime(options: LiveOptions) {
             const imageRefs = profile.input.includes('image') ? [...images.keys()].filter(ref => profile.role === 'main'
               || images.get(ref) === request.image) : [];
             const allowed = options.disableTools ? [] : options.runtime.read_only_tools.filter(name => Boolean(ctx.tools.get(name)));
+            if (profile.role === 'main' && !options.disableTools && options.executionTools) {
+              for (const tool of options.executionTools) { agentCtx.tools.register(tool); allowed.push(tool.name); }
+            }
             if (profile.can_delegate && !options.disableTools) {
               agentCtx.tools.register(defineTool({
                 name: 'cader_delegate', description: 'Delegate one bounded independent task; only the main agent can call this.',
@@ -240,6 +246,8 @@ export async function createLiveRuntime(options: LiveOptions) {
                 worker_profiles: profile.can_delegate ? options.profiles.filter(worker => worker.role !== 'main')
                   .map(worker => ({ id: worker.id, role: worker.role, model: worker.model, input: worker.input })) : [],
                 image_refs: imageRefs,
+                permission_mode: options.permissionMode ?? 'read-only',
+                execution: options.executionTools ? 'Program-controlled tools available; request actions and obey approval results. New scratch drawings require no existing DWG or reference image.' : 'No dynamic execution session selected.',
                 document_identity_and_units: 'not verified; do not assume target identity or units',
               }) });
             agentCtx.on('agent/pre-step', async (_payload, next) => {

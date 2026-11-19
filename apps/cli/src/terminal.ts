@@ -35,9 +35,9 @@ export async function runTerminal(options: { workspace?: string; stdio?: boolean
     '  ╚██████╗██║  ██║██████╔╝███████╗██║  ██║',
     '   ╚═════╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝',
   ].map((line, index) => paint(index < 3 ? '1;36' : '1;34', line)).join('\n') + '\n');
-  output.write(paint('1', '  Cader 0.2.0') + '  ·  DeepSeek Harness  ·  CAD terminal\n'
+  output.write(paint('1', '  Cader 0.3.0') + '  ·  DeepSeek Harness  ·  CAD terminal\n'
     + paint('2;36', '─'.repeat(Math.max(20, Math.min((output.columns ?? 80) - 2, 90)))) + '\n');
-  write(`  ${session.model.model} · read-only · ${basename(workspace)}\n  /help 命令  ·  @图片/图纸  ·  !Shell  ·  Tab 补全  ·  Esc 中断\n\n`);
+  write(`  ${session.model.model} · ${session.state.permission} · ${basename(workspace)}\n  ${session.startupStatus}\n  /help 命令  ·  @图片/图纸  ·  !Shell  ·  Tab 补全  ·  Esc 中断\n\n`);
   if (tty && process.env.TERM === 'dumb') write('当前终端声明TERM=dumb，使用简化输入。支持VT的终端可设置TERM=xterm-256color以启用完整编辑/补全。\n');
   const rl = createInterface({ input, output, terminal: tty, historySize: 100, removeHistoryDuplicates: true,
     completer: (line: string, callback: (error: Error | null, result: [string[], string]) => void) => {
@@ -71,7 +71,7 @@ export async function runTerminal(options: { workspace?: string; stdio?: boolean
   const confirm = async (command: string, cwd: string) => {
     if (!tty || active?.signal.aborted) return false;
     queue.length = 0; // Never consume pasted/type-ahead text as a permission decision or a later model task.
-    write(`\nShell · ${cwd}\n${command}\n以本机账号执行（非沙箱），输出不加入模型上下文。允许本次执行？[y/N] `);
+    write(`\n工具审批 · ${cwd}\n${command}\nAgent工具结果会返回模型；Shell以本机账号执行（非沙箱）。允许本次执行？[y/N] `);
     return new Promise<boolean>(resolve => { confirmation = resolve; });
   };
   async function pump() {
@@ -114,6 +114,7 @@ export async function runTerminal(options: { workspace?: string; stdio?: boolean
   prompt();
   try { await done; await session.store.save(session.state); }
   finally {
+    await session.dispose();
     rl.close(); input.removeListener('keypress', keypress); process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', terminate);
     output.removeListener('resize', resize);
     if (tty) input.setRawMode(priorRawMode);

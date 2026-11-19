@@ -19,7 +19,7 @@
 - 原始运行记录放 `.cader/runs/`；只将脱敏结论及可复现证据提交仓库。禁止记录密钥、私有图纸内容和隐藏推理。
 - AutoCAD-MCP 保持独立仓库和环境；本任务未授权时不修改相邻项目。
 - 明确区分组件 fixture、确定性模型、真实模型、真实 CAD 和完整 DSH app profile。未执行不得标为通过。
-- 保留默认只读；所有写入绑定工作副本及目标文档。未知写入结果先对账，不自动重放。
+- 按用户 v0.3.0 执行授权，交互与 exec 默认 ask，支持 read-only / workspace-write / full-access；权限在工具执行层检查。CAD 写入绑定本连接新建的工作图及目标文档。未知写入结果先对账，不自动重放。
 - 变更后运行 `pnpm typecheck`、`pnpm test`；Harness 变更加 `pnpm smoke`。
 - Python 变更运行 `uv run --project cader-mcp ruff check cader-mcp`、`uv run --project cader-mcp ruff format --check cader-mcp`、`uv run --project cader-mcp pytest -q cader-mcp/tests`；协议变更再运行 Python smoke。
 - 原始设计目录不交给格式化器。不要创建空模块或提前实现完整多 Agent / Gateway / 专业研究平台。

@@ -66,3 +66,5 @@ export async function runHarnessSmoke() {
     await ctx.fiber.dispose();
   }
 }
+export { runExecutionSmoke } from './execution-smoke.js';
+export { ExecutionSession, PERMISSION_MODES } from './execution.js';

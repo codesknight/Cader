@@ -65,3 +65,8 @@ Cader 展示与持久化层需过滤 reasoning；密钥和私有图纸不写公�
 社区 TUI 验证优先于自建 TUI；本轮用户明确要求持续交互后，通过静态兼容审查实施Node终端，详见[ADR0007](../adr/0007-interactive-terminal-and-visible-sessions.md)。
 不自动执行原稿中的全部命令或依赖安装。
 CLI-001 至 CLI-012 作为需求拆分依据，逐项以代码和测试验收，不用设计完成代替功能完成。
+
+
+## 2026-11-20执行纠偏
+用户明确优先Agent Can Act/Can Draw。当前交互与exec默认ask，通过持久执行owner向主DSH Agent暴露审核MCP schema与文件/Shell工具；不重写AgentLoop。
+旧只读/固定计划说明保留为历史基线，当前行为以[CLI手册](../cli/README.zh-CN.md)和[ADR0008](../adr/0008-model-driven-scratch-execution.md)为准。暂停无关架构扩展。

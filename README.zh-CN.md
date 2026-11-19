@@ -42,9 +42,9 @@ Cader 是面向计算机辅助设计的可扩展 AI Agent 项目，以
 项目采用 **CLI First** 策略：先复用 DSH Headless 建立基础 Agent、验证社区 TUI，
 再逐步实现 Cader CLI。待底层服务稳定后，继续开发 Web UI 与 CAD 内嵌插件。
 
-> **当前阶段：M0 集成。** 模型配置、受限子任务委派和 AutoCAD 只读集成已有 smoke 验证记录。
+> **当前阶段：v0.3 执行能力打通。** 模型配置、受限子任务委派和 AutoCAD 只读集成已有 smoke 验证记录。
 > 已提供 **`cader` 持续交互终端**：彩色启动、Slash 命令、会话恢复、文件引用与流式回复；
-> 也保留脚本使用的只读 `exec`。社区 TUI 已完成版本固定与静态审查，运行兼容性仍待验证。受控调度器已通过组件测试，
+> 交互与 `exec` 默认 ask，已接入模型可调用的 CAD、文件和受控 Shell 工具。社区 TUI 已完成版本固定与静态审查，运行兼容性仍待验证。受控调度器已通过组件测试，
 > 已通过固定直线/圆/文字计划的**真实绘制—保存—只读重开验收**；图片到DWG执行仍未开放。
 
 | 能力 | 当前实现 |
@@ -54,7 +54,7 @@ Cader 是面向计算机辅助设计的可扩展 AI Agent 项目，以
 | 上下文组装 | 稳定 Static 与动态 Available；显式 Skill 清单、角色可见性与按需引用资料 |
 | 子任务委派 | 主 Agent 最多协调 **5 个并行子 Agent**；子 Agent 返回结果，不继续委派 |
 | 模型配置 | 主 Agent、文本审查和视觉子任务使用 YAML profile；凭据通过环境变量提供 |
-| CAD 集成 | Agent profile 保持只读；独立程序调度器执行已审查固定几何计划 |
+| CAD 集成 | 模型自主新建工作图、绘图、编辑、保存并审批；保留独立 HTTP 固定计划调度器 |
 | 验证与记录 | 独立实体/文件/重开校验、图像事实与连通图门槛、fixture 和 Windows/Linux CI |
 
 ```text
@@ -154,7 +154,7 @@ pnpm run cader --help
 pnpm run cader exec "读取图层并总结，不修改图纸" --mcp configs/mcp/AutoCAD.local.yaml
 ```
 
-`exec` 接收用户任务，`live-smoke` 保持固定诊断；两者均保留当前只读策略。
+`exec` 接收用户任务，`live-smoke` 保持固定诊断；默认 ask；交互绘图逐次审批，非交互 exec 无审批器时拒绝需审批的调用。
 真实任务会调用付费模型。失败摘要包含脱敏的 `errorCode`、`source` 和可操作的 `hint`；
 `QUOTA` 表示 provider 配额故障，不代表 MCP 不通。
 严格 JSON 输出和当前限制见 [CLI 使用与诊断](docs/development/cli.md)。
@@ -267,7 +267,7 @@ DSH YAML 与 Python 诊断 JSON 使用不同 schema，不能互换。
 |---|---|---|
 | Agent 基础 | DSH 集成、模型配置、Static / Available、MCP 只读 smoke | 已实现；M0 继续扩展验证 |
 | Headless + 社区 TUI | 完整 Headless profile、会话生命周期、Windows TUI 兼容性 | 下一阶段 / [TUI 验证 #9](https://github.com/codesknight/Cader/issues/9) |
-| Cader CLI | 本地启动器、持续终端、可见会话与只读 `exec`；结构化事件流待实现 | [交互终端 #16](https://github.com/codesknight/Cader/issues/16) / [CLI 基础 #10](https://github.com/codesknight/Cader/issues/10) |
+| Cader CLI | 本地启动器、持续终端、可见会话与权限控制的 `exec`；结构化事件流待实现 | [交互终端 #16](https://github.com/codesknight/Cader/issues/16) / [CLI 基础 #10](https://github.com/codesknight/Cader/issues/10) |
 | CAD 操作闭环 | 工作副本、绘制—保存—重开、独立验证与基准评测 | 规划中 / [CAD 闭环 #3](https://github.com/codesknight/Cader/issues/3) |
 | 更多交互入口 | 共享底层服务的 Web UI 与 CAD 内嵌插件 | 后续阶段 |
 
@@ -301,3 +301,5 @@ DSH YAML 与 Python 诊断 JSON 使用不同 schema，不能互换。
 ## 开源协议
 
 [MIT](LICENSE) · Copyright © 2026 codesknight
+
+真实模型自主CAD执行证据：[验收报告](docs/validation/2026-11-20-agent-execution.md)。

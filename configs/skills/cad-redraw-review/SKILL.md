@@ -5,7 +5,7 @@ description: Assess evidence and readiness for a CAD redraw without modifying CA
 
 # Cader redraw review
 
-This is Cader-authored guidance for the current read-only runtime. It is not the upstream
+This is Cader-authored guidance for evidence review. It is not the upstream
 autocad-dwg-redraw package and supplies no DWG reader, converter or drawing executor.
 
 Start by stating which inputs are actually accessible: a supplied image attachment,
@@ -42,10 +42,10 @@ Use main-agent coordination only. A permitted vision worker may review image evi
 but no child may delegate or approve edits. Return uncertainty and required evidence to
 the main agent; the main agent decides what to report to the user.
 
-No script, shell, AutoLISP or direct COM execution is available through this Skill. Do not
-create, edit, save, overwrite or restart CAD. Report missing tools as capability gaps.
-Future writes require the Cader working-copy, authorization, document/revision binding
-and request reconciliation contract; this guidance grants none of those capabilities.
+This Skill grants no execution permissions. Use Available to determine actual CAD, file
+and Shell tools and current permission mode. Review evidence before requesting edits;
+the program checks authorization, scratch-document binding and file protection. A new
+blank drawing needs no existing DWG or image. Never retry an uncertain write.
 
 Research reference: https://github.com/pengxiaoan/autocad-dwg-redraw-skill
 at ed182ec5966caaaf1d82d6ad4015435a27a8a909. Upstream files are not bundled;

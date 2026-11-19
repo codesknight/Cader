@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { runHarnessSmoke, runLiveSmoke, runTask, failureFromError, runControlledCad,
+import { runHarnessSmoke, runLiveSmoke, runExecutionSmoke, runTask, failureFromError, runControlledCad,
   reconcileControlledCad, contractSchemas, validateAssessment, assessmentSchemas, CAD_DRAFT_REVISION } from '@cader/profile';
 import { recordSmoke } from './record.js';
 import { loadConfig, loadSkills, redactSecrets, workspacePath } from '@cader/config';
@@ -7,7 +7,7 @@ import { readFile } from 'node:fs/promises';
 import { runTerminal } from './terminal.js';
 
 const command = process.argv[2];
-const usage = 'Cader CLI (read-only by default)\nexec "<task>" [--intent assess|redraw] [--mcp <local.yaml>] [--skill <name>] [--image <workspace.png|jpg>] [--crop x,y,w,h] [--rotate 0|90|180|270]\nskills list | skills show <name> [--resource <id>] | doctor | models | harness-smoke\nlive-smoke --mcp <local.yaml> [--image <file> --expected-image <json>]\ncad-contract\ncad-test --backend http --mcp <local.yaml> --plan <plan.json> --output .cader/artifacts/<name>.dwg [--authorize-write]\ncad-reconcile --run <managed-run-directory> --mcp <local.yaml>\nassessment-check --assessment <json> --expect <independent.json>';
+const usage = 'Cader CLI (permission: ask by default)\nexec "<task>" [--permissions read-only|ask|workspace-write|full-access] [--intent assess|redraw] [--mcp <local.yaml>] [--skill <name>] [--image <workspace.png|jpg>] [--crop x,y,w,h] [--rotate 0|90|180|270]\nskills list | skills show <name> [--resource <id>] | doctor | models | harness-smoke\nlive-smoke --mcp <local.yaml> [--execution | --image <file> --expected-image <json>]\ncad-contract\ncad-test --backend http --mcp <local.yaml> --plan <plan.json> --output .cader/artifacts/<name>.dwg [--authorize-write]\ncad-reconcile --run <managed-run-directory> --mcp <local.yaml>\nassessment-check --assessment <json> --expect <independent.json>';
 function flags(keys: string[], booleans: string[] = []) {
   const result = new Map<string, string>();
   const args = process.argv.slice(3);
@@ -36,18 +36,21 @@ try {
   } else {
   // Parse before loading credentials or starting any runtime.
   let taskInput: { task: string; mcpPath?: string; skill?: string; image?: string; intent?: 'assess' | 'redraw';
+    permissionMode?: 'read-only' | 'ask' | 'workspace-write' | 'full-access';
     imageView?: { rotation?: 0 | 90 | 180 | 270; crop?: { left: number; top: number; width: number; height: number } } } | undefined;
   let smokeInput: { mcpPath: string; image?: string; expectedImage?: string } | undefined;
+  let executionSmoke = false;
   if (command === 'live-smoke') {
     const flags = new Map<string, string>();
     const args = process.argv.slice(3);
     for (let index = 0; index < args.length; index += 2) {
       const flag = args[index]!, value = args[index + 1];
+      if (flag === '--execution' && !executionSmoke) { executionSmoke = true; index--; continue; }
       if (!['--mcp', '--image', '--expected-image'].includes(flag) || flags.has(flag)
         || !value?.trim() || value.startsWith('--')) throw new Error('USAGE_ERROR');
       flags.set(flag, value);
     }
-    if (!flags.has('--mcp') || (flags.has('--expected-image') && !flags.has('--image'))) throw new Error('USAGE_ERROR');
+    if (!flags.has('--mcp') || (flags.has('--expected-image') && !flags.has('--image')) || (executionSmoke && flags.has('--image'))) throw new Error('USAGE_ERROR');
     smokeInput = { mcpPath: flags.get('--mcp')!, image: flags.get('--image'), expectedImage: flags.get('--expected-image') };
   }
   if (command === 'exec' && !process.argv.slice(3).includes('--help')) {
@@ -56,7 +59,7 @@ try {
     const flags = new Map<string, string>();
     for (let index = 0; index < args.length; index++) {
       const arg = args[index]!;
-      if (['--mcp', '--skill', '--image', '--intent', '--crop', '--rotate'].includes(arg)) {
+      if (['--mcp', '--skill', '--image', '--intent', '--crop', '--rotate', '--permissions'].includes(arg)) {
         if (flags.has(arg) || !args[index + 1]?.trim() || args[index + 1]!.startsWith('--')) throw new Error('USAGE_ERROR');
         flags.set(arg, args[++index]!);
       } else if (arg.startsWith('--') || task !== undefined) throw new Error('USAGE_ERROR');
@@ -64,6 +67,8 @@ try {
     }
     if (!task?.trim()) throw new Error('USAGE_ERROR');
     const intent = flags.get('--intent') ?? 'assess';
+    const permission = flags.get('--permissions') ?? 'ask';
+    if (!['read-only', 'ask', 'workspace-write', 'full-access'].includes(permission)) throw new Error('USAGE_ERROR');
     if (!['assess', 'redraw'].includes(intent)) throw new Error('USAGE_ERROR');
     const rotation = Number(flags.get('--rotate') ?? 0);
     if (![0, 90, 180, 270].includes(rotation) || ((flags.has('--crop') || flags.has('--rotate')) && !flags.has('--image'))) throw new Error('USAGE_ERROR');
@@ -74,10 +79,11 @@ try {
       crop = { left: values[0]!, top: values[1]!, width: values[2]!, height: values[3]! };
     }
     taskInput = { task, mcpPath: flags.get('--mcp'), skill: flags.get('--skill'), image: flags.get('--image'),
+      permissionMode: permission as NonNullable<typeof taskInput>['permissionMode'],
       intent: intent as 'assess' | 'redraw', imageView: { rotation: rotation as 0 | 90 | 180 | 270, crop } };
   }
   if (command === '--version' || command === '-v') {
-    console.log('Cader 0.2.0');
+    console.log('Cader 0.3.0');
   } else if (command === '--help' || command === 'help' || (command === 'exec' && process.argv.includes('--help'))) {
     console.log(usage);
     console.log('\nNo command: interactive Cader terminal. chat [--workspace <dir>] [--stdio]\n--version  Show version without configuration or network.');
@@ -136,7 +142,7 @@ try {
       console.log(redactSecrets(JSON.stringify({ ok: true, runtime: config.runtime, profiles: config.profiles.map(profile =>
         ({ ...profile, credentialConfigured: Boolean(process.env[profile.api_key_env]?.trim()) })) }, null, 2), config.profiles));
     } else if (command === 'live-smoke') {
-      const result = await runLiveSmoke(process.cwd(), smokeInput!);
+      const result = executionSmoke ? await runExecutionSmoke(process.cwd(), smokeInput!.mcpPath) : await runLiveSmoke(process.cwd(), smokeInput!);
       console.log(JSON.stringify(result, null, 2));
       process.exitCode = result.ok ? 0 : 1;
     } else {
