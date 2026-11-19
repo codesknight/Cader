@@ -1,0 +1,285 @@
+{
+  "version": 1,
+  "date": "2026-11-19",
+  "kind": "real-cader-cli-fixed-geometry",
+  "passed": true,
+  "scope": "approved fixed line/circle/text plan; real CAD and file; no model or image reconstruction",
+  "run_id": "managed-797c993f-798b-4bca-8df6-00f479854f54",
+  "client": {
+    "commit": "266c6895048f1ce97a5517265a7f14f29bfa5e1c",
+    "node": "24.9.0",
+    "dsh": "0.2.2-rc.4",
+    "cordis": "4.1.0"
+  },
+  "mcp": {
+    "commit": "2fa994852bba0b1a479f9fa7304ccc3026777426",
+    "entrypoint": "autocad_mcp.managed_server",
+    "python": "3.11.15",
+    "sdk": "1.28.1",
+    "source_sha256": {
+      "src/autocad_mcp/managed_server.py": "7d78a2a5e4920d73e84a5da004c81d2c50143a76c3bfaf1b59eb6292ade5484f",
+      "src/autocad_mcp/cad/managed_profile.py": "c548786ea48e1b2463d44e853383c87dd7a7ced5762be3a4227a99d322ed2114",
+      "src/autocad_mcp/cad/managed_contract.py": "17da7be41245dd05171d350e629b81bcf5a92c72f4675d0aa9991aa8828d7dc3",
+      "src/autocad_mcp/cad/backends/http_backend.py": "06c9926d19070d7005a7f4366537d89b0e3759ae5e9d69e7915a1b54e16f7c1c"
+    }
+  },
+  "cad": {
+    "product": "AutoCAD 2026",
+    "binary_file_version": "R25.1.60.0.0",
+    "owned_pid": 13372,
+    "bridge_sha256": "dd8321e2aae125354e9cdaa4170873332539c849ff47b1acf45ba239d284a642"
+  },
+  "protocol": {
+    "contract_version": "cader-cad/1",
+    "draft_revision": 2,
+    "mapping_revision": 1,
+    "schema_sha256": "e239266ee97ccd64284f6a6b5896eb57532b0f18eb5769dad3899e614191dd28",
+    "snapshot_unfrozen": true,
+    "compiled_schema_matches_approved_snapshot": true
+  },
+  "outcome": {
+    "cli_exit_code": 0,
+    "run_status": "succeeded",
+    "task_status": "succeeded",
+    "verification": "passed",
+    "stages": {
+      "recognition": "not_performed",
+      "planning": "succeeded",
+      "execution": "succeeded",
+      "saving": "succeeded",
+      "reopening": "succeeded"
+    },
+    "blocked_reasons": [],
+    "authorization": {
+      "user_task_authorized": true,
+      "write_authorized": true,
+      "runtime_write_available": true
+    }
+  },
+  "artifact": {
+    "artifact_id": "5c6af5d48b854f33a17c772ca5f10569",
+    "instance_id": "550f2075f6af466ab4ad6e7049a145af",
+    "document_id": "434fcdd9ae164cf5abe47e03e50ce829",
+    "revision": 16,
+    "path": ".cader/artifacts/cader-owned-6705ffff93de484bacdfac9887de1071.dwg",
+    "sha256": "6eb9da7e128b2199ca2d5fc270fce09fad1a028371b46495c76d444048c81cba",
+    "byte_size": 31988
+  },
+  "independent": {
+    "new_mcp_client": true,
+    "tool_count": 7,
+    "source_document_id": "434fcdd9ae164cf5abe47e03e50ce829",
+    "reopened_document_id": "0cfec2a145ff4c1db6e8dc1906178b39",
+    "initial_revision": 0,
+    "committed_revision": 16,
+    "post_file_source_revision": 25,
+    "reopened_revision": 0,
+    "reopen_read_only": true,
+    "source_entities": [
+      {
+        "object_id": "1",
+        "operation": "draw_line",
+        "args": {
+          "start": [
+            0,
+            0,
+            0
+          ],
+          "end": [
+            20,
+            0,
+            0
+          ],
+          "layer": "0"
+        }
+      },
+      {
+        "object_id": "2",
+        "operation": "draw_circle",
+        "args": {
+          "center": [
+            10,
+            10,
+            0
+          ],
+          "radius": 3,
+          "layer": "0"
+        }
+      },
+      {
+        "object_id": "3",
+        "operation": "draw_text",
+        "args": {
+          "point": [
+            0,
+            15,
+            0
+          ],
+          "text": "CADER FIXTURE",
+          "height": 2,
+          "layer": "0"
+        }
+      }
+    ],
+    "reopened_entities": [
+      {
+        "object_id": "1",
+        "operation": "draw_line",
+        "args": {
+          "start": [
+            0,
+            0,
+            0
+          ],
+          "end": [
+            20,
+            0,
+            0
+          ],
+          "layer": "0"
+        }
+      },
+      {
+        "object_id": "2",
+        "operation": "draw_circle",
+        "args": {
+          "center": [
+            10,
+            10,
+            0
+          ],
+          "radius": 3,
+          "layer": "0"
+        }
+      },
+      {
+        "object_id": "3",
+        "operation": "draw_text",
+        "args": {
+          "point": [
+            0,
+            15,
+            0
+          ],
+          "text": "CADER FIXTURE",
+          "height": 2,
+          "layer": "0"
+        }
+      }
+    ],
+    "artifact_hash_and_size_match": true
+  },
+  "dispatch": {
+    "cli_runs": 1,
+    "actions": 8,
+    "mutations": [
+      {
+        "operation": "create_working_document",
+        "request_id": "64b6e3ee-e960-4dd9-8e7d-161a5b1d75cf",
+        "request_document_id": null,
+        "source_artifact_id": null,
+        "expected_revision": null,
+        "audit_sha256": "f200083b1df0563c82c204e55a706ac198852e580f5fbcab5cfe7b3649a4cdf1",
+        "confirmed": true
+      },
+      {
+        "operation": "execute_atomic_batch",
+        "request_id": "93758c9c-98e3-4bd1-baed-3d478e46d10e",
+        "request_document_id": "434fcdd9ae164cf5abe47e03e50ce829",
+        "source_artifact_id": null,
+        "expected_revision": 0,
+        "audit_sha256": "4e66455eccbf5bc323f640ffd9ff03dbd2489b357b0d39a65ac3059f2f76e50c",
+        "confirmed": true
+      },
+      {
+        "operation": "save_document_as",
+        "request_id": "906eca4d-bed7-40e2-be36-d52a8628fc67",
+        "request_document_id": "434fcdd9ae164cf5abe47e03e50ce829",
+        "source_artifact_id": null,
+        "expected_revision": 16,
+        "audit_sha256": "1cd90ffc2ea4e1d3b4d233da10d42077ed94dae6d1be901d8fa87ef842fd0d68",
+        "confirmed": true
+      },
+      {
+        "operation": "reopen_document",
+        "request_id": "e7c89467-15b5-4ec5-bc55-5ff8ae2fba42",
+        "request_document_id": null,
+        "source_artifact_id": "5c6af5d48b854f33a17c772ca5f10569",
+        "expected_revision": null,
+        "audit_sha256": "2a0386fd0c2293c523ef2f8d47abad98bf2b0d219d443ef29d5a77e0031551d4",
+        "confirmed": true
+      }
+    ]
+  },
+  "preservation": {
+    "tracked_source_files_unchanged_during_test": 128,
+    "user_input_files_unchanged": 16,
+    "rasters_preflight_passed": 14,
+    "non_raster_dwg_not_opened": 2,
+    "bridge_files_unchanged": true,
+    "default_com_configuration_unchanged": true,
+    "plan_and_policy_unchanged": true
+  },
+  "cleanup": {
+    "owned_documents_closed": 3,
+    "owned_pid_exited": true,
+    "failed_startup_pid_exited": true,
+    "remaining_acad_processes": 0,
+    "write_lock_remaining": false
+  },
+  "attempts": [
+    {
+      "phase": "hidden-startup",
+      "status": "not-ready",
+      "cad_write_dispatched": false,
+      "action": "closed owned failed startup process"
+    },
+    {
+      "phase": "computer-use",
+      "status": "activation/capture failed",
+      "action": "stopped UI input; used attach-only application API to bootstrap owned instance"
+    },
+    {
+      "phase": "application-api-bootstrap",
+      "status": "wrong ROT PID rejected before mutation; verified single owned visible process before bootstrap"
+    },
+    {
+      "phase": "cli",
+      "status": "passed",
+      "dispatches": 1
+    },
+    {
+      "phase": "post-cli-read",
+      "status": "REVISION_CONFLICT",
+      "expected_revision": 16,
+      "current_revision": 25,
+      "action": "refreshed authoritative source revision and repeated reads only"
+    },
+    {
+      "phase": "independent-query",
+      "status": "passed"
+    },
+    {
+      "phase": "cleanup-helper",
+      "status": "initial missing optional psutil / native status envelope guard; fixed without adding dependencies"
+    },
+    {
+      "phase": "cleanup-observation",
+      "status": "RPC_E_CALL_REJECTED after first confirmed close",
+      "action": "reobserved current open documents; closed only remaining owned documents"
+    },
+    {
+      "phase": "cleanup",
+      "status": "passed",
+      "remaining_acad_processes": 0
+    }
+  ],
+  "not_evaluated": [
+    "model-driven planning",
+    "image-to-DWG reconstruction",
+    "real write-response loss injection",
+    "long-run stability",
+    "CAD visual similarity"
+  ],
+  "raw_evidence_policy": "Original images, local paths, tokens, exact request_json and DWG stay under ignored local directories; only this synthetic-run summary is public."
+}

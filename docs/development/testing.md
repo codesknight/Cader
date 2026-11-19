@@ -133,3 +133,14 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 - 远端实现eed2f33：[CI run 44480295260](https://github.com/codesknight/Cader/actions/runs/44480295260) 的Windows/Linux DSH及Python共4/4 jobs成功，含38项TS、10项Python、组件/协议smoke及Python lint/format。
 - 发布前26文件实际凭据扫描0泄漏、11个Markdown的69个本地链接有效、schema/examples暂存字节与manifest一致、whitespace检查通过。普通git push因既有127.0.0.1:10809代理未监听失败，使用既有API回退核对完整tree/commit后非强制推进，未改系统代理或覆盖提交。
 - 本轮无真实MCP/模型/CAD请求。schema与例子的Cader验证通过不等于MCP profile已实现或双方冻结；#15/#3/#14的真实验收条件继续开放。
+
+## 2026-11-19：Cader原生CLI实机（#15）
+
+- 实际pnpm build后，在专用HTTP实例运行node apps/cli/dist/index.js cad-test --backend http --mcp <私有运行profile> --plan benchmark/fixtures/managed-geometry.plan.json --output <新的.cader/artifacts DWG> --authorize-write。单次派发，exit0，8动作/4变更均confirmed，业务成功及verification passed。
+- run managed-797c993f-798b-4bca-8df6-00f479854f54，31988字节真实DWG。独立读取磁盘摘要、另起DSH/stdio客户端查询源图及只读重开图通过；三实体所有受限参数匹配，unsupported为空；源/验收document_id不同。
+- 首次额外源图读用revision16被拒，权威状态为25；仅刷新状态并读取后通过，未重放写入。源文件事件序号在保存/重开后可能不同，未逐事件分析具体增量来源。
+- source.before与实测结束128 tracked文件逐字节hash相同；16用户输入hash不变，14图片输入有效、2DWG不解析/不开原图。共享snapshot e239266e/9e33ab75未改，安装DLL与settings前后相同。
+- 首次启动/ROT身份拒绝、界面激活失败、收尾辅助依赖/信封守卫及RPC拒绝均见实机报告，不删除失败。成功实例只关闭3张自建图，正常Quit后无acad，写锁已释放，产物保留。
+- 真实CAD仅此固定计划：未调用模型、未图片重绘、未真实写响应丢失注入。原MCP团队两轮验收属于外部证据，与本轮独立运行分开。原始完整日志和私有资料仅留.cader；仓库只提交合成图元的脱敏摘要。
+- 文档/配置维护后本地pnpm typecheck、pnpm test（38/38）、pnpm smoke（6/6）通过；新增AutoCAD.managed.example.yaml实际经loadMcp解析，入口与两项env引用正确。没有新增与实现镜像的测试或修改运行时策略。
+- 原schema e239266e和cases 9e33ab75仍完全相同，hash manifest未改；当前无acad进程。完整Python回归由跨平台CI执行，Python源码未改。

@@ -1,5 +1,5 @@
-# Backend selection example only: the ordinary server does not yet implement the Cader DTO profile.
-# Use the dedicated versioned entry point only after MCP publishes it; do not invent a module name.
+# Backend selection example for the ordinary server, not the Cader DTO profile.
+# For cad-test use AutoCAD.managed.example.yaml and autocad_mcp.managed_server.
 version: 1
 server_name: autocad
 transport: stdio

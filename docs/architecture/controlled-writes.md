@@ -2,8 +2,9 @@
 
 ## 2026-11-19 实施状态（#15）
 
-以下原契约保留作为需求依据。本轮已实现 Cader 程序调度器和组件验收，但外部 MCP 的新工作图、
-绑定保存及重开协议尚待对齐；真实 CAD 闭环仍未通过。关联 [#15](https://github.com/codesknight/Cader/issues/15)。
+以下原契约保留为历史需求。MCP专用profile已实现，Cader程序调度器现已独立通过固定直线/圆/文字的
+真实新建、绘制、保存和只读重开验收；模型驱动/图片重绘仍未通过。关联[#15](https://github.com/codesknight/Cader/issues/15)，
+证据见[实机报告](../validation/2026-11-19-cader-cli-real-loop.md)。
 公共接口与业务终态见 [v1 草案](../contracts/managed-cad-v1.md)，
 读图证据与抽象拓扑检查见 [perception-v1](../contracts/perception-v1.md)。
 
@@ -30,7 +31,8 @@ create时显式绑定输出目录；按操作区分输入与结果文档对账�
 
 当前 verifier 只覆盖三类固定几何；CAD实体到电路拓扑、符号库和视觉相似度尚未实现。
 组件测试使用内存MCP和明确标识的合成文件字节，不能作为真实DWG验收。
-实际CLI探测只执行get_backend_status：本地COM返回HTTP_BACKEND_REQUIRED、退出3，无写入和模型请求。
+早期CLI仅做COM只读探测并返回HTTP_BACKEND_REQUIRED，旧失败保留。当前显式managed_server/HTTP实测
+已绘制真实DWG并重开比较；没有模型请求，不将该成功计入模型或图片准确率。
 
 ## 原验收要求（历史）
 

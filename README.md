@@ -44,7 +44,8 @@ follow once the underlying services are stable.
 > AutoCAD integration have smoke-test evidence. Today's entry points are the `pnpm`
 > commands below, including user tasks through read-only `exec`. An installable
 > `cader` binary and community TUI integration remain planned. A controlled CAD scheduler
-> now passes component fixtures; real draw–save–reopen awaits the managed MCP contract.
+> passes component fixtures and a **real AutoCAD draw–save–read-only reopen** test for
+> the reviewed line/circle/text plan. Image-to-DWG execution remains blocked.
 
 | Capability | Current implementation |
 |---|---|
@@ -136,22 +137,26 @@ No model answer is treated as proof that a DWG was created.
 
 ```sh
 pnpm run cader cad-contract
-pnpm run cader cad-test --backend http --mcp configs/mcp/AutoCAD.http.local.yaml --plan benchmark/fixtures/managed-geometry.plan.json --output .cader/artifacts/geometry-001.dwg --authorize-write
+pnpm run cader cad-test --backend http --mcp configs/mcp/AutoCAD.managed.local.yaml --plan benchmark/fixtures/managed-geometry.plan.json --output .cader/artifacts/geometry-001.dwg --authorize-write
 ```
 
-The first command is offline. The second requires your own HTTP profile and compatible
-managed-document/save/reopen endpoints; these are a **Cader-side proposal awaiting MCP support**.
-It may create a new working drawing when capabilities pass. COM remains the default;
-`--backend http` does not switch the server. Current local COM returns `HTTP_BACKEND_REQUIRED`.
+The first command is offline. Copy [the managed profile example](configs/mcp/AutoCAD.managed.example.yaml)
+to your local file, set its Python/cwd and environment references, and start an authenticated Bridge.
+MCP now provides `autocad_mcp.managed_server`; the ordinary server keeps its COM default.
+`--backend http` does not switch the server. The second command creates a new working drawing
+when capabilities pass; it needs no model API call. Use a new output filename each time.
 Only the shipped, reviewed three-entity plan is allowed. Image-redraw plans stay blocked.
 Unknown writes freeze the workspace: `cad-reconcile` only queries, never replays or unlocks.
 See [the public contract](docs/contracts/managed-cad-v1.md) and [execution policy](docs/architecture/controlled-writes.md).
 
-The unfrozen contract is now **draft revision 2**: writable working documents and read-only
+The implementation baseline is **revision 2 / mapping revision 1**: writable working documents and read-only
 verification documents have separate bindings; rollback checks use authoritative observed-event
 revisions. Output directories bind at creation, and reconciliation distinguishes input/output
 documents. See [the MCP alignment response](docs/contracts/mcp-alignment-response-2026-11-19.md)
 and the [schema/example hash manifest](configs/contracts/cader-v1.manifest.json).
+The shared snapshot remains unfrozen. [Cader's independent real-run report](docs/validation/2026-11-19-cader-cli-real-loop.md)
+records a 31,988-byte DWG, geometry comparison after reopening, process cleanup and limits.
+This is a fixed-plan CAD test; it does not evaluate model planning or image reconstruction.
 
 <a id="configuration"></a>
 

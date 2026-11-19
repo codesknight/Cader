@@ -42,7 +42,7 @@ Cader 是面向计算机辅助设计的可扩展 AI Agent 项目，以
 > **当前阶段：M0 集成。** 模型配置、受限子任务委派和 AutoCAD 只读集成已有 smoke 验证记录。
 > 当前可用入口是下文的 `pnpm` 命令，已增加接收用户任务的只读 `exec`；
 > 可安装的 `cader` 产品入口、社区 TUI 接入仍在规划中。受控调度器已通过组件测试，
-> 真实绘制—保存—重开闭环仍等待 MCP 新契约支持。
+> 已通过固定直线/圆/文字计划的**真实绘制—保存—只读重开验收**；图片到DWG执行仍未开放。
 
 | 能力 | 当前实现 |
 |---|---|
@@ -132,19 +132,22 @@ pnpm run cader exec "读取图层并总结，不修改图纸" --mcp configs/mcp/
 
 ```sh
 pnpm run cader cad-contract
-pnpm run cader cad-test --backend http --mcp configs/mcp/AutoCAD.http.local.yaml --plan benchmark/fixtures/managed-geometry.plan.json --output .cader/artifacts/geometry-001.dwg --authorize-write
+pnpm run cader cad-test --backend http --mcp configs/mcp/AutoCAD.managed.local.yaml --plan benchmark/fixtures/managed-geometry.plan.json --output .cader/artifacts/geometry-001.dwg --authorize-write
 ```
 
-第一条离线导出契约。第二条需要自行准备 HTTP profile 及兼容的工作图/保存/重开接口，
-目前这些接口是**等待 MCP 对齐的 Cader 侧提案**；能力通过后会新建工作图并执行。
-保留默认 COM，`--backend http` 不会切换服务端；当前本地 COM 返回 `HTTP_BACKEND_REQUIRED`。
+第一条离线导出契约。将[专用profile示例](configs/mcp/AutoCAD.managed.example.yaml)复制为本机配置，
+填写Python/cwd和环境引用，并先启动已认证Bridge。MCP已提供`autocad_mcp.managed_server`，
+普通入口保留默认COM；`--backend http`不会切换服务端。第二条能力通过后会新建工作图并执行，
+不调用模型API。每次使用新的输出文件名。
 现阶段只允许仓库内已审查的三实体计划，图片重绘计划仍阻塞。
 未知写入冻结工作区；`cad-reconcile` 只对账，不重放或解锁。
 详见[公共契约](docs/contracts/managed-cad-v1.md)与[执行策略](docs/architecture/controlled-writes.md)。
 
-当前为**未冻结的草案修订2**：可写工作图与只读验收图使用不同绑定；回滚按权威事件revision核验，
+当前实施基线为**修订2 / 映射修订1**：可写工作图与只读验收图使用不同绑定；回滚按权威事件revision核验，
 新建时绑定输出目录，对账区分输入和结果文档。见[MCP对齐回应](docs/contracts/mcp-alignment-response-2026-11-19.md)
 及[schema/共享例子哈希清单](configs/contracts/cader-v1.manifest.json)。
+共享快照继续保留未冻结状态。[Cader独立实机报告](docs/validation/2026-11-19-cader-cli-real-loop.md)
+记录了31,988字节DWG、重开后的几何比较、进程清理与限制；这是固定计划测试，不是模型规划或图片还原验收。
 
 <a id="configuration"></a>
 

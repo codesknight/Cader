@@ -1,0 +1,16 @@
+# Dedicated Cader CAD fixture profile. Keep the normal read-only/COM profile separate.
+# Requires MCP revision 2 + mapping revision 1 and a running authenticated AutoCAD Bridge.
+version: 1
+server_name: autocad
+transport: stdio
+command: C:/path/to/autocad-mcp/python.exe
+args: [-m, autocad_mcp.managed_server]
+cwd: D:/path/to/AutoCAD_MCP
+startup_timeout_ms: 30000
+tool_timeout_ms: 90000
+env_refs:
+  AUTOCAD_MCP_CONFIG: CADER_AUTOCAD_HTTP_CONFIG
+  AUTOCAD_BRIDGE_TOKEN: AUTOCAD_BRIDGE_TOKEN
+# Install the selected MCP checkout/wheel into this Python environment.
+# For source-only testing, optionally add PYTHONPATH: CADER_AUTOCAD_MCP_PYTHONPATH
+# under env_refs and set that host variable to the checkout's absolute src directory.

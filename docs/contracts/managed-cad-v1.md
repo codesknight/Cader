@@ -1,9 +1,10 @@
 # Cader / MCP 公共契约草案 v1
 
-状态：**Cader侧草案修订2，已调整消费与校验，待MCP确认及实现**。尚未双方冻结，不是MCP能力声明。
+状态：**修订2 / 映射修订1已双方确认作为实施基线，MCP专用入口及Cader固定几何实机闭环已通过**。
+尚未联合发布冻结；通过范围见[Cader独立实机报告](../validation/2026-11-19-cader-cli-real-loop.md)。
 关联 [#15](https://github.com/codesknight/Cader/issues/15)。
 机读 [schema](../../configs/contracts/cader-v1.schemas.json) 可通过 `pnpm run cader cad-contract` 无凭据导出。
-版本为 cader-cad/1；新接口名称和字段待两方确认后实机验收，旧接口保留兼容。
+版本为cader-cad/1；显式使用autocad_mcp.managed_server，普通入口及默认COM保留兼容。
 复用现有 HTTP 的身份、revision、分页和请求对账；不创建另一套 Bridge，不回退文件名或当前文档。
 本轮对MCP团队意见的逐项答复见[对齐回应](mcp-alignment-response-2026-11-19.md)。
 
@@ -45,7 +46,7 @@ job不再使用含义不明的document_id。所有job明确携带operation、req
 source_artifact_id，后三者按规则为ID或null：batch/save输入为工作图，成功结果同图；create/reopen
 输入文档为null，成功结果为新图。reopen还须匹配artifact。pending/失败可暂缺结果图；有结果时也要核对。
 revision表示结果文档的权威事件序号；失败无结果图时表示request_document_id的当前序号。
-这些是修订2的DTO字段，MCP适配层需确认后实现，不能指望旧工具忽略额外字段即兼容。
+这些是修订2的DTO字段，已由专用MCP profile实现；不能指望普通旧工具忽略额外字段即兼容。
 
 query.items规范化为`{object_id,operation,args}`，保留几何、文字、字高和图层字段。
 不能读取的类型列入unsupported_geometry_types；非空阻止验收，不能静默丢弃。
@@ -103,16 +104,18 @@ JSON schema描述结构；计划ID唯一、尺度证据、身份匹配、revisio
 
 ## 接入与验收
 
-独立profile参考[AutoCAD.http.example.yaml](../../configs/mcp/AutoCAD.http.example.yaml)。
+独立profile参考[AutoCAD.managed.example.yaml](../../configs/mcp/AutoCAD.managed.example.yaml)。
 command/cwd替换为本机绝对路径；根.env的CADER_AUTOCAD_HTTP_CONFIG引用已存在的独立HTTP配置路径，
 AUTOCAD_BRIDGE_TOKEN提供凭据。env_refs只写变量名，缺失拒绝启动。
-示例不会创建MCP配置或更改默认COM，也不保证外部服务已支持本协议。
+示例不创建MCP配置或更改默认COM；需安装支持本契约的MCP版本，并先启动同令牌的Bridge。
 输出授权选择**create显式传output_directory**：由Cader计算已存在且不经过链接的.cader/artifacts，
 WorkingBinding须返回相同目录；MCP可再叠加私有配置白名单，但不得改绑到其他目录或隐式私有目录。
 save继续核对完整output_path、目录约束及禁止覆盖；旧save_working_drawing可由适配层映射文件名。
-默认autocad_mcp.server不是版本化DTO入口；MCP尚未发布专用入口，本轮不编造模块名或自动切换。
+默认autocad_mcp.server不是版本化DTO入口；专用入口为autocad_mcp.managed_server，不自动切换。
 
 先通过固定几何真实闭环，再扩大图片任务。当前fixture覆盖身份/请求错配、过期revision、
 未知结果、回滚、分页循环、未知类型、错误几何/文字、文件哈希及重开不符。
-真实MCP与DWG验收仍在[#3](https://github.com/codesknight/Cader/issues/3)和
-[#14](https://github.com/codesknight/Cader/issues/14)跟踪；本轮未修改MCP。
+固定几何真实MCP/DWG闭环现已独立通过；模型驱动及真实故障条件仍在
+[#3](https://github.com/codesknight/Cader/issues/3)，图片重绘在[#14](https://github.com/codesknight/Cader/issues/14)。
+本轮未修改MCP。原schema/manifest中的proposal、implementation required、unfrozen等文字为批准快照元数据，
+为保持MCP钉住的文件hash原样保留；当前部署和验收状态以本文件及实机报告为准，不能据快照文字误判入口仍未实现。

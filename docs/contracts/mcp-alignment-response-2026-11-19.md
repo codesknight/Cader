@@ -1,5 +1,9 @@
 # Cader对MCP契约对齐意见的回应
 
+> 本文保留实施前的对齐回应。后续MCP已确认修订2/映射修订1并实现专用profile，
+> Cader已独立完成[固定几何真实闭环](../validation/2026-11-19-cader-cli-real-loop.md)。
+> 原共享快照继续保留unfrozen，不据此声明联合发布冻结。
+
 日期：2026-11-19。关联[#15](https://github.com/codesknight/Cader/issues/15)。
 输入：MCP团队同日的cader-managed-cad-v1-alignment.md，审阅基线Cader be2887f / MCP 5fbd007。
 本文为Cader侧回应和实施说明，**不是双方签署的冻结版本**，不宣称MCP专用profile已经存在。

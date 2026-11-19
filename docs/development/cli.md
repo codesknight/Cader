@@ -114,13 +114,15 @@ uv run --project cader-mcp cader-mcp mcp list --config configs/mcp/python.local.
 
 ```powershell
 pnpm run cader cad-contract
-pnpm run cader cad-test --backend http --mcp configs/mcp/AutoCAD.http.local.yaml --plan benchmark/fixtures/managed-geometry.plan.json --output .cader/artifacts/geometry-001.dwg --authorize-write
-pnpm run cader cad-reconcile --run <managed-run-directory> --mcp configs/mcp/AutoCAD.http.local.yaml
+pnpm run cader cad-test --backend http --mcp configs/mcp/AutoCAD.managed.local.yaml --plan benchmark/fixtures/managed-geometry.plan.json --output .cader/artifacts/geometry-001.dwg --authorize-write
+pnpm run cader cad-reconcile --run <managed-run-directory> --mcp configs/mcp/AutoCAD.managed.local.yaml
 pnpm run cader assessment-check --assessment <assessment.json> --expect <independent.json>
 ```
 
-cad-contract和assessment-check无需密钥。其余需本机profile；参考AutoCAD.http.example.yaml，
-不要覆盖现有COM配置。MCP新工作图/保存/重开尚待对齐；未实现或COM时阻塞，不假装支持。
+cad-contract和assessment-check无需密钥。cad-test不调用模型，需要Bridge令牌和本机专用profile；
+参考[AutoCAD.managed.example.yaml](../../configs/mcp/AutoCAD.managed.example.yaml)，不要覆盖现有COM配置。
+七工具入口为autocad_mcp.managed_server，需已启动HTTP Bridge；普通server仍是旧DTO/默认COM。
+该专用profile用于cad-test，不替代依赖list_layers等普通工具的只读live-smoke配置。
 cad-test仅允许configs/cad/execution.yaml审查哈希中的三实体fixture、允许操作和私有输出目录，
 显式授权与HTTP发现通过后才新建工作图。图片计划暂不开放；模型和Skill不能扩大权限。
 每次输出换新文件名，默认禁止覆盖。
@@ -142,5 +144,7 @@ Python CLI 在入口显式将 stdout/stderr 配置为 UTF-8，覆盖重定向管
 回滚后允许revision前进，以权威revision独立查询，不能自动续写。
 job按operation区分输入/结果文档与artifact。cad-reconcile对旧journal返回
 LEGACY_REQUEST_REQUIRES_REVIEW，退出3，保留锁；不自动迁移。篡改审计信息返回REQUEST_JOURNAL_MISMATCH。
-`pnpm contract:export`离线重导出schema/manifest；共享向量只验证组件协议，未执行真实MCP/CAD。
+`pnpm contract:export`离线重导出schema/manifest；共享向量仍只验证组件协议。
+后续[Cader实机报告](../validation/2026-11-19-cader-cli-real-loop.md)已通过固定几何真实文件闭环，
+与组件向量、模型任务和图片识别分别记录。
 详见[对齐回应](../contracts/mcp-alignment-response-2026-11-19.md)。
