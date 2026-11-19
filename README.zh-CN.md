@@ -41,7 +41,8 @@ Cader 是面向计算机辅助设计的可扩展 AI Agent 项目，以
 
 > **当前阶段：M0 集成。** 模型配置、受限子任务委派和 AutoCAD 只读集成已有 smoke 验证记录。
 > 当前可用入口是下文的 `pnpm` 命令，已增加接收用户任务的只读 `exec`；
-> 可安装的 `cader` 产品入口、社区 TUI 接入及绘制—保存—重开闭环仍在规划中。
+> 可安装的 `cader` 产品入口、社区 TUI 接入仍在规划中。受控调度器已通过组件测试，
+> 真实绘制—保存—重开闭环仍等待 MCP 新契约支持。
 
 | 能力 | 当前实现 |
 |---|---|
@@ -49,8 +50,8 @@ Cader 是面向计算机辅助设计的可扩展 AI Agent 项目，以
 | 上下文组装 | 稳定 Static 与动态 Available；显式 Skill 清单、角色可见性与按需引用资料 |
 | 子任务委派 | 主 Agent 最多协调 **5 个并行子 Agent**；子 Agent 返回结果，不继续委派 |
 | 模型配置 | 主 Agent、文本审查和视觉子任务使用 YAML profile；凭据通过环境变量提供 |
-| CAD 集成 | 已审查的 AutoCAD 只读工具；M0 profile 保持禁止写入 |
-| 验证与记录 | 确定性 fixture、本地 smoke 记录，以及 Windows/Linux CI |
+| CAD 集成 | Agent profile 保持只读；独立程序调度器执行已审查固定几何计划 |
+| 验证与记录 | 独立实体/文件/重开校验、图像事实与连通图门槛、fixture 和 Windows/Linux CI |
 
 ```text
 CLI / 脚本 → Cader profile → DSH + Cordis → MCP → AutoCAD
@@ -124,6 +125,23 @@ pnpm run cader exec "读取图层并总结，不修改图纸" --mcp configs/mcp/
 `QUOTA` 表示 provider 配额故障，不代表 MCP 不通。
 严格 JSON 输出和当前限制见 [CLI 使用与诊断](docs/development/cli.md)。
 
+结果分别返回 `run_status` 与 `task_status`。只读模型任务完成仍标记 `unverified`；
+`exec --intent redraw` 返回 `blocked`，不启动模型或 MCP。模型正文不能证明 DWG 已生成。
+
+### 4. 查看受控 CAD 契约
+
+```sh
+pnpm run cader cad-contract
+pnpm run cader cad-test --backend http --mcp configs/mcp/AutoCAD.http.local.yaml --plan benchmark/fixtures/managed-geometry.plan.json --output .cader/artifacts/geometry-001.dwg --authorize-write
+```
+
+第一条离线导出契约。第二条需要自行准备 HTTP profile 及兼容的工作图/保存/重开接口，
+目前这些接口是**等待 MCP 对齐的 Cader 侧提案**；能力通过后会新建工作图并执行。
+保留默认 COM，`--backend http` 不会切换服务端；当前本地 COM 返回 `HTTP_BACKEND_REQUIRED`。
+现阶段只允许仓库内已审查的三实体计划，图片重绘计划仍阻塞。
+未知写入冻结工作区；`cad-reconcile` 只对账，不重放或解锁。
+详见[公共契约](docs/contracts/managed-cad-v1.md)与[执行策略](docs/architecture/controlled-writes.md)。
+
 <a id="configuration"></a>
 
 ## 配置说明
@@ -134,6 +152,8 @@ pnpm run cader exec "读取图层并总结，不修改图纸" --mcp configs/mcp/
 configs/
 ├── models/                  # 主 Agent、文本子 Agent、视觉子 Agent
 ├── mcp/                     # DSH YAML 与 Python 诊断 JSON 示例
+├── cad/                     # 允许操作与已审查计划哈希
+├── contracts/               # CAD、任务、读图的版本化 JSON schema
 ├── prompts/static/          # 稳定的角色规则与统筹提示词
 ├── skills/                  # 已审查、按需加载的 Skill 内容
 └── runtime.yaml             # 注册模型、并发、预算与工具范围
@@ -163,6 +183,11 @@ pnpm run cader exec "评估参考图，列出尺度证据缺口和后续验证�
 独立图片用例可运行 `pnpm image-test --manifest benchmark/image-cases.example.json`；
 加 `--live` 才调用付费模型，以独立 JSON 期望校验识别结果。`tests/images/` 原始资料仅留本地。
 [首轮真实图片测试](docs/research/local-image-tests-2026-11-19.md)区分了输入、识别与尚未完成的 CAD 绘图。
+
+密集小字可通过 `exec --image <file> --crop x,y,width,height --rotate 90` 和受限的
+`cader_view_image` 工具访问原图区域。事件记录原图、视图、附件及实际请求图的哈希与坐标映射。
+`assessment-check` 将结构化事实和端口连通关系与独立期望比较；这些门槛不等于真实识别准确率
+或 DWG 拓扑已通过，见[读图证据契约](docs/contracts/perception-v1.md)。
 
 ### 连接模型与 AutoCAD-MCP
 

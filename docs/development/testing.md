@@ -107,3 +107,13 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 - runner默认离线测试无Key；测试--live的缺凭据路径使用独立临时工作区和空Key，在provider装配前失败，无真实API请求，并验证独立期望快照。
 - 原始运行、清单、任务与期望均在.cader；公开报告只保留聚合结论。根tests/images被忽略，不上传用户数据或将其放入CI。
 - 远端：实现855b10a，[CI run 44467176367](https://github.com/codesknight/Cader/actions/runs/44467176367) 的4/4 jobs全部成功（Windows/Linux TS20项、Python10项及smoke）。20个暂存文件实际凭据扫描泄漏0；66个文档链接/锚点及暂存whitespace检查通过。
+
+## 2026-11-19：受控执行与读图回归（#15）
+
+- Node24.9.0/pnpm11.28.5：pnpm typecheck、pnpm test（32/32）通过；新增请求schema后最终复验另记。使用缓存依赖的pnpm install --offline已通过。
+- 固定几何的内存MCP fixture覆盖新建→批处理→查询→保存→重开→再查询；合成文件明确不是真实DWG。覆盖授权/审核哈希/COM/操作缺失/路径/覆盖拦截，未知冻结、跨profile锁、只读对账、已知回滚、错误实例/请求/revision/几何/hash/重开、未知实体及分页循环。
+- 合成事实回归覆盖OR/XOR、遗漏标签、110→1100、猜图号、错误跨线、unknown非null和缺少物理尺度；通过只代表校验器拒绝这些输入，不代表模型已看懂用户原图。
+- 实际Sharp crop/rotation和仿射映射、源文件hash不变；实际DSH loop区域工具、请求图变体和Skill hash事件通过，无付费请求。公开schema、keyless CLI和只读工具边界测试通过。
+- 真实MCP仅get_backend_status，当前COM，退出3/HTTP_BACKEND_REQUIRED，runtime_write_available=false，artifact=null，无写入/保存/重开；证据.cader/runs/managed-f47d2131-6938-410f-a7a4-a689e54c3d3c/verification.json。本轮不改MCP代码、配置或默认后端。
+- Python源码未变；Windows/Linux完整Python lint/format/pytest/协议smoke由CI验证。真实HTTP、完整DWG与复杂图片识别未执行，保持未验收状态。
+- 最终本地复验：pnpm install --offline --frozen-lockfile、pnpm typecheck、pnpm test（32/32）、pnpm smoke（6/6）通过。发布前增加拒绝未支持几何属性的验证后再执行必要复验；不重复付费模型或真实CAD写入。

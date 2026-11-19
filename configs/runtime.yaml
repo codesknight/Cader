@@ -8,5 +8,6 @@ max_tool_calls: 12
 max_delegations: 10
 timeout_ms: 180000
 read_only_tools:
+  - mcp__autocad__get_backend_status
   - mcp__autocad__list_layers
   - mcp__autocad__list_symbol_library

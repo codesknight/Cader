@@ -18,7 +18,10 @@ pnpm run cader exec "读取当前图层并总结，不修改图纸" --mcp config
 真实任务会调用付费 API；提供 MCP 时可能连接本机 CAD。CI 使用离线模型 fixture，不消耗配额。
 任务可不要求委派，不像 smoke 一样强制进行固定校验。
 
-`ok:true` 表示 Agent 运行完成，不证明任何绘图需求已满足；本轮结果固定标注 `mode:read-only`。
+`ok:true` 保留兼容，但须同时读取 run_status/task_status。普通只读 exec 运行完成时
+task_status=unverified、verification=not_performed，不从模型正文推断业务完成。
+`exec "重绘并保存" --intent redraw` 返回 blocked/WRITE_CAPABILITY_UNAVAILABLE，退出3，
+不调用模型或MCP。user_task_authorized=true与runtime_write_available=false分别记录。
 输出中的 `text` 是模型回复，`runDirectory` 指向本地私有 events.jsonl 和 verification.json。
 当前还没有交互 REPL、resume、稳定 RunEvent JSONL 或可全局安装的产品入口。
 
@@ -42,6 +45,11 @@ skills 命令只需 configs/skills，不读取 .env 或模型配置，不发请�
 选定 Skill 和是否附图写入终态；原图片附件仅留在本地私有 .cader 及显式模型调用链路。
 参考图内容不自动变为工具授权。校准图只是链路示例，不作为重绘正确性验证。
 
+图像随后经Sharp实际解码和DSH附件服务规范化。可加 --crop x,y,width,height 和
+--rotate 0|90|180|270；坐标取原图，先裁剪再旋转。视觉Agent有作用域受限的cader_view_image，
+可查看原始分辨率区域。原图/视图/附件/请求变体的哈希、尺寸、映射和Skill内容哈希写入私有事件，
+详见[读图契约](../contracts/perception-v1.md)。
+
 cad-redraw-review 是 Cader 自有评估指引，不是上游包的安装或完整重绘引擎；
 许可与接入取舍见[研究报告](../research/redraw-skill-integration-2026-11-19.md)。
 
@@ -59,7 +67,8 @@ node apps/cli/dist/index.js exec "读取图层并总结" --mcp configs/mcp/AutoC
 ```
 
 任务完成报告为 stdout 的单个 JSON 对象；启动/参数错误为 stderr 的 JSON，帮助为普通文本。
-这不是正式的流式 JSONL 接口。退出码：0 成功、1 运行失败、2 参数错误。
+这不是正式的流式 JSONL 接口。退出码：0 运行正常或受控任务成功、1 失败、2 参数错误、3 业务阻塞。
+普通exec退出0且task_status=unverified，不代表通过业务验收。
 未知选项、重复 --mcp、缺失参数和空任务在加载凭据或连接 CAD 之前拒绝。
 
 失败示例：
@@ -99,7 +108,27 @@ uv run --project cader-mcp cader-mcp mcp list --config configs/mcp/python.local.
 ```
 
 `live-smoke` 不接受用户任务；`--task`、`--write` 等不支持的参数会返回 USAGE_ERROR。
-绘图需要后续[受控写入契约](../architecture/controlled-writes.md)，不能通过修改 read_only_tools 开放。
+绘图通过独立[受控调度器](../architecture/controlled-writes.md)，不能通过修改 read_only_tools 开放。
+
+## 受控固定几何与独立检查
+
+```powershell
+pnpm run cader cad-contract
+pnpm run cader cad-test --backend http --mcp configs/mcp/AutoCAD.http.local.yaml --plan benchmark/fixtures/managed-geometry.plan.json --output .cader/artifacts/geometry-001.dwg --authorize-write
+pnpm run cader cad-reconcile --run <managed-run-directory> --mcp configs/mcp/AutoCAD.http.local.yaml
+pnpm run cader assessment-check --assessment <assessment.json> --expect <independent.json>
+```
+
+cad-contract和assessment-check无需密钥。其余需本机profile；参考AutoCAD.http.example.yaml，
+不要覆盖现有COM配置。MCP新工作图/保存/重开尚待对齐；未实现或COM时阻塞，不假装支持。
+cad-test仅允许configs/cad/execution.yaml审查哈希中的三实体fixture、允许操作和私有输出目录，
+显式授权与HTTP发现通过后才新建工作图。图片计划暂不开放；模型和Skill不能扩大权限。
+每次输出换新文件名，默认禁止覆盖。
+
+超时/返回未知保留全局锁，cad-reconcile仅按原request_id查询，退出3，不重放、不解锁或继续写。
+工作区锁也覆盖切换profile，进程中断同样需先核实。当前没有自动恢复/解锁命令。
+完整结果有识别/规划/执行/保存/重开状态，只有独立实体、文件和重开全部通过才为task_status=succeeded。
+assessment-check的通过只代表提供的独立事实与抽象连通图检查，不代表真实图像或DWG已验收。
 
 Python CLI 在入口显式将 stdout/stderr 配置为 UTF-8，覆盖重定向管道；不依赖 PYTHONUTF8=1。
 测试在 PYTHONUTF8=0、PYTHONIOENCODING=gb18030 环境下验证中文 JSON 和中文参数错误。

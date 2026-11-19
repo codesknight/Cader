@@ -1,0 +1,5 @@
+version: 1
+contract_version: cader-cad/1
+allowed_operations: [draw_line, draw_circle, draw_text]
+reviewed_plan_sha256:
+  - 3875a47ec10331dee93ab356354a73524c52b545d930701dd4698ae1457ebc87

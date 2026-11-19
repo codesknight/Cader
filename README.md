@@ -43,7 +43,8 @@ follow once the underlying services are stable.
 > **Project status — M0 integration.** Model profiles, bounded delegation, and read-only
 > AutoCAD integration have smoke-test evidence. Today's entry points are the `pnpm`
 > commands below, including user tasks through read-only `exec`. An installable
-> `cader` binary, community TUI integration, and draw–save–reopen remain planned.
+> `cader` binary and community TUI integration remain planned. A controlled CAD scheduler
+> now passes component fixtures; real draw–save–reopen awaits the managed MCP contract.
 
 | Capability | Current implementation |
 |---|---|
@@ -51,8 +52,8 @@ follow once the underlying services are stable.
 | Context assembly | Stable Static prompts plus dynamic Available context; explicit, role-scoped Skill catalog and on-demand references |
 | Delegation | Main agent coordinates up to **5 concurrent subagents**; children return results without delegating |
 | Model profiles | YAML profiles for main, text-review, and vision agents; credentials come from environment variables |
-| CAD integration | Reviewed read-only AutoCAD tools; writes remain blocked in the M0 profile |
-| Verification | Deterministic fixtures, local smoke records, and Windows/Linux CI |
+| CAD integration | Read-only Agent profile; separate program-controlled scheduler for a reviewed geometry fixture |
+| Verification | Independent entity/file/reopen checks, image fact/graph gates, deterministic fixtures and Windows/Linux CI |
 
 ```text
 CLI / scripts → Cader profile → DSH + Cordis → MCP → AutoCAD
@@ -127,6 +128,25 @@ read-only policy. Real tasks call the paid provider. Failures now include a sani
 `errorCode`, `source`, and actionable `hint`; `QUOTA` is a provider failure, not proof of MCP failure.
 See [CLI usage and diagnostics](docs/development/cli.md) for direct JSON output and limits.
 
+Results separate `run_status` from `task_status`. A completed read-only model task is
+`unverified`; `exec --intent redraw` returns `blocked` without starting a model or MCP.
+No model answer is treated as proof that a DWG was created.
+
+### 4. Inspect the controlled CAD contract
+
+```sh
+pnpm run cader cad-contract
+pnpm run cader cad-test --backend http --mcp configs/mcp/AutoCAD.http.local.yaml --plan benchmark/fixtures/managed-geometry.plan.json --output .cader/artifacts/geometry-001.dwg --authorize-write
+```
+
+The first command is offline. The second requires your own HTTP profile and compatible
+managed-document/save/reopen endpoints; these are a **Cader-side proposal awaiting MCP support**.
+It may create a new working drawing when capabilities pass. COM remains the default;
+`--backend http` does not switch the server. Current local COM returns `HTTP_BACKEND_REQUIRED`.
+Only the shipped, reviewed three-entity plan is allowed. Image-redraw plans stay blocked.
+Unknown writes freeze the workspace: `cad-reconcile` only queries, never replays or unlocks.
+See [the public contract](docs/contracts/managed-cad-v1.md) and [execution policy](docs/architecture/controlled-writes.md).
+
 <a id="configuration"></a>
 
 ## Configuration
@@ -137,6 +157,8 @@ Editable agent assets live together under `configs/`:
 configs/
 ├── models/                  # MainAgent, SubAgent, VisionAgent YAML profiles
 ├── mcp/                     # DSH YAML and Python diagnostic JSON examples
+├── cad/                     # Allowed operations and reviewed plan hashes
+├── contracts/               # Versioned CAD/task/perception JSON schemas
 ├── prompts/static/          # Stable role and coordination instructions
 ├── skills/                  # Reviewed, on-demand skill content
 └── runtime.yaml             # Registered profiles, concurrency, budgets, tools
@@ -170,6 +192,12 @@ Local image cases can also be checked with `pnpm image-test --manifest benchmark
 add `--live` for paid recognition tests against independent expected JSON. User images in
 `tests/images/` stay local. [First real-image test results](docs/research/local-image-tests-2026-11-19.md)
 separate input/recognition checks from the still-pending CAD drawing workflow.
+
+For dense text, `exec --image <file> --crop x,y,width,height --rotate 90` and the scoped
+`cader_view_image` tool use original-resolution regions. Events record source, view,
+attachment and actual request-image hashes with coordinate mappings. `assessment-check`
+compares structured facts and port connectivity with independent expectations. These gates
+do not prove real-image recognition accuracy or DWG topology; see [perception evidence](docs/contracts/perception-v1.md).
 
 ### Connect your models and AutoCAD-MCP
 

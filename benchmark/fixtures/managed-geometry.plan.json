@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "purpose": "geometry-fixture",
+  "coordinate_mode": "schematic",
+  "units": "layout",
+  "operations": [
+    { "id": "line-a", "operation": "draw_line", "args": { "start": [0, 0, 0], "end": [20, 0, 0], "layer": "0" } },
+    { "id": "circle-a", "operation": "draw_circle", "args": { "center": [10, 10, 0], "radius": 3, "layer": "0" } },
+    { "id": "label-a", "operation": "draw_text", "args": { "point": [0, 15, 0], "text": "CADER FIXTURE", "height": 2, "layer": "0" } }
+  ]
+}

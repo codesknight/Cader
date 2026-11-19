@@ -1,4 +1,35 @@
-# CAD 受控写入契约（待实施）
+# CAD 受控写入契约
+
+## 2026-11-19 实施状态（#15）
+
+以下原契约保留作为需求依据。本轮已实现 Cader 程序调度器和组件验收，但外部 MCP 的新工作图、
+绑定保存及重开协议尚待对齐；真实 CAD 闭环仍未通过。关联 [#15](https://github.com/codesknight/Cader/issues/15)。
+公共接口与业务终态见 [v1 草案](../contracts/managed-cad-v1.md)，
+读图证据与抽象拓扑检查见 [perception-v1](../contracts/perception-v1.md)。
+
+`exec` 保持只读。新增 `cad-test` 是独立程序入口，需显式 HTTP、授权、计划和输出路径。
+策略位于 configs/cad/execution.yaml，仅放行已审查哈希的固定几何计划；当前支持直线、圆、文字。
+所有 image-redraw 计划仍阻塞；Skill 和模型不能授权，也不能把图片计划改称 fixture 绕过哈希。
+
+调度器先获取工作区独占锁，再只读发现能力，绑定新工作图身份。变更前将计划、request_id、
+目标和 expected_revision 写入并 fsync 私有 journal，只派发一次。写调用异常或返回不符时冻结，
+保留全局锁，仅按原请求对账。切换 profile 不能绕过锁。cad-reconcile 不重放、不恢复、不解锁；
+即使查询终态也需人工审查。进程中断留下的锁同样先对账，不能靠删除锁假定安全。
+
+明确 rolled_back/not_executed 且 revision 不变的批处理失败，需独立查询新工作图为空；不继续保存。
+无法证实回滚时保留锁。文件保存和重开各有独立 request_id，不属于图元事务。
+
+验收读取绑定文档全部分页（最多20页），拒绝错误身份、revision、重复游标及未知实体类型。
+计划与实际实体一对一匹配坐标、半径、文字、字高和图层（容差1e-6布局单位），不靠数量或模型正文。
+保存后校验本地路径、字节数、SHA-256和基础DWG签名，再按artifact_id重开为不同document_id并重新查询。
+签名检查不是DWG解码；只有完整流程通过才返回 task_status=succeeded、verification=passed、artifact。
+保存失败保留绘制状态，重开失败保留文件状态。输出仅限 .cader/artifacts 下单一英文文件名DWG，禁止覆盖。
+
+当前 verifier 只覆盖三类固定几何；CAD实体到电路拓扑、符号库和视觉相似度尚未实现。
+组件测试使用内存MCP和明确标识的合成文件字节，不能作为真实DWG验收。
+实际CLI探测只执行get_backend_status：本地COM返回HTTP_BACKEND_REQUIRED、退出3，无写入和模型请求。
+
+## 原验收要求（历史）
 
 来源：用户转交 AutoCAD-MCP 开发方反馈；关联 [CAD 闭环 #3](https://github.com/codesknight/Cader/issues/3)
 与 [CLI 维护 #12](https://github.com/codesknight/Cader/issues/12)。本文件是后续验收契约，不开放写权限。

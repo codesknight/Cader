@@ -1,12 +1,28 @@
-import { runHarnessSmoke, runLiveSmoke, runTask, failureFromError } from '@cader/profile';
+import { runHarnessSmoke, runLiveSmoke, runTask, failureFromError, runControlledCad,
+  reconcileControlledCad, contractSchemas, validateAssessment, assessmentSchemas } from '@cader/profile';
 import { recordSmoke } from './record.js';
-import { loadConfig, loadSkills, redactSecrets } from '@cader/config';
+import { loadConfig, loadSkills, redactSecrets, workspacePath } from '@cader/config';
+import { readFile } from 'node:fs/promises';
 
 const command = process.argv[2];
-const usage = 'Cader CLI (read-only)\nUsage: cader exec "<task>" [--mcp <local.yaml>] [--skill <name>] [--image <workspace.png|jpg>] | skills list | skills show <name> [--resource <id>] | doctor | models | harness-smoke | live-smoke --mcp <local.yaml> [--image <file> --expected-image <json>]';
+const usage = 'Cader CLI (read-only by default)\nexec "<task>" [--intent assess|redraw] [--mcp <local.yaml>] [--skill <name>] [--image <workspace.png|jpg>] [--crop x,y,w,h] [--rotate 0|90|180|270]\nskills list | skills show <name> [--resource <id>] | doctor | models | harness-smoke\nlive-smoke --mcp <local.yaml> [--image <file> --expected-image <json>]\ncad-contract\ncad-test --backend http --mcp <local.yaml> --plan <plan.json> --output .cader/artifacts/<name>.dwg [--authorize-write]\ncad-reconcile --run <managed-run-directory> --mcp <local.yaml>\nassessment-check --assessment <json> --expect <independent.json>';
+function flags(keys: string[], booleans: string[] = []) {
+  const result = new Map<string, string>();
+  const args = process.argv.slice(3);
+  for (let index = 0; index < args.length; index++) {
+    const key = args[index]!;
+    if (result.has(key)) throw new Error('USAGE_ERROR');
+    if (booleans.includes(key)) result.set(key, 'true');
+    else if (keys.includes(key) && args[index + 1]?.trim() && !args[index + 1]!.startsWith('--')) result.set(key, args[++index]!);
+    else throw new Error('USAGE_ERROR');
+  }
+  if (keys.some(key => !result.has(key))) throw new Error('USAGE_ERROR');
+  return result;
+}
 try {
   // Parse before loading credentials or starting any runtime.
-  let taskInput: { task: string; mcpPath?: string; skill?: string; image?: string } | undefined;
+  let taskInput: { task: string; mcpPath?: string; skill?: string; image?: string; intent?: 'assess' | 'redraw';
+    imageView?: { rotation?: 0 | 90 | 180 | 270; crop?: { left: number; top: number; width: number; height: number } } } | undefined;
   let smokeInput: { mcpPath: string; image?: string; expectedImage?: string } | undefined;
   if (command === 'live-smoke') {
     const flags = new Map<string, string>();
@@ -26,23 +42,54 @@ try {
     const flags = new Map<string, string>();
     for (let index = 0; index < args.length; index++) {
       const arg = args[index]!;
-      if (['--mcp', '--skill', '--image'].includes(arg)) {
+      if (['--mcp', '--skill', '--image', '--intent', '--crop', '--rotate'].includes(arg)) {
         if (flags.has(arg) || !args[index + 1]?.trim() || args[index + 1]!.startsWith('--')) throw new Error('USAGE_ERROR');
         flags.set(arg, args[++index]!);
       } else if (arg.startsWith('--') || task !== undefined) throw new Error('USAGE_ERROR');
       else task = arg;
     }
     if (!task?.trim()) throw new Error('USAGE_ERROR');
-    taskInput = { task, mcpPath: flags.get('--mcp'), skill: flags.get('--skill'), image: flags.get('--image') };
+    const intent = flags.get('--intent') ?? 'assess';
+    if (!['assess', 'redraw'].includes(intent)) throw new Error('USAGE_ERROR');
+    const rotation = Number(flags.get('--rotate') ?? 0);
+    if (![0, 90, 180, 270].includes(rotation) || ((flags.has('--crop') || flags.has('--rotate')) && !flags.has('--image'))) throw new Error('USAGE_ERROR');
+    let crop;
+    if (flags.has('--crop')) {
+      const values = flags.get('--crop')!.split(',').map(Number);
+      if (values.length !== 4 || values.some(value => !Number.isSafeInteger(value)) || values[0]! < 0 || values[1]! < 0 || values[2]! <= 0 || values[3]! <= 0) throw new Error('USAGE_ERROR');
+      crop = { left: values[0]!, top: values[1]!, width: values[2]!, height: values[3]! };
+    }
+    taskInput = { task, mcpPath: flags.get('--mcp'), skill: flags.get('--skill'), image: flags.get('--image'),
+      intent: intent as 'assess' | 'redraw', imageView: { rotation: rotation as 0 | 90 | 180 | 270, crop } };
   }
   if (command === '--help' || command === 'help' || (command === 'exec' && process.argv.includes('--help'))) {
     console.log(usage);
   } else {
-    if (command === 'models' || command === 'live-smoke' || command === 'exec') {
+    if (command === 'models' || command === 'live-smoke' || command === 'exec' || command === 'cad-test' || command === 'cad-reconcile') {
       try { process.loadEnvFile('.env'); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('INVALID_ENV_FILE'); }
     }
-    if (command === 'skills') {
+    if (command === 'cad-contract') {
+      if (process.argv.length !== 3) throw new Error('USAGE_ERROR');
+      console.log(JSON.stringify({ contract_version: 'cader-cad/1', status: 'Cader-side proposal; MCP implementation required',
+        schemas: { ...contractSchemas(), ...assessmentSchemas() } }, null, 2));
+    } else if (command === 'cad-test') {
+      const parsed = flags(['--backend', '--mcp', '--plan', '--output'], ['--authorize-write']);
+      const result = await runControlledCad(process.cwd(), { backend: parsed.get('--backend')!, mcpPath: parsed.get('--mcp')!,
+        planPath: parsed.get('--plan')!, output: parsed.get('--output')!, authorized: parsed.has('--authorize-write') });
+      console.log(JSON.stringify(result, null, 2));
+      process.exitCode = result.task_status === 'blocked' ? 3 : result.ok ? 0 : 1;
+    } else if (command === 'cad-reconcile') {
+      const parsed = flags(['--run', '--mcp']);
+      console.log(JSON.stringify(await reconcileControlledCad(process.cwd(), parsed.get('--run')!, parsed.get('--mcp')!), null, 2));
+      process.exitCode = 3;
+    } else if (command === 'assessment-check') {
+      const parsed = flags(['--assessment', '--expect']);
+      const load = async (key: string) => JSON.parse(await readFile(await workspacePath(process.cwd(), parsed.get(key)!), 'utf8'));
+      const result = validateAssessment(await load('--assessment'), await load('--expect'));
+      console.log(JSON.stringify({ ...result, assessment: undefined, verification: 'independent-facts-and-graph-only', artifact: null }, null, 2));
+      process.exitCode = result.ok ? 0 : 3;
+    } else if (command === 'skills') {
       const args = process.argv.slice(3);
       if (args[0] === 'list' && args.length === 1) {
         console.log(JSON.stringify({ ok: true, skills: (await loadSkills(process.cwd())).list('main') }, null, 2));
@@ -54,7 +101,7 @@ try {
     } else if (command === 'exec') {
       const result = await runTask(process.cwd(), taskInput!);
       console.log(JSON.stringify(result, null, 2));
-      process.exitCode = result.ok ? 0 : 1;
+      process.exitCode = result.task_status === 'blocked' ? 3 : result.ok ? 0 : 1;
     } else if (command === 'doctor') {
       const [major, minor] = process.versions.node.split('.').map(Number);
       const ok = (major ?? 0) > 24 || (major === 24 && (minor ?? 0) >= 9);

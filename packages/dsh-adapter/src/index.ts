@@ -1,17 +1,19 @@
 // Keep upstream imports and version-sensitive wiring inside this package.
 import { Context } from '@deepseek-ai/cordis';
-import { brandString } from '@deepseek-ai/dsh-brand';
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
 import * as nativeExecutor from '@deepseek-ai/dsh-tool-executor-native';
 import ToolsService, { defineTool } from '@deepseek-ai/dsh-tools';
-import type { ToolCallId } from '@deepseek-ai/dsh-llm';
 
 export { Context, defineTool };
+export { invokeTool } from './tool-call.js';
 export { createLiveRuntime } from './live.js';
 export type { AgentResult, PublicEvent } from './live.js';
 export type { StreamChunk } from '@deepseek-ai/dsh-llm';
 export { LlmError } from '@deepseek-ai/dsh-llm';
 export { ChildPool } from './pool.js';
+export { createManagedClient, MANAGED_TOOLS } from './managed-client.js';
+export { prepareImageView, attachmentToSource } from './image-view.js';
+export type { ImageView } from './image-view.js';
 export type { ToolExecution, ToolExecutionResult, PreToolDecision } from '@deepseek-ai/dsh-tools';
 
 export async function createToolRuntime(): Promise<Context> {
@@ -25,21 +27,4 @@ export async function createToolRuntime(): Promise<Context> {
     await ctx.fiber.dispose();
     throw error;
   }
-}
-
-export async function invokeTool(
-  ctx: Context, name: string, args: Record<string, unknown>,
-  signal: AbortSignal = new AbortController().signal,
-) {
-  const batch = await ctx.tools.execute({
-    calls: [{
-      type: 'tool-call', id: brandString<ToolCallId>(crypto.randomUUID()),
-      name, arguments: JSON.stringify(args),
-    }],
-    signal,
-    maxParallelToolCalls: 1,
-  });
-  const result = batch.results[0]?.result;
-  if (!result) throw new Error('DSH returned no tool result');
-  return result;
 }

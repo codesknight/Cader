@@ -31,7 +31,7 @@ const Runtime = z.object({
   max_parallel_subagents: z.int().min(1).max(5), max_delegation_depth: z.literal(1),
   max_model_steps: z.int().min(1).max(50), max_tool_calls: z.int().min(1).max(100),
   max_delegations: z.int().min(1).max(25), timeout_ms: z.int().min(1000).max(600000),
-  read_only_tools: z.array(z.string().regex(/^mcp__[A-Za-z0-9_-]+__(list_layers|list_symbol_library)$/)),
+  read_only_tools: z.array(z.string().regex(/^mcp__[A-Za-z0-9_-]+__(list_layers|list_symbol_library|get_backend_status)$/)),
 }).strict();
 
 const Mcp = z.object({
@@ -39,11 +39,20 @@ const Mcp = z.object({
   transport: z.literal('stdio'), command: z.string().min(1), args: z.array(z.string()),
   cwd: z.string().min(1), startup_timeout_ms: z.int().min(1000).max(120000),
   tool_timeout_ms: z.int().min(1000).max(180000),
+  env_refs: z.record(z.string().regex(/^[A-Z][A-Z0-9_]*$/), z.string().regex(/^[A-Z][A-Z0-9_]*$/)).default({}),
 }).strict();
 
 export type ModelProfile = z.infer<typeof Profile>;
 export type RuntimeConfig = z.infer<typeof Runtime>;
 export type McpConfig = z.infer<typeof Mcp>;
+
+export function mcpEnvironment(config: McpConfig) {
+  return Object.fromEntries(Object.entries(config.env_refs ?? {}).map(([name, reference]) => {
+    const value = process.env[reference];
+    if (!value?.trim()) throw new ConfigError('Missing MCP environment reference');
+    return [name, value];
+  }));
+}
 
 export class ConfigError extends Error {
   constructor(message: string) { super(message); this.name = 'ConfigError'; }

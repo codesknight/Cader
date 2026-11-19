@@ -3,6 +3,10 @@ import * as policy from '@cader/cad-policy';
 export { runLiveSmoke } from './live-smoke.js';
 export { runTask } from './task.js';
 export { describeFailure, failureFromError } from './failure.js';
+export { runControlledCad, reconcileControlledCad } from './controlled-run.js';
+export type { CadTransport } from './controlled-run.js';
+export { Plan, verifyEntities, contractSchemas } from './cad-contract.js';
+export { Assessment, validateAssessment, assessmentSchemas } from './perception-contract.js';
 
 export async function runHarnessSmoke() {
   const ctx = await createToolRuntime();

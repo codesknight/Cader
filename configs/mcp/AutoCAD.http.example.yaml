@@ -1,0 +1,11 @@
+version: 1
+server_name: autocad
+transport: stdio
+command: C:/path/to/autocad-mcp/python.exe
+args: [-m, autocad_mcp.server]
+cwd: ../../../AutoCAD_MCP
+startup_timeout_ms: 30000
+tool_timeout_ms: 90000
+env_refs:
+  AUTOCAD_MCP_CONFIG: CADER_AUTOCAD_HTTP_CONFIG
+  AUTOCAD_BRIDGE_TOKEN: AUTOCAD_BRIDGE_TOKEN

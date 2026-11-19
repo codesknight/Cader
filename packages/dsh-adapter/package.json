@@ -10,6 +10,7 @@
     }
   },
   "dependencies": {
+    "sharp": "0.35.5",
     "@deepseek-ai/cordis": "4.1.0",
     "@deepseek-ai/dsh-brand": "0.2.2-rc.4",
     "@deepseek-ai/dsh-llm": "0.2.2-rc.4",

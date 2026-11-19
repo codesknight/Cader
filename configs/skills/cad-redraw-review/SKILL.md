@@ -23,14 +23,20 @@ calculation from stated values, an image estimate, or an unresolved question. Re
 conflicting values in the report. Never silently replace a stated dimension with pixels.
 
 If an image is provided, inspect its legibility, missing regions and viewpoints. Without
-an established scale, provide a qualitative review and list the measurements still needed.
+an established physical scale, distinguish schematic layout units from physical reconstruction.
+Schematics can be planned in layout units without claiming real physical dimensions.
+For physical reconstruction, list the measurements and scale evidence still needed.
 Do not guess unreadable text, dimensional tolerances, document units or source entities.
 Do not infer full DWG structure from a preview or assume every view shares a scale.
 
 Separate these questions in the proposed acceptance plan: does geometry meet supplied
 constraints, does its appearance match the reference, and does an actual saved artifact
 open and retain the intended content? A matching object count or convincing picture alone
-does not answer all three. No deterministic geometry verifier is bundled with this Skill.
+does not answer all three. Program verification is separate from this Skill and your answer.
+Use authorized region views for dense symbols and text. Link every critical fact to an original-image region;
+keep unreadable values unknown. Do not proceed through OR/XOR ambiguity, omitted labels, conflicting voltages
+or unresolved junctions. Return structured symbols, ports, nodes, wires, crossings and raw/normalized labels
+when requested; only independent expected facts can validate them. Image plans remain execution-blocked.
 
 Use main-agent coordination only. A permitted vision worker may review image evidence,
 but no child may delegate or approve edits. Return uncertainty and required evidence to

@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Context } from '@deepseek-ai/cordis';
 import { brandString } from '@deepseek-ai/dsh-brand';
 import LlmRuntime, { createUserMessage, LlmError } from '@deepseek-ai/dsh-llm';
@@ -19,8 +19,10 @@ import * as mcpClient from '@deepseek-ai/dsh-mcp-client';
 import Attachments from '@deepseek-ai/dsh-attachment-local';
 import FileSystem from '@deepseek-ai/dsh-fs-local';
 import type { ModelProfile, RuntimeConfig, McpConfig } from '@cader/config';
-import { requireCredential, loadSkills, readReferenceImage } from '@cader/config';
+import { requireCredential, loadSkills, mcpEnvironment } from '@cader/config';
 import { ChildPool } from './pool.js';
+import { prepareImageView, attachmentToSource } from './image-view.js';
+import type { ImageView } from './image-view.js';
 
 export interface PublicEvent { type: string; agentId?: string; role?: string; [key: string]: unknown }
 export interface AgentResult {
@@ -50,6 +52,36 @@ export async function createLiveRuntime(options: LiveOptions) {
   try {
     await ctx.plugin(FileSystem, { cwd: options.root });
     await ctx.plugin(Attachments, { dshHome: resolve(options.runDirectory, 'attachments') });
+    const sourceViews = new Map<string, { matrix: number[]; width: number; height: number; source: string }[]>();
+    const readRequest = ctx.attachments.readImageRequest.bind(ctx.attachments);
+    ctx.attachments.readImageRequest = async (ref, target, signal) => {
+      const version = await readRequest(ref, target, signal);
+      const sources = sourceViews.get(String(ref.attachmentId)) ?? [];
+      emit({ type: 'image.request', attachment_id: ref.attachmentId, variant_id: version.variantId,
+        sha256: createHash('sha256').update(version.data).digest('hex'), width: version.width, height: version.height,
+        media_type: version.mediaType, target,
+        source_mappings: sources.map(source => ({ source_sha256: source.source,
+          request_to_source: attachmentToSource(source.matrix, source.width, source.height, version.width, version.height) })) });
+      return version;
+    };
+    async function attachView(path: string, view: ImageView, agentId: string) {
+      const prepared = await prepareImageView(options.root, path, view);
+      const attachment = await ctx.attachments.saveImage({ data: prepared.data, mediaType: prepared.mediaType });
+      const normalized = await ctx.attachments.readImage(attachment);
+      const key = String(attachment.attachmentId);
+      const mapping = { matrix: prepared.audit.view_to_source,
+        width: prepared.audit.view_width, height: prepared.audit.view_height, source: prepared.audit.source_sha256 };
+      const mappings = sourceViews.get(key) ?? [];
+      if (!mappings.some(item => JSON.stringify(item) === JSON.stringify(mapping))) mappings.push(mapping);
+      sourceViews.set(key, mappings);
+      const audit = { ...prepared.audit, attachment_id: attachment.attachmentId,
+        attachment_sha256: createHash('sha256').update(normalized.data).digest('hex'),
+        attachment_width: attachment.width, attachment_height: attachment.height, attachment_media_type: attachment.mediaType,
+        attachment_to_source: attachmentToSource(prepared.audit.view_to_source, prepared.audit.view_width,
+          prepared.audit.view_height, attachment.width, attachment.height) };
+      emit({ type: 'image.attached', agentId, ...audit });
+      return { attachment, audit };
+    }
     await ctx.plugin(LlmRuntime);
     await ctx.plugin(SessionStore);
     await ctx.plugin(SessionProjections);
@@ -77,7 +109,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       const config = options.mcp;
       await ctx.plugin(mcpClient, {
         serverName: config.server_name, transport: 'stdio', command: config.command,
-        args: config.args, cwd: config.cwd, env: {},
+        args: config.args, cwd: config.cwd, env: mcpEnvironment(config),
         startupTimeoutMs: config.startup_timeout_ms, toolCallTimeoutMs: config.tool_timeout_ms,
         failOnStartupError: true, reconnect: { enabled: false },
       });
@@ -85,7 +117,7 @@ export async function createLiveRuntime(options: LiveOptions) {
     }
 
     async function run(profileId: string, instruction: string, request: {
-      parent?: Agent; image?: string; skill?: string; signal?: AbortSignal;
+      parent?: Agent; image?: string; imageView?: ImageView; skill?: string; signal?: AbortSignal;
     } = {}): Promise<AgentResult> {
       const profile = profiles.get(profileId as ModelProfile['id']);
       if (!profile) throw new Error('UNKNOWN_MODEL_PROFILE');
@@ -93,6 +125,8 @@ export async function createLiveRuntime(options: LiveOptions) {
         || !options.runtime.subagent_profiles.includes(profileId))) throw new Error('CHILD_DELEGATION_DENIED');
       if (request.image && !profile.input.includes('image')) throw new Error('UNSUPPORTED_IMAGE_INPUT');
       const selectedSkill = request.skill ? await skills.read(request.skill, profile.role) : undefined;
+      if (selectedSkill) emit({ type: 'skill.loaded', name: request.skill, resource: null, role: profile.role,
+        mode: 'selected', sha256: createHash('sha256').update(selectedSkill).digest('hex') });
       const id = brandString<SessionId>(`cader-${profile.role}-${randomUUID()}`);
       const signal = AbortSignal.any([lifetime.signal, request.signal ?? new AbortController().signal,
         AbortSignal.timeout(Math.min(profile.timeout_ms, options.runtime.timeout_ms))]);
@@ -118,6 +152,8 @@ export async function createLiveRuntime(options: LiveOptions) {
           async setup(agentCtx, agent) {
             roles.set(agent, profile.role);
             const roleSkills = skills.list(profile.role);
+            const imageRefs = profile.input.includes('image') ? [...images.keys()].filter(ref => profile.role === 'main'
+              || images.get(ref) === request.image) : [];
             const allowed = options.runtime.read_only_tools.filter(name => Boolean(ctx.tools.get(name)));
             if (profile.can_delegate) {
               agentCtx.tools.register(defineTool({
@@ -144,9 +180,33 @@ export async function createLiveRuntime(options: LiveOptions) {
                 parameters: { name: { type: 'string', required: true, enum: roleSkills.map(skill => skill.name) },
                   resource: { type: 'string', description: 'Optional resource ID listed for this skill; never a path.' } },
                 output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
-                async execute(args) { return skills.read(args.name, profile.role, args.resource); },
+                async execute(args) {
+                  const text = await skills.read(args.name, profile.role, args.resource);
+                  emit({ type: 'skill.loaded', agentId: id, role: profile.role, name: args.name,
+                    resource: args.resource ?? null, mode: 'on-demand', sha256: createHash('sha256').update(text).digest('hex') });
+                  return text;
+                },
               }));
               allowed.push('cader_load_skill');
+            }
+            if (imageRefs.length) {
+              agentCtx.tools.register(defineTool({ name: 'cader_view_image',
+                description: 'Inspect a crop from an authorized ORIGINAL image. Crop uses original pixel edges; optional rotation is clockwise. No CAD writes.',
+                parameters: { image_ref: { type: 'string', required: true, enum: imageRefs },
+                  left: { type: 'integer', required: true }, top: { type: 'integer', required: true },
+                  width: { type: 'integer', required: true }, height: { type: 'integer', required: true },
+                  rotation: { type: 'integer', enum: [0, 90, 180, 270] } },
+                output: { schema: { type: 'string' }, render: (_args, value) => {
+                  const result = JSON.parse(value) as { attachment: Awaited<ReturnType<typeof ctx.attachments.saveImage>>; audit: unknown };
+                  return [{ type: 'text', text: JSON.stringify(result.audit) }, { type: 'image', attachment: result.attachment }];
+                } },
+                async execute(args) {
+                  if (!imageRefs.includes(args.image_ref)) throw new Error('IMAGE_REFERENCE_DENIED');
+                  return JSON.stringify(await attachView(images.get(args.image_ref)!, { rotation: args.rotation as 0 | 90 | 180 | 270,
+                    crop: { left: args.left, top: args.top, width: args.width, height: args.height } }, id));
+                },
+              }));
+              allowed.push('cader_view_image');
             }
             const hidden = ctx.tools.schemas().map(tool => tool.name).filter(name => !allowed.includes(name));
             if (hidden.length) agentCtx.tools.restrict({ deny: hidden });
@@ -172,7 +232,7 @@ export async function createLiveRuntime(options: LiveOptions) {
                 max_parallel_subagents: profile.can_delegate ? pool.limit : 0,
                 worker_profiles: profile.can_delegate ? options.profiles.filter(worker => worker.role !== 'main')
                   .map(worker => ({ id: worker.id, role: worker.role, model: worker.model, input: worker.input })) : [],
-                image_refs: profile.can_delegate ? [...images.keys()] : [],
+                image_refs: imageRefs,
                 document_identity_and_units: 'not verified; do not assume target identity or units',
               }) });
             agentCtx.on('agent/pre-step', async (_payload, next) => {
@@ -206,7 +266,7 @@ export async function createLiveRuntime(options: LiveOptions) {
             });
             const prompt = await agentCtx.systemPrompt.assemble({ scope: agent, agent });
             emit({ type: 'prompt.assembled', agentId: id, role: profile.role,
-              staticPrompt: renderPrompt(prompt), available: prompt.contexts,
+              prompt_sha256: createHash('sha256').update(renderPrompt(prompt)).digest('hex'),
               tools: prompt.tools.map(tool => tool.name) });
           },
         });
@@ -214,8 +274,7 @@ export async function createLiveRuntime(options: LiveOptions) {
         if (signal.aborted) abort();
         const content: ContentBlock[] = [{ type: 'text', text: instruction }];
         if (request.image) {
-          const reference = await readReferenceImage(options.root, request.image);
-          const image = await ctx.attachments.saveImage({ data: reference.data, mediaType: reference.mediaType });
+          const { attachment: image } = await attachView(request.image, request.imageView ?? {}, id);
           content.push({ type: 'image', attachment: image });
         }
         emit({ type: 'agent.started', agentId: id, role: profile.role, parentId: request.parent?.id });
