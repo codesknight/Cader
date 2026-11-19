@@ -142,6 +142,10 @@ pnpm run cader cad-test --backend http --mcp configs/mcp/AutoCAD.http.local.yaml
 未知写入冻结工作区；`cad-reconcile` 只对账，不重放或解锁。
 详见[公共契约](docs/contracts/managed-cad-v1.md)与[执行策略](docs/architecture/controlled-writes.md)。
 
+当前为**未冻结的草案修订2**：可写工作图与只读验收图使用不同绑定；回滚按权威事件revision核验，
+新建时绑定输出目录，对账区分输入和结果文档。见[MCP对齐回应](docs/contracts/mcp-alignment-response-2026-11-19.md)
+及[schema/共享例子哈希清单](configs/contracts/cader-v1.manifest.json)。
+
 <a id="configuration"></a>
 
 ## 配置说明

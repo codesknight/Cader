@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { validateAssessment, runTask, contractSchemas, assessmentSchemas } from '@cader/profile';
+import { validateAssessment, runTask, contractSchemas, assessmentSchemas, CAD_DRAFT_REVISION } from '@cader/profile';
 import { loadConfig, loadMcp, mcpEnvironment } from '@cader/config';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,7 @@ import type { PublicEvent, StreamChunk } from '@cader/dsh-adapter';
 
 test('versioned public schema export matches the keyless CLI and config keeps writes outside readonly tools', async () => {
   const expected = { contract_version: 'cader-cad/1', status: 'Cader-side proposal; MCP implementation required',
+    draft_revision: CAD_DRAFT_REVISION,
     schemas: { ...contractSchemas(), ...assessmentSchemas() } };
   assert.deepEqual(JSON.parse(await readFile('configs/contracts/cader-v1.schemas.json', 'utf8')), expected);
   const cli = fileURLToPath(new URL('../../../apps/cli/dist/index.js', import.meta.url));

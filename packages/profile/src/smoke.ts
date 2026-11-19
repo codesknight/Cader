@@ -5,7 +5,8 @@ export { runTask } from './task.js';
 export { describeFailure, failureFromError } from './failure.js';
 export { runControlledCad, reconcileControlledCad } from './controlled-run.js';
 export type { CadTransport } from './controlled-run.js';
-export { Plan, verifyEntities, contractSchemas } from './cad-contract.js';
+export { Plan, verifyEntities, contractSchemas, validateCadDto, CAD_DRAFT_REVISION, ManagedRequests, WorkingBinding, VerificationBinding, Status, Job } from './cad-contract.js';
+export { auditCadRequest, parseJobForIntent, RequestIntent } from './cad-reconciliation.js';
 export { Assessment, validateAssessment, assessmentSchemas } from './perception-contract.js';
 
 export async function runHarnessSmoke() {

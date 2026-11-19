@@ -94,3 +94,11 @@
 - 外部能力缺口：本地COM不支持本轮受控协议；MCP新工作图/保存/重开待对齐，真实DWG闭环未执行。不是MCP连接失败，也不是用户未授权。#3继续跟踪。
 
 #15远端复验补充：d061b55的CI run 44475849146共4/4 jobs成功，BUG-008状态改为已验收；BUG-009仅审计能力完成，BUG-010真实识别问题保持未解决，不因合成回归通过而关闭。
+
+## 2026-11-19：MCP语义对齐问题（#15 / 待CI验收）
+
+- BUG-011：原重开Binding错误要求managed=true；修订为managed=false/read_only=true且绑定source_artifact_id，工作图和验收图在类型上分离。fixture验证合法只读重开通过、可写验收图被拒绝。
+- BUG-012：原failed rolled_back要求revision不变，与observed_database_events冲突。改为权威失败后revision>=提交值、独立核验后终止；新图也不再强制revision=0。权威状态缺失/倒退仍冻结。
+- BUG-013：对账统一要求job.document_id等于原图，会误拒重开。改用operation及输入/结果图/artifact校验，重开超时后新结果ID可对账，不续写或解锁。
+- BUG-014：明确失败后的查询异常可能走finally释放全局锁。改为无法核验状态即保留锁，覆盖查询异常及残留实体反例。
+- 这些是Cader契约/状态处理问题，不归因为MCP执行失败；真实DWG闭环和BUG-010图片识别问题仍未解决。

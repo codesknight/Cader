@@ -1,7 +1,10 @@
 import { z } from 'zod';
 
 export const CAD_CONTRACT = 'cader-cad/1' as const;
-const Id = z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/);
+export const CAD_DRAFT_REVISION = 2 as const;
+const Id = z.string().regex(/^[A-Za-z0-9._-]{1,128}$/);
+const Units = z.enum(['unitless', 'mm', 'cm', 'm', 'in', 'ft']);
+export const Mutation = z.enum(['create_working_document', 'execute_atomic_batch', 'save_document_as', 'reopen_document']);
 const Point = z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]);
 const Layer = z.string().min(1).max(128);
 export const ExecutionPolicy = z.object({ version: z.literal(1), contract_version: z.literal(CAD_CONTRACT),
@@ -32,16 +35,22 @@ export const Plan = z.object({
     ctx.addIssue({ code: 'custom', message: 'Schematic plans use explicit layout units' });
 });
 export type CadPlan = z.infer<typeof Plan>;
-export const Binding = z.object({ instance_id: Id, document_id: Id, revision: z.int().nonnegative(),
-  units: z.string().min(1), managed: z.literal(true) }).strict();
-export type DocumentBinding = z.infer<typeof Binding>;
+const DocumentIdentity = { instance_id: Id, document_id: Id, revision: z.int().nonnegative(), units: Units };
+export const WorkingBinding = z.object({ ...DocumentIdentity, managed: z.literal(true), read_only: z.literal(false),
+  output_directory: z.string().min(1) }).strict();
+export const VerificationBinding = z.object({ ...DocumentIdentity, managed: z.literal(false), read_only: z.literal(true),
+  source_artifact_id: Id }).strict();
+export type WorkingDocument = z.infer<typeof WorkingBinding>;
+export type VerificationDocument = z.infer<typeof VerificationBinding>;
+export type DocumentBinding = WorkingDocument | VerificationDocument;
 export const Status = z.object({ contract_version: z.literal(CAD_CONTRACT), backend: z.literal('http'), instance_id: Id,
-  documents: z.array(Binding),
+  revision_mode: z.literal('observed_database_events'), documents: z.array(WorkingBinding),
   capabilities: z.object({ managed_documents: z.literal(true), atomic_operations: z.array(z.string()),
     save_as: z.literal(true), reopen: z.literal(true), job_status: z.literal(true), query_entities: z.literal(true),
     max_batch_operations: z.int().positive().max(1000) }).strict() }).strict();
 export const Job = z.object({ contract_version: z.literal(CAD_CONTRACT), instance_id: Id, request_id: Id,
-  document_id: Id.optional(), revision: z.int().nonnegative().optional(),
+  operation: Mutation, request_document_id: Id.nullable(), result_document_id: Id.nullable(),
+  source_artifact_id: Id.nullable(), revision: z.int().nonnegative().optional(),
   status: z.enum(['succeeded', 'failed', 'pending', 'not_found']),
   outcome: z.enum(['committed', 'not_executed', 'rolled_back', 'unknown']),
   results: z.array(z.object({ id: Id, status: z.literal('succeeded'), object_id: Id }).strict()).optional(),
@@ -50,9 +59,9 @@ export const Artifact = z.object({ artifact_id: Id, instance_id: Id, document_id
   revision: z.int().nonnegative(), path: z.string().min(1), sha256: z.string().regex(/^[a-f0-9]{64}$/), byte_size: z.int().positive() }).strict();
 export const SaveResult = z.object({ contract_version: z.literal(CAD_CONTRACT), request_id: Id, status: z.literal('succeeded'), artifact: Artifact }).strict();
 export const ReopenResult = z.object({ contract_version: z.literal(CAD_CONTRACT), request_id: Id, status: z.literal('succeeded'),
-  source_artifact_id: Id, document: Binding }).strict();
+  source_artifact_id: Id, document: VerificationBinding }).strict();
 export const CreateResult = z.object({ contract_version: z.literal(CAD_CONTRACT), request_id: Id,
-  status: z.literal('succeeded'), document: Binding }).strict();
+  status: z.literal('succeeded'), document: WorkingBinding }).strict();
 export const Entity = z.object({ object_id: Id, operation: z.enum(['draw_line', 'draw_circle', 'draw_text']),
   args: z.record(z.string(), z.unknown()) }).strict();
 export const EntityPage = z.object({ contract_version: z.literal(CAD_CONTRACT), instance_id: Id,
@@ -62,7 +71,7 @@ const RequestIdentity = { instance_id: Id, request_id: Id };
 const Target = { document_id: Id, expected_revision: z.int().nonnegative() };
 export const ManagedRequests = {
   get_backend_status: z.object({}).strict(),
-  create_working_document: z.object({ ...RequestIdentity, units: z.string().min(1), managed: z.literal(true) }).strict(),
+  create_working_document: z.object({ ...RequestIdentity, units: Units, managed: z.literal(true), output_directory: z.string().min(1) }).strict(),
   execute_atomic_batch: z.object({ ...RequestIdentity, ...Target, operations: z.array(Operation).min(1).max(100) }).strict(),
   get_job_status: z.object({ request_id: Id }).strict(),
   query_entities_page: z.object({ instance_id: Id, ...Target, cursor: z.string().nullable(), limit: z.int().min(1).max(1000) }).strict(),
@@ -83,11 +92,16 @@ export function taskStages() {
   return { recognition: 'not_performed', planning: 'not_performed', execution: 'not_performed',
     saving: 'not_performed', reopening: 'not_performed' } as Record<string, StageStatus>;
 }
+function contractValidators(): Record<string, z.ZodType> {
+  return { plan: Plan, status: Status, create: CreateResult, working_binding: WorkingBinding, verification_binding: VerificationBinding,
+    job: Job, save: SaveResult, reopen: ReopenResult, query: EntityPage, business_outcome: BusinessOutcome, execution_policy: ExecutionPolicy,
+    ...Object.fromEntries(Object.entries(ManagedRequests).map(([name, schema]) => [`${name}_request`, schema])) };
+}
+export function validateCadDto(name: string, value: unknown) {
+  return contractValidators()[name]?.safeParse(value).success ?? false;
+}
 export function contractSchemas() {
-  return { plan: z.toJSONSchema(Plan), status: z.toJSONSchema(Status), create: z.toJSONSchema(CreateResult),
-    job: z.toJSONSchema(Job), save: z.toJSONSchema(SaveResult), reopen: z.toJSONSchema(ReopenResult), query: z.toJSONSchema(EntityPage),
-    business_outcome: z.toJSONSchema(BusinessOutcome), execution_policy: z.toJSONSchema(ExecutionPolicy),
-    ...Object.fromEntries(Object.entries(ManagedRequests).map(([name, schema]) => [`${name}_request`, z.toJSONSchema(schema)])) };
+  return Object.fromEntries(Object.entries(contractValidators()).map(([name, schema]) => [name, z.toJSONSchema(schema)]));
 }
 
 /** Compare actual query geometry, never the generating model's response or counts alone. */

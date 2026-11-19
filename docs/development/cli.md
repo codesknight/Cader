@@ -135,3 +135,12 @@ Python CLI 在入口显式将 stdout/stderr 配置为 UTF-8，覆盖重定向管
 旧版 Windows PowerShell 自身的重定向仍可能重新编码；要保留子进程原始字节，请使用支持字节保留的调用器。
 
 本次没有重跑用户报告的 40 工具实机发现或付费 QUOTA 场景；QUOTA、清理失败及任务传递由实际 DSH loop 的离线故障注入验证。
+
+## 2026-11-19：MCP对齐修订2（#15）
+
+输出目录在create时显式绑定，工作图与只读重开验收图分离。status声明observed_database_events，
+回滚后允许revision前进，以权威revision独立查询，不能自动续写。
+job按operation区分输入/结果文档与artifact。cad-reconcile对旧journal返回
+LEGACY_REQUEST_REQUIRES_REVIEW，退出3，保留锁；不自动迁移。篡改审计信息返回REQUEST_JOURNAL_MISMATCH。
+`pnpm contract:export`离线重导出schema/manifest；共享向量只验证组件协议，未执行真实MCP/CAD。
+详见[对齐回应](../contracts/mcp-alignment-response-2026-11-19.md)。

@@ -3,9 +3,11 @@ import { basename, dirname, resolve, isAbsolute } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { loadMcp, workspacePath, parseYaml } from '@cader/config';
 import { createManagedClient, MANAGED_TOOLS } from '@cader/dsh-adapter';
-import { CAD_CONTRACT, Plan, Status, Binding, CreateResult, Job, SaveResult, ReopenResult,
+import { CAD_CONTRACT, CAD_DRAFT_REVISION, Plan, Status, CreateResult, SaveResult, ReopenResult,
   EntityPage, ExecutionPolicy, BusinessOutcome, ManagedRequests, taskStages, verifyEntities } from './cad-contract.js';
-import type { DocumentBinding } from './cad-contract.js';
+import type { DocumentBinding, WorkingDocument } from './cad-contract.js';
+import { RequestIntent, auditCadRequest, parseJobForIntent } from './cad-reconciliation.js';
+import type { CadIntent } from './cad-reconciliation.js';
 
 export interface CadTransport {
   toolNames(): string[];
@@ -13,7 +15,7 @@ export interface CadTransport {
   dispose(): Promise<unknown>;
 }
 type ClientFactory = (config: Awaited<ReturnType<typeof loadMcp>>) => Promise<CadTransport>;
-class Stop extends Error { constructor(readonly code: string) { super(code); } }
+class Stop extends Error { constructor(readonly code: string) { super(code); this.name = 'CadControlError'; } }
 function ensure(condition: unknown, code: string): asserts condition { if (!condition) throw new Stop(code); }
 const sha = (data: string | Buffer) => createHash('sha256').update(data).digest('hex');
 async function journal(path: string, record: unknown) {
@@ -33,10 +35,11 @@ export async function runControlledCad(root: string, input: { mcpPath: string; p
   await mkdir(directory);
   const stages = taskStages();
   const report = { version: 1, contract_version: 'cader-task/1', ok: false, run_status: 'succeeded', task_status: 'blocked',
+    cad_contract: { contract_version: CAD_CONTRACT, draft_revision: CAD_DRAFT_REVISION, revision_mode: null as string | null },
     blocked_reasons: [] as string[], performed_actions: [] as { operation: string; status: 'submitted' | 'confirmed' | 'succeeded' | 'outcome_unknown'; request_id?: string; document_id?: string; revision?: number }[],
     authorization: { user_task_authorized: true, write_authorized: input.authorized, runtime_write_available: false },
     stages, artifact: null as unknown, verification: 'not_performed', runId, runDirectory: directory };
-  let client: CadTransport | undefined, binding: DocumentBinding | undefined;
+  let client: CadTransport | undefined, binding: WorkingDocument | undefined;
   let lockPath: string | undefined, owned = false, frozen = false;
   let currentStage = 'planning';
   const ledger = resolve(directory, 'requests.jsonl');
@@ -80,26 +83,31 @@ export async function runControlledCad(root: string, input: { mcpPath: string; p
     const parsed = Status.safeParse(raw);
     if (!parsed.success) fail('MANAGED_CONTRACT_UNAVAILABLE');
     const status = parsed.data!;
+    report.cad_contract.revision_mode = status.revision_mode;
     if (!MANAGED_TOOLS.every(tool => client!.toolNames().includes(tool))) fail('MANAGED_TOOLS_UNAVAILABLE');
     if (plan!.operations.length > status.capabilities.max_batch_operations || plan!.operations.some(op =>
       !status.capabilities.atomic_operations.includes(op.operation))) fail('ATOMIC_OPERATION_UNAVAILABLE');
     report.authorization.runtime_write_available = true;
     const units = plan!.units === 'layout' ? 'unitless' : plan!.units;
-    const checkBinding = (doc: DocumentBinding) => ensure(doc.instance_id === status.instance_id && doc.managed
-      && doc.units === units, 'DOCUMENT_BINDING_MISMATCH');
+    const checkWorking = (doc: WorkingDocument) => ensure(doc.instance_id === status.instance_id && doc.managed && !doc.read_only
+      && doc.units === units && resolve(doc.output_directory) === artifacts, 'DOCUMENT_BINDING_MISMATCH');
 
     async function mutate<T>(tool: 'create_working_document' | 'execute_atomic_batch' | 'save_document_as' | 'reopen_document',
-      payload: Record<string, unknown>, validate: (value: unknown, requestId: string) => T): Promise<T> {
+      payload: Record<string, unknown>, validate: (value: unknown, requestId: string, intent: CadIntent) => T): Promise<T> {
       const requestId = randomUUID();
-      const args = { ...payload, request_id: requestId, instance_id: status.instance_id };
-      ManagedRequests[tool].parse(args);
+      const args = ManagedRequests[tool].parse({ ...payload, request_id: requestId, instance_id: status.instance_id });
+      const intent = RequestIntent.parse({ draft_revision: 2, operation: tool, instance_id: status.instance_id, request_id: requestId,
+        request_document_id: 'document_id' in args ? args.document_id : null,
+        source_artifact_id: 'artifact_id' in args ? args.artifact_id : null,
+        prior_working_document_id: binding?.document_id ?? null, existing_document_ids: status.documents.map(doc => doc.document_id) });
       await journal(ledger, { phase: 'prepared', tool, request_id: requestId, instance_id: status.instance_id,
-        document_id: binding?.document_id, expected_revision: binding?.revision, args });
+        request_document_id: intent.request_document_id, expected_revision: 'expected_revision' in args ? args.expected_revision : undefined,
+        args, intent, ...auditCadRequest(tool, args) });
       const action = { operation: tool, status: 'submitted' as 'submitted' | 'confirmed' | 'outcome_unknown', request_id: requestId,
-        document_id: binding?.document_id, revision: binding?.revision };
+        document_id: intent.request_document_id ?? undefined, revision: 'expected_revision' in args ? args.expected_revision : undefined };
       report.performed_actions.push(action);
       try {
-        const value = validate(await client!.call(tool, args), requestId);
+        const value = validate(await client!.call(tool, args), requestId, intent);
         await journal(ledger, { phase: 'confirmed', tool, request_id: requestId, result: value });
         action.status = 'confirmed';
         return value;
@@ -108,13 +116,12 @@ export async function runControlledCad(root: string, input: { mcpPath: string; p
         action.status = 'outcome_unknown';
         stages[currentStage] = 'unknown';
         await writeFile(lockPath!, JSON.stringify({ runId, runDirectory: directory, frozen: true,
-          request_id: requestId, instance_id: status.instance_id, document_id: binding?.document_id }));
+          request_id: requestId, instance_id: status.instance_id, request_document_id: intent.request_document_id,
+          source_artifact_id: intent.source_artifact_id }));
         await journal(ledger, { phase: 'frozen', tool, request_id: requestId });
         // Only query. Even a terminal answer does not resume the write sequence automatically.
         try {
-          const job = Job.parse(await client!.call('get_job_status', { request_id: requestId }));
-          ensure(job.request_id === requestId && job.instance_id === status.instance_id
-            && (!binding || job.document_id === binding.document_id), 'RECONCILIATION_IDENTITY_MISMATCH');
+          const job = parseJobForIntent(await client!.call('get_job_status', { request_id: requestId }), intent);
           await journal(ledger, { phase: 'reconciled', request_id: requestId, job });
           report.performed_actions.push({ operation: 'get_job_status', status: 'succeeded', request_id: requestId });
         } catch { await journal(ledger, { phase: 'reconciliation_unresolved', request_id: requestId }); }
@@ -123,21 +130,20 @@ export async function runControlledCad(root: string, input: { mcpPath: string; p
     }
 
     currentStage = 'execution';
-    const created = await mutate('create_working_document', { units, managed: true }, (value, requestId) => {
+    const created = await mutate('create_working_document', { units, managed: true, output_directory: artifacts }, (value, requestId) => {
       const result = CreateResult.parse(value);
       ensure(result.request_id === requestId, 'REQUEST_ID_MISMATCH');
-      checkBinding(result.document);
-      ensure(result.document.revision === 0 && !status.documents.some(doc => doc.document_id === result.document.document_id), 'WORKING_DOCUMENT_NOT_NEW');
+      checkWorking(result.document);
+      ensure(!status.documents.some(doc => doc.document_id === result.document.document_id), 'WORKING_DOCUMENT_NOT_NEW');
       return result.document;
     });
     binding = created;
+    ensure((await query(binding)).length === 0, 'WORKING_DOCUMENT_NOT_EMPTY');
     const job = await mutate('execute_atomic_batch', { document_id: binding.document_id,
-      expected_revision: binding.revision, operations: plan!.operations }, (value, requestId) => {
-      const result = Job.parse(value);
-      ensure(result.request_id === requestId && result.instance_id === binding!.instance_id
-        && result.document_id === binding!.document_id, 'WRITE_RESULT_IDENTITY_MISMATCH');
+      expected_revision: binding.revision, operations: plan!.operations }, (value, _requestId, intent) => {
+      const result = parseJobForIntent(value, intent);
       if (result.status === 'failed' && ['not_executed', 'rolled_back'].includes(result.outcome)
-        && result.revision === binding!.revision) return result;
+        && result.revision !== undefined && result.revision >= binding!.revision) return result;
       ensure(result.status === 'succeeded' && result.outcome === 'committed'
         && result.revision! > binding!.revision && result.results?.length === plan!.operations.length
         && new Set(result.results.map(item => item.object_id)).size === plan!.operations.length
@@ -145,16 +151,20 @@ export async function runControlledCad(root: string, input: { mcpPath: string; p
         && plan!.operations.every(op => result.results!.some(item => item.id === op.id)), 'WRITE_RESULT_MISMATCH');
       return result;
     });
+    binding = { ...binding, revision: job.revision! };
     if (job.status === 'failed') {
       report.verification = 'failed';
-      if ((await query(binding)).length !== 0) {
+      try { ensure((await query(binding)).length === 0, 'ROLLBACK_VERIFICATION_FAILED'); }
+      catch {
         frozen = true;
-        await journal(ledger, { phase: 'frozen', request_id: job.request_id, reason: 'ROLLBACK_VERIFICATION_FAILED' });
-        fail('ROLLBACK_VERIFICATION_FAILED');
+        await writeFile(lockPath!, JSON.stringify({ runId, runDirectory: directory, frozen: true,
+          request_id: job.request_id, instance_id: binding.instance_id, request_document_id: binding.document_id,
+          reason: 'FAILED_STATE_UNVERIFIED_FROZEN' }));
+        await journal(ledger, { phase: 'frozen', request_id: job.request_id, reason: 'FAILED_STATE_UNVERIFIED_FROZEN' });
+        fail('FAILED_STATE_UNVERIFIED_FROZEN');
       }
       fail('ATOMIC_BATCH_REJECTED');
     }
-    binding = { ...binding, revision: job.revision! };
     async function query(doc: DocumentBinding) {
       const entities = [];
       let cursor: string | null = null;
@@ -192,7 +202,8 @@ export async function runControlledCad(root: string, input: { mcpPath: string; p
     const reopened = await mutate('reopen_document', { artifact_id: artifact.artifact_id }, (value, requestId) => {
       const result = ReopenResult.parse(value);
       ensure(result.request_id === requestId && result.source_artifact_id === artifact.artifact_id, 'REOPEN_ARTIFACT_MISMATCH');
-      checkBinding(result.document);
+      ensure(result.document.instance_id === status.instance_id && result.document.units === units
+        && result.document.source_artifact_id === artifact.artifact_id, 'VERIFICATION_BINDING_MISMATCH');
       ensure(result.document.document_id !== binding!.document_id, 'REOPEN_NOT_INDEPENDENT');
       return result.document;
     });
@@ -222,11 +233,25 @@ export async function reconcileControlledCad(root: string, runPath: string, mcpP
   const pending = records.filter(record => record.phase === 'prepared').at(-1);
   const lock = JSON.parse(await readFile(await workspacePath(root, '.cader/locks/managed-write.json'), 'utf8'));
   ensure(pending && resolve(lock.runDirectory) === directory, 'NO_FROZEN_REQUEST');
+  ensure(pending.intent?.draft_revision === 2, 'LEGACY_REQUEST_REQUIRES_REVIEW');
+  const parsedIntent = RequestIntent.safeParse(pending.intent);
+  ensure(parsedIntent.success, 'REQUEST_JOURNAL_MISMATCH');
+  const intent = parsedIntent.data;
+  const parsedArgs = ManagedRequests[intent.operation].safeParse(pending.args);
+  ensure(parsedArgs.success, 'REQUEST_JOURNAL_MISMATCH');
+  const args = parsedArgs.data;
+  const audit = auditCadRequest(intent.operation, args);
+  ensure(pending.tool === intent.operation && pending.instance_id === intent.instance_id && pending.request_id === intent.request_id
+    && args.instance_id === intent.instance_id && args.request_id === intent.request_id
+    && pending.request_json === audit.request_json && pending.request_sha256 === audit.request_sha256
+    && intent.request_document_id === ('document_id' in args ? args.document_id : null)
+    && intent.source_artifact_id === ('artifact_id' in args ? args.artifact_id : null), 'REQUEST_JOURNAL_MISMATCH');
   const client = await factory(await loadMcp(resolve(root, mcpPath)));
   try {
-    const job = Job.parse(await client.call('get_job_status', { request_id: pending.request_id }));
-    ensure(job.instance_id === pending.instance_id && job.request_id === pending.request_id
-      && (!pending.document_id || job.document_id === pending.document_id), 'RECONCILIATION_IDENTITY_MISMATCH');
+    const value = await client.call('get_job_status', { request_id: intent.request_id });
+    let job;
+    try { job = parseJobForIntent(value, intent); }
+    catch { throw new Stop('RECONCILIATION_RESULT_UNVERIFIABLE'); }
     await journal(resolve(directory, 'reconciliation.jsonl'), job);
     return { run_status: 'succeeded', task_status: 'blocked', blocked_reasons: ['FROZEN_REVIEW_REQUIRED'], job,
       replayed: false, lock_released: false };

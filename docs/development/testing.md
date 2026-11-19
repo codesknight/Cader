@@ -120,3 +120,13 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 - 实现提交d061b55已核对完整tree/commit并非强制同步GitHub；[CI run 44475849146](https://github.com/codesknight/Cader/actions/runs/44475849146) 的Windows/Linux DSH与Python共4/4 jobs成功，包含32项TS、10项Python及各自smoke和Python lint/format。
 - 最后几何属性拒绝分支新增后，本地typecheck、32项TS、smoke6/6复验通过。发布前39文件实际凭据扫描0泄漏、15个Markdown的59个本地链接有效、暂存whitespace检查通过。
 - 新增schema导出和请求校验均已进入上述CI；真实模型/复杂图片识别、真实HTTP写入及DWG闭环未执行，不标为通过。BUG-008的业务状态修复已由远端CI验收；BUG-010及#3/#14的实机门槛保持开放。
+
+## 2026-11-19：MCP对齐修订2（#15）
+
+- 本轮只执行离线验证；原始MCP文档及例子只读参考，不执行其check_cader_contract脚本，不调用真实MCP、模型或CAD。
+- pnpm contract:export通过，生成draft_revision=2及schema/examples文件SHA-256，fixture含18个schema、11个操作对账和1个请求审计向量。hash不是Bridge原生去重hash，双方协议仍未冻结。
+- pnpm test初次完整运行38/38通过；后续CLI阻塞原因与锁标记补充后最终复验见下。定向受控调度10项先前通过，包含只读重开、权威失败revision、非零初始revision与输出目录。
+- 共享向量与运行时校验、schema导出/CLI一致及manifest精确字节校验均已覆盖；组件传输使用内存MCP及合成文件，非DWG。旧/篡改journal不得启动MCP连接。
+- 新测试初次typecheck因assert.throws的undefined参数不满足Node类型定义失败，改为Error谓词后通过；保留该记录，不当作产品运行失败。
+- 最终本地复验：pnpm typecheck、pnpm test（38/38）、pnpm smoke（6/6）通过；uv run --project cader-mcp cader-mcp smoke（离线协议3/3）通过。Python smoke有既有Pydantic lifespan前向引用警告，没有抑制或归因到本轮协议。
+- 旧journal的真实CLI子进程返回退出3和LEGACY_REQUEST_REQUIRES_REVIEW，不建立MCP连接；失败核验锁标记、只读重开和请求审计补充均已进入本次最终复验。完整Python lint/pytest留给跨平台CI，Python源码未改。

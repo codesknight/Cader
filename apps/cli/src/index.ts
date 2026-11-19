@@ -1,5 +1,5 @@
 import { runHarnessSmoke, runLiveSmoke, runTask, failureFromError, runControlledCad,
-  reconcileControlledCad, contractSchemas, validateAssessment, assessmentSchemas } from '@cader/profile';
+  reconcileControlledCad, contractSchemas, validateAssessment, assessmentSchemas, CAD_DRAFT_REVISION } from '@cader/profile';
 import { recordSmoke } from './record.js';
 import { loadConfig, loadSkills, redactSecrets, workspacePath } from '@cader/config';
 import { readFile } from 'node:fs/promises';
@@ -72,6 +72,7 @@ try {
     if (command === 'cad-contract') {
       if (process.argv.length !== 3) throw new Error('USAGE_ERROR');
       console.log(JSON.stringify({ contract_version: 'cader-cad/1', status: 'Cader-side proposal; MCP implementation required',
+        draft_revision: CAD_DRAFT_REVISION,
         schemas: { ...contractSchemas(), ...assessmentSchemas() } }, null, 2));
     } else if (command === 'cad-test') {
       const parsed = flags(['--backend', '--mcp', '--plan', '--output'], ['--authorize-write']);
@@ -129,5 +130,5 @@ try {
 } catch (error) {
   const failure = failureFromError(error);
   console.error(JSON.stringify({ ok: false, ...failure }));
-  process.exitCode = failure.source === 'usage' ? 2 : 1;
+  process.exitCode = failure.source === 'usage' ? 2 : command === 'cad-reconcile' && failure.source === 'verification' ? 3 : 1;
 }

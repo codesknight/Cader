@@ -16,8 +16,11 @@
 保留全局锁，仅按原请求对账。切换 profile 不能绕过锁。cad-reconcile 不重放、不恢复、不解锁；
 即使查询终态也需人工审查。进程中断留下的锁同样先对账，不能靠删除锁假定安全。
 
-明确 rolled_back/not_executed 且 revision 不变的批处理失败，需独立查询新工作图为空；不继续保存。
-无法证实回滚时保留锁。文件保存和重开各有独立 request_id，不属于图元事务。
+修订2采用observed_database_events：明确rolled_back/not_executed可令revision前进，以权威失败后revision
+查询新工作图为空，随后结束，不继续保存。缺少权威revision或无法核验状态时保留锁。
+工作图managed=true/read_only=false；重开验收图managed=false/read_only=true并绑定artifact，只用于查询。
+create时显式绑定输出目录；按操作区分输入与结果文档对账。详见[MCP对齐回应](../contracts/mcp-alignment-response-2026-11-19.md)。
+文件保存和重开各有独立request_id，不属于图元事务。
 
 验收读取绑定文档全部分页（最多20页），拒绝错误身份、revision、重复游标及未知实体类型。
 计划与实际实体一对一匹配坐标、半径、文字、字高和图层（容差1e-6布局单位），不靠数量或模型正文。

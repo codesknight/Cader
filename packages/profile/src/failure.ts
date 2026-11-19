@@ -11,6 +11,10 @@ const hints: Record<string, string> = {
   CONFIG_INVALID: 'Check model/MCP/Skill configuration, reference image limits and required credential environment variables.',
   CONFIG_NOT_FOUND: 'Check the configuration file path and run from the Cader repository root.',
   MCP_CONNECTION_FAILED: 'Check the MCP command, environment, working directory and server stderr.',
+  LEGACY_REQUEST_REQUIRES_REVIEW: 'This journal predates draft revision 2. Keep the lock and review the original request; do not replay or auto-migrate it.',
+  REQUEST_JOURNAL_MISMATCH: 'The persisted request does not match its audit data. Keep the lock and inspect the original journal before further action.',
+  NO_FROZEN_REQUEST: 'No matching locked request was found. Check the run directory without deleting a lock or replaying a request.',
+  RECONCILIATION_RESULT_UNVERIFIABLE: 'The response did not match the original operation, instance, documents or artifact. Keep the lock; do not replay.',
   RUNTIME_INIT_FAILED: 'Check runtime configuration and dependencies.',
   VERIFICATION_FAILED: 'Inspect individual checks and verification.json; smoke is a fixed read-only test.',
   USAGE_ERROR: 'Check --help. exec accepts a task; live-smoke is fixed and accepts no --task. Unknown options and empty values are rejected.',
@@ -30,6 +34,9 @@ export function describeFailure(code: unknown, source: FailureSource) {
 
 export function failureFromError(error: unknown, source: FailureSource = 'runtime') {
   const value = error as { name?: string; code?: string; message?: string } | null;
+  if (value?.name === 'CadControlError' && ['LEGACY_REQUEST_REQUIRES_REVIEW', 'REQUEST_JOURNAL_MISMATCH',
+    'NO_FROZEN_REQUEST', 'RECONCILIATION_RESULT_UNVERIFIABLE'].includes(value.code ?? ''))
+    return describeFailure(value.code, 'verification');
   if (value?.name === 'ConfigError') return describeFailure('CONFIG_INVALID', 'configuration');
   if (value?.message === 'INVALID_ENV_FILE' || value?.message === 'SMOKE_REQUIRES_ROLE_PROFILES')
     return describeFailure('CONFIG_INVALID', 'configuration');

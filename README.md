@@ -147,6 +147,12 @@ Only the shipped, reviewed three-entity plan is allowed. Image-redraw plans stay
 Unknown writes freeze the workspace: `cad-reconcile` only queries, never replays or unlocks.
 See [the public contract](docs/contracts/managed-cad-v1.md) and [execution policy](docs/architecture/controlled-writes.md).
 
+The unfrozen contract is now **draft revision 2**: writable working documents and read-only
+verification documents have separate bindings; rollback checks use authoritative observed-event
+revisions. Output directories bind at creation, and reconciliation distinguishes input/output
+documents. See [the MCP alignment response](docs/contracts/mcp-alignment-response-2026-11-19.md)
+and the [schema/example hash manifest](configs/contracts/cader-v1.manifest.json).
+
 <a id="configuration"></a>
 
 ## Configuration

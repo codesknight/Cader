@@ -1,6 +1,7 @@
 {
   "contract_version": "cader-cad/1",
   "status": "Cader-side proposal; MCP implementation required",
+  "draft_revision": 2,
   "schemas": {
     "plan": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -75,7 +76,7 @@
                 "properties": {
                   "id": {
                     "type": "string",
-                    "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                    "pattern": "^[A-Za-z0-9._-]{1,128}$"
                   },
                   "operation": {
                     "type": "string",
@@ -144,7 +145,7 @@
                 "properties": {
                   "id": {
                     "type": "string",
-                    "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                    "pattern": "^[A-Za-z0-9._-]{1,128}$"
                   },
                   "operation": {
                     "type": "string",
@@ -200,7 +201,7 @@
                 "properties": {
                   "id": {
                     "type": "string",
-                    "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                    "pattern": "^[A-Za-z0-9._-]{1,128}$"
                   },
                   "operation": {
                     "type": "string",
@@ -284,7 +285,11 @@
         },
         "instance_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
+        },
+        "revision_mode": {
+          "type": "string",
+          "const": "observed_database_events"
         },
         "documents": {
           "type": "array",
@@ -293,11 +298,11 @@
             "properties": {
               "instance_id": {
                 "type": "string",
-                "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                "pattern": "^[A-Za-z0-9._-]{1,128}$"
               },
               "document_id": {
                 "type": "string",
-                "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                "pattern": "^[A-Za-z0-9._-]{1,128}$"
               },
               "revision": {
                 "type": "integer",
@@ -306,11 +311,26 @@
               },
               "units": {
                 "type": "string",
-                "minLength": 1
+                "enum": [
+                  "unitless",
+                  "mm",
+                  "cm",
+                  "m",
+                  "in",
+                  "ft"
+                ]
               },
               "managed": {
                 "type": "boolean",
                 "const": true
+              },
+              "read_only": {
+                "type": "boolean",
+                "const": false
+              },
+              "output_directory": {
+                "type": "string",
+                "minLength": 1
               }
             },
             "required": [
@@ -318,7 +338,9 @@
               "document_id",
               "revision",
               "units",
-              "managed"
+              "managed",
+              "read_only",
+              "output_directory"
             ],
             "additionalProperties": false
           }
@@ -374,6 +396,7 @@
         "contract_version",
         "backend",
         "instance_id",
+        "revision_mode",
         "documents",
         "capabilities"
       ],
@@ -389,7 +412,7 @@
         },
         "request_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         },
         "status": {
           "type": "string",
@@ -400,11 +423,11 @@
           "properties": {
             "instance_id": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+              "pattern": "^[A-Za-z0-9._-]{1,128}$"
             },
             "document_id": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+              "pattern": "^[A-Za-z0-9._-]{1,128}$"
             },
             "revision": {
               "type": "integer",
@@ -413,11 +436,26 @@
             },
             "units": {
               "type": "string",
-              "minLength": 1
+              "enum": [
+                "unitless",
+                "mm",
+                "cm",
+                "m",
+                "in",
+                "ft"
+              ]
             },
             "managed": {
               "type": "boolean",
               "const": true
+            },
+            "read_only": {
+              "type": "boolean",
+              "const": false
+            },
+            "output_directory": {
+              "type": "string",
+              "minLength": 1
             }
           },
           "required": [
@@ -425,7 +463,9 @@
             "document_id",
             "revision",
             "units",
-            "managed"
+            "managed",
+            "read_only",
+            "output_directory"
           ],
           "additionalProperties": false
         }
@@ -435,6 +475,110 @@
         "request_id",
         "status",
         "document"
+      ],
+      "additionalProperties": false
+    },
+    "working_binding": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "instance_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
+        },
+        "document_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "units": {
+          "type": "string",
+          "enum": [
+            "unitless",
+            "mm",
+            "cm",
+            "m",
+            "in",
+            "ft"
+          ]
+        },
+        "managed": {
+          "type": "boolean",
+          "const": true
+        },
+        "read_only": {
+          "type": "boolean",
+          "const": false
+        },
+        "output_directory": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "instance_id",
+        "document_id",
+        "revision",
+        "units",
+        "managed",
+        "read_only",
+        "output_directory"
+      ],
+      "additionalProperties": false
+    },
+    "verification_binding": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "instance_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
+        },
+        "document_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "units": {
+          "type": "string",
+          "enum": [
+            "unitless",
+            "mm",
+            "cm",
+            "m",
+            "in",
+            "ft"
+          ]
+        },
+        "managed": {
+          "type": "boolean",
+          "const": false
+        },
+        "read_only": {
+          "type": "boolean",
+          "const": true
+        },
+        "source_artifact_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
+        }
+      },
+      "required": [
+        "instance_id",
+        "document_id",
+        "revision",
+        "units",
+        "managed",
+        "read_only",
+        "source_artifact_id"
       ],
       "additionalProperties": false
     },
@@ -448,15 +592,53 @@
         },
         "instance_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         },
         "request_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         },
-        "document_id": {
+        "operation": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "enum": [
+            "create_working_document",
+            "execute_atomic_batch",
+            "save_document_as",
+            "reopen_document"
+          ]
+        },
+        "request_document_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._-]{1,128}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "result_document_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._-]{1,128}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_artifact_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._-]{1,128}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "revision": {
           "type": "integer",
@@ -488,7 +670,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                "pattern": "^[A-Za-z0-9._-]{1,128}$"
               },
               "status": {
                 "type": "string",
@@ -496,7 +678,7 @@
               },
               "object_id": {
                 "type": "string",
-                "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                "pattern": "^[A-Za-z0-9._-]{1,128}$"
               }
             },
             "required": [
@@ -512,6 +694,10 @@
         "contract_version",
         "instance_id",
         "request_id",
+        "operation",
+        "request_document_id",
+        "result_document_id",
+        "source_artifact_id",
         "status",
         "outcome"
       ],
@@ -527,7 +713,7 @@
         },
         "request_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         },
         "status": {
           "type": "string",
@@ -538,15 +724,15 @@
           "properties": {
             "artifact_id": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+              "pattern": "^[A-Za-z0-9._-]{1,128}$"
             },
             "instance_id": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+              "pattern": "^[A-Za-z0-9._-]{1,128}$"
             },
             "document_id": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+              "pattern": "^[A-Za-z0-9._-]{1,128}$"
             },
             "revision": {
               "type": "integer",
@@ -597,7 +783,7 @@
         },
         "request_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         },
         "status": {
           "type": "string",
@@ -605,18 +791,18 @@
         },
         "source_artifact_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         },
         "document": {
           "type": "object",
           "properties": {
             "instance_id": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+              "pattern": "^[A-Za-z0-9._-]{1,128}$"
             },
             "document_id": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+              "pattern": "^[A-Za-z0-9._-]{1,128}$"
             },
             "revision": {
               "type": "integer",
@@ -625,11 +811,26 @@
             },
             "units": {
               "type": "string",
-              "minLength": 1
+              "enum": [
+                "unitless",
+                "mm",
+                "cm",
+                "m",
+                "in",
+                "ft"
+              ]
             },
             "managed": {
               "type": "boolean",
+              "const": false
+            },
+            "read_only": {
+              "type": "boolean",
               "const": true
+            },
+            "source_artifact_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._-]{1,128}$"
             }
           },
           "required": [
@@ -637,7 +838,9 @@
             "document_id",
             "revision",
             "units",
-            "managed"
+            "managed",
+            "read_only",
+            "source_artifact_id"
           ],
           "additionalProperties": false
         }
@@ -661,11 +864,11 @@
         },
         "instance_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         },
         "document_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         },
         "revision": {
           "type": "integer",
@@ -680,7 +883,7 @@
             "properties": {
               "object_id": {
                 "type": "string",
-                "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                "pattern": "^[A-Za-z0-9._-]{1,128}$"
               },
               "operation": {
                 "type": "string",
@@ -768,15 +971,15 @@
               "properties": {
                 "artifact_id": {
                   "type": "string",
-                  "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                  "pattern": "^[A-Za-z0-9._-]{1,128}$"
                 },
                 "instance_id": {
                   "type": "string",
-                  "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                  "pattern": "^[A-Za-z0-9._-]{1,128}$"
                 },
                 "document_id": {
                   "type": "string",
-                  "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                  "pattern": "^[A-Za-z0-9._-]{1,128}$"
                 },
                 "revision": {
                   "type": "integer",
@@ -1012,26 +1215,38 @@
       "properties": {
         "instance_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         },
         "request_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         },
         "units": {
           "type": "string",
-          "minLength": 1
+          "enum": [
+            "unitless",
+            "mm",
+            "cm",
+            "m",
+            "in",
+            "ft"
+          ]
         },
         "managed": {
           "type": "boolean",
           "const": true
+        },
+        "output_directory": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": [
         "instance_id",
         "request_id",
         "units",
-        "managed"
+        "managed",
+        "output_directory"
       ],
       "additionalProperties": false
     },
@@ -1041,15 +1256,15 @@
       "properties": {
         "instance_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         },
         "request_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         },
         "document_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         },
         "expected_revision": {
           "type": "integer",
@@ -1067,7 +1282,7 @@
                 "properties": {
                   "id": {
                     "type": "string",
-                    "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                    "pattern": "^[A-Za-z0-9._-]{1,128}$"
                   },
                   "operation": {
                     "type": "string",
@@ -1136,7 +1351,7 @@
                 "properties": {
                   "id": {
                     "type": "string",
-                    "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                    "pattern": "^[A-Za-z0-9._-]{1,128}$"
                   },
                   "operation": {
                     "type": "string",
@@ -1192,7 +1407,7 @@
                 "properties": {
                   "id": {
                     "type": "string",
-                    "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                    "pattern": "^[A-Za-z0-9._-]{1,128}$"
                   },
                   "operation": {
                     "type": "string",
@@ -1268,7 +1483,7 @@
       "properties": {
         "request_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         }
       },
       "required": [
@@ -1282,11 +1497,11 @@
       "properties": {
         "instance_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         },
         "document_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         },
         "expected_revision": {
           "type": "integer",
@@ -1320,15 +1535,15 @@
       "properties": {
         "instance_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         },
         "request_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         },
         "document_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         },
         "expected_revision": {
           "type": "integer",
@@ -1360,15 +1575,15 @@
       "properties": {
         "instance_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         },
         "request_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         },
         "artifact_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
         }
       },
       "required": [

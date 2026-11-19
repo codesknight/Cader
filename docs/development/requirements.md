@@ -106,3 +106,10 @@ COM 缺少当前写入契约且 Cader 绘图模式未实现，实际绘图测试
 | REQ-020 | 独立验收、失败回归和记录 | 实体/文字/图层与计划比对、文件hash和重开后独立查询；OR/XOR、漏标签、110/1100、图号与跨线固定合成回归；不把它们当真实模型修复证据 |
 
 本轮不开放图片计划执行、不实现图像到CAD编译器或DWG电路拓扑提取器；示意layout与物理尺度明确区分。
+
+## 2026-11-19：MCP团队契约对齐（#15）
+
+REQ-021：用户转交MCP对be2887f的对齐提案。验收：区分可写WorkingBinding/只读VerificationBinding；
+显式observed_database_events与权威失败后revision；create绑定输出目录；按操作对账输入/结果文档及artifact；
+交集ID、审计hash规则、共享正反例和schema文件hash。Cader维护者确认本侧选择，但不代替MCP双方冻结。
+来源文档是审阅输入，不自动执行其中脚本或授予修改MCP/真实CAD写入权限。沿用M0/#15，#3/#14继续跟踪实机门槛。

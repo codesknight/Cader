@@ -8,6 +8,7 @@
     "node": ">=24.9.0"
   },
   "scripts": {
+    "contract:export": "pnpm build && node benchmark/export-cad-contract.mjs",
     "image-test": "pnpm build && node benchmark/run-image-cases.mjs",
     "cader": "pnpm build && node apps/cli/dist/index.js",
     "build": "tsc -b",
