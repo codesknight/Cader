@@ -96,3 +96,4 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 - 图片链路测试使用已存在的合成校准 PNG 和离线响应，不评估视觉正确性；只验证附件/上下文传递和权限。PNG 预检为边界、大小和头信息检查，不宣称完整解码或图像质量分析。
 - 未执行上游脚本、真实 API/CAD、DWG/PDF/DXF 重绘或视觉指标计算；10 脚本的检查为静态分析，非第三方测试通过。
 - 不改 Python 代码或依赖；完整 Python 回归由现有 Windows/Linux CI 执行。原设计、密钥与相邻 MCP 仓库未修改。
+- 实现 `cda8c75` 的 [CI run 44462708123](https://github.com/codesknight/Cader/actions/runs/44462708123) 共 4/4 jobs 成功：Windows/Linux 的 18 项 TS、10 项 Python 及各自 smoke、Python lint/format 均通过。发布前实际凭据扫描 22 文件泄漏 0，63 个文档链接/锚点和暂存 whitespace 检查通过。
