@@ -16,3 +16,5 @@ build/
 node_modules/
 .pnpm-store/
 *.tsbuildinfo
+# User-supplied source images/drawings stay local; sanitized reports are versioned separately.
+tests/images/

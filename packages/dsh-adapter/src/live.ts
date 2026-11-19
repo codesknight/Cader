@@ -19,7 +19,7 @@ import * as mcpClient from '@deepseek-ai/dsh-mcp-client';
 import Attachments from '@deepseek-ai/dsh-attachment-local';
 import FileSystem from '@deepseek-ai/dsh-fs-local';
 import type { ModelProfile, RuntimeConfig, McpConfig } from '@cader/config';
-import { requireCredential, loadSkills, readPng } from '@cader/config';
+import { requireCredential, loadSkills, readReferenceImage } from '@cader/config';
 import { ChildPool } from './pool.js';
 
 export interface PublicEvent { type: string; agentId?: string; role?: string; [key: string]: unknown }
@@ -214,7 +214,8 @@ export async function createLiveRuntime(options: LiveOptions) {
         if (signal.aborted) abort();
         const content: ContentBlock[] = [{ type: 'text', text: instruction }];
         if (request.image) {
-          const image = await ctx.attachments.saveImage({ data: await readPng(options.root, request.image), mediaType: 'image/png' });
+          const reference = await readReferenceImage(options.root, request.image);
+          const image = await ctx.attachments.saveImage({ data: reference.data, mediaType: reference.mediaType });
           content.push({ type: 'image', attachment: image });
         }
         emit({ type: 'agent.started', agentId: id, role: profile.role, parentId: request.parent?.id });

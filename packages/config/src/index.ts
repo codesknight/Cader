@@ -169,3 +169,36 @@ export async function readPng(root: string, path: string) {
     throw new ConfigError('Unsupported or oversized PNG header');
   return data;
 }
+
+/** JPEG frame metadata gate; image decoding remains the attachment/provider's job. */
+export async function readReferenceImage(root: string, path: string) {
+  const target = await workspacePath(root, path);
+  const info = await stat(target);
+  if (!info.isFile() || info.size < 4 || info.size > 10 * 1024 * 1024)
+    throw new ConfigError('Reference image must be a file no larger than 10 MiB');
+  const data = await readFile(target);
+  if (data.length > 10 * 1024 * 1024) throw new ConfigError('Reference image exceeds limit');
+  if (data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+    const png = await readPng(root, path);
+    return { data: png, mediaType: 'image/png' as const, width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
+  }
+  if (data[0] !== 255 || data[1] !== 216) throw new ConfigError('Only PNG and JPEG references are supported');
+  let offset = 2;
+  while (offset < data.length) {
+    if (data[offset++] !== 255) break;
+    while (data[offset] === 255) offset++;
+    const marker = data[offset++];
+    if (marker === undefined || marker === 217 || marker === 218 || offset + 2 > data.length) break;
+    if (marker === 1 || (marker >= 208 && marker <= 215)) continue;
+    const length = data.readUInt16BE(offset);
+    if (length < 2 || offset + length > data.length) break;
+    if ([192, 193, 194, 195, 197, 198, 199, 201, 202, 203, 205, 206, 207].includes(marker)) {
+      if (length < 8) break;
+      const height = data.readUInt16BE(offset + 3), width = data.readUInt16BE(offset + 5);
+      if (!width || !height || width * height > 40_000_000) break;
+      return { data, mediaType: 'image/jpeg' as const, width, height };
+    }
+    offset += length;
+  }
+  throw new ConfigError('Invalid or oversized JPEG frame header');
+}

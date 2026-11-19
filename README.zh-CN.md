@@ -152,13 +152,17 @@ pnpm run cader exec "评估参考图，列出尺度证据缺口和后续验证�
 ```
 
 前两条命令无需密钥或 CAD。最后一条调用支持图像的主模型；仓库校准图仅演示附件链路，
-不是图纸评测。实际评估时换成工作区内的 PNG（最大 10 MiB、4000 万像素）。
+不是图纸评测。实际评估时换成工作区内的 PNG/JPEG（最大 10 MiB、4000 万像素）。
 
 这份 Cader 自有 Skill 用于证据审查与重绘准备，**不生成 DWG**，不执行脚本，也不开放写工具。
 接入方案参考了 [AutoCAD Redraw Skills](https://github.com/pengxiaoan/autocad-dwg-redraw-skill) 的工作方法；
 固定版本未发现明确许可证，因此没有复制分发上游文件。
 [深入分析报告](docs/research/redraw-skill-integration-2026-11-19.md)说明了工作流映射、代码审查发现，
 以及后续 MCP 执行和独立 verifier 的分层路线。
+
+独立图片用例可运行 `pnpm image-test --manifest benchmark/image-cases.example.json`；
+加 `--live` 才调用付费模型，以独立 JSON 期望校验识别结果。`tests/images/` 原始资料仅留本地。
+[首轮真实图片测试](docs/research/local-image-tests-2026-11-19.md)区分了输入、识别与尚未完成的 CAD 绘图。
 
 ### 连接模型与 AutoCAD-MCP
 

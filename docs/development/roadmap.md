@@ -16,6 +16,7 @@
 | CLI-001 社区 TUI | 已调研候选，未集成 | [Issue #9](https://github.com/codesknight/Cader/issues/9)：锁定版本 / Windows / Cader profile 兼容 smoke |
 | CLI-002 Cader CLI 基础 | 已有 keyless help / 只读 exec / 参数校验 | [Issue #10](https://github.com/codesknight/Cader/issues/10)：bin、version、完整命令边界继续推进；本轮 #12 |
 | CADER-011 重绘评估 Skill | 调研后接入目录、角色、资源和 PNG 评估入口 | [Issue #13](https://github.com/codesknight/Cader/issues/13)：不包含完整 DWG 重绘引擎 |
+| CADER-012 本地图片测试 | 14图输入、2例真实识别通过；绘图未执行 | [Issue #14](https://github.com/codesknight/Cader/issues/14)：JPEG兼容与runner已补，#3仍阻塞实际绘图 |
 
 Headless app、真实模型、视觉内容、取消/预算和实际 CAD 读写需要分别留证。
 本轮 [#12](https://github.com/codesknight/Cader/issues/12) 交付只读用户任务、错误摘要与 Python UTF-8；

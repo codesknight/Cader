@@ -8,7 +8,7 @@ const hints: Record<string, string> = {
   RATE_LIMIT: 'Wait for the provider rate limit to recover before retrying.',
   TIMEOUT: 'Check provider availability and configured timeouts.',
   NETWORK: 'Check provider network connectivity.',
-  CONFIG_INVALID: 'Check model/MCP/Skill configuration, PNG input limits and required credential environment variables.',
+  CONFIG_INVALID: 'Check model/MCP/Skill configuration, reference image limits and required credential environment variables.',
   CONFIG_NOT_FOUND: 'Check the configuration file path and run from the Cader repository root.',
   MCP_CONNECTION_FAILED: 'Check the MCP command, environment, working directory and server stderr.',
   RUNTIME_INIT_FAILED: 'Check runtime configuration and dependencies.',

@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { resolve, join } from 'node:path';
-import { loadConfig, loadMcp, loadSkills, readPng, redactSecrets, ConfigError } from '@cader/config';
+import { loadConfig, loadMcp, loadSkills, readReferenceImage, redactSecrets, ConfigError } from '@cader/config';
 import { createLiveRuntime } from '@cader/dsh-adapter';
 import type { AgentResult, PublicEvent } from '@cader/dsh-adapter';
 import { agentFailure, describeFailure, failureFromError } from './failure.js';
@@ -25,7 +25,7 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
     if (input.image) {
       if (!config.profiles.find(profile => profile.id === config.runtime.main_profile)?.input.includes('image'))
         throw new ConfigError('The main model does not accept image input');
-      await readPng(root, input.image);
+      await readReferenceImage(root, input.image);
     }
     const mcp = input.mcpPath ? await loadMcp(resolve(root, input.mcpPath)) : undefined;
     stage = mcp ? 'mcp' : 'runtime';

@@ -4,6 +4,28 @@
 `uv run --project cader-mcp cader-mcp smoke` 测试 MCP 协议 fixture；`pnpm smoke` 测试实际 DSH 组件和独立插件。
 两者均不是此套 CAD benchmark。
 
+## 本地图片输入与识别测试
+
+新增独立图片测试入口，不是 G01–G10 的绘图评分 runner：
+
+```powershell
+pnpm image-test --manifest benchmark/image-cases.example.json
+pnpm image-test --manifest benchmark/image-cases.example.json --live
+```
+
+默认只预检工作区 PNG/JPEG 的文件范围、大小、格式头和像素上限，不调用 API 或 CAD。
+--live 显式调用付费模型，以单独 expect 对照模型返回 JSON；期望值不拼接到任务指令。
+真实图片 manifest 建议放 `.cader/`；文件格式参考示例，id 唯一，image 位于工作区，
+task 是模型任务，expect 是事先独立核对的部分 JSON 期望。数组比较要求顺序与长度一致。
+每批最多 100 个样本；遇到 QUOTA/ACCOUNT_QUOTA/AUTH/RATE_LIMIT 后跳过剩余模型调用。
+
+私有报告保存图片 SHA-256、格式/尺寸、manifest 哈希、逐项结果和子运行目录；live 在调用前保存脱敏期望快照。
+模型回复由子运行保留，不公开原始图纸。终态始终标记 cadDrawingEvaluated:false，
+输入通过、识别通过或模型返回成功都不算生成 DWG/保存重开成功。
+
+用户提供的 tests/images 资料保留本地并被 Git 忽略。2026-11-19 首轮结果见
+[真实测试报告](../docs/research/local-image-tests-2026-11-19.md)。完整绘图仍由 #3 验收。
+
 ## 执行约束
 
 每个任务在独立空白图纸或受控 fixture 副本中执行。固定模型版本、提示词、工具 schema、

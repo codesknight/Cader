@@ -3,7 +3,7 @@ import { recordSmoke } from './record.js';
 import { loadConfig, loadSkills, redactSecrets } from '@cader/config';
 
 const command = process.argv[2];
-const usage = 'Cader CLI (read-only)\nUsage: cader exec "<task>" [--mcp <local.yaml>] [--skill <name>] [--image <workspace.png>] | skills list | skills show <name> [--resource <id>] | doctor | models | harness-smoke | live-smoke --mcp <local.yaml> [--image <file> --expected-image <json>]';
+const usage = 'Cader CLI (read-only)\nUsage: cader exec "<task>" [--mcp <local.yaml>] [--skill <name>] [--image <workspace.png|jpg>] | skills list | skills show <name> [--resource <id>] | doctor | models | harness-smoke | live-smoke --mcp <local.yaml> [--image <file> --expected-image <json>]';
 try {
   // Parse before loading credentials or starting any runtime.
   let taskInput: { task: string; mcpPath?: string; skill?: string; image?: string } | undefined;

@@ -8,6 +8,7 @@
     "node": ">=24.9.0"
   },
   "scripts": {
+    "image-test": "pnpm build && node benchmark/run-image-cases.mjs",
     "cader": "pnpm build && node apps/cli/dist/index.js",
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false",

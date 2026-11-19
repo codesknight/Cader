@@ -157,7 +157,7 @@ pnpm run cader exec "Assess the reference, identify missing scale evidence, and 
 
 The first two commands need no key or CAD. The last calls your image-capable main model;
 the bundled image is a synthetic attachment demo, not a drawing benchmark. Replace it with
-your own workspace PNG for reference review (up to 10 MiB / 40 million pixels).
+your own workspace PNG/JPEG for reference review (up to 10 MiB / 40 million pixels).
 
 This Cader-authored Skill assesses evidence and redraw readiness. It does **not generate DWG**,
 execute scripts, or open write tools. It follows a review of
@@ -165,6 +165,11 @@ execute scripts, or open write tools. It follows a review of
 the pinned upstream snapshot had no explicit license, so its files are not redistributed.
 See the [research and integration analysis](docs/research/redraw-skill-integration-2026-11-19.md)
 for the workflow mapping, code-review findings, and planned MCP execution/verifier layers.
+
+Local image cases can also be checked with `pnpm image-test --manifest benchmark/image-cases.example.json`;
+add `--live` for paid recognition tests against independent expected JSON. User images in
+`tests/images/` stay local. [First real-image test results](docs/research/local-image-tests-2026-11-19.md)
+separate input/recognition checks from the still-pending CAD drawing workflow.
 
 ### Connect your models and AutoCAD-MCP
 

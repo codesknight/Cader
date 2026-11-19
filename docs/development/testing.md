@@ -97,3 +97,12 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 - 未执行上游脚本、真实 API/CAD、DWG/PDF/DXF 重绘或视觉指标计算；10 脚本的检查为静态分析，非第三方测试通过。
 - 不改 Python 代码或依赖；完整 Python 回归由现有 Windows/Linux CI 执行。原设计、密钥与相邻 MCP 仓库未修改。
 - 实现 `cda8c75` 的 [CI run 44462708123](https://github.com/codesknight/Cader/actions/runs/44462708123) 共 4/4 jobs 成功：Windows/Linux 的 18 项 TS、10 项 Python 及各自 smoke、Python lint/format 均通过。发布前实际凭据扫描 22 文件泄漏 0，63 个文档链接/锚点和暂存 whitespace 检查通过。
+
+## 2026-11-19：用户图片与后端实测（#14）
+
+- 原始资料16文件哈希前后相同；14/14 PNG/JPEG边界/头/大小预检通过，2 DWG未解析。
+- 实际deepseek-flash经DSH/官方附件服务：2/2代表性识别案例通过事先独立期望。期望未进入模型任务，没有CAD工具或委派调用。不是全量14图识别，也不是绘图评分。
+- 实际MCP：40工具，get_backend_status成功，COM后端不具备atomic batch/分页或当前受控文档/revision契约；实际CAD写入、保存和重开未执行，保留阻塞。
+- 本地pnpm typecheck、20项TS、组件smoke6/6通过；新增头信息测试不是完整JPEG解码，真实JPEG请求才提供附件兼容证据。
+- runner默认离线测试无Key；测试--live的缺凭据路径使用独立临时工作区和空Key，在provider装配前失败，无真实API请求，并验证独立期望快照。
+- 原始运行、清单、任务与期望均在.cader；公开报告只保留聚合结论。根tests/images被忽略，不上传用户数据或将其放入CI。

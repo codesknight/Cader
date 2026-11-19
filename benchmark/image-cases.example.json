@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "synthetic-calibration",
+      "image": "benchmark/fixtures/vision-calibration.png",
+      "task": "Read the large four-digit code, count blue circles and red rectangles. Return JSON with code (string), blue_circles (integer) and red_rectangles (integer).",
+      "expect": { "code": "4628", "blue_circles": 3, "red_rectangles": 2 }
+    }
+  ]
+}

@@ -13,7 +13,7 @@ pnpm run cader exec "说明当前只读检查的步骤，不调用工具"
 pnpm run cader exec "读取当前图层并总结，不修改图纸" --mcp configs/mcp/AutoCAD.local.yaml
 ```
 
-`exec` 接收一个带引号的非空任务，以及可选 `--mcp <local.yaml>`、`--skill <name>`、`--image <workspace.png>`。
+`exec` 接收一个带引号的非空任务，以及可选 `--mcp <local.yaml>`、`--skill <name>`、`--image <workspace.png|jpg>`。
 没有 MCP 时仅有模型/Skill/受限委派；配置 MCP 后仍只有已审查工具进入模型 schema。
 真实任务会调用付费 API；提供 MCP 时可能连接本机 CAD。CI 使用离线模型 fixture，不消耗配额。
 任务可不要求委派，不像 smoke 一样强制进行固定校验。
@@ -36,14 +36,18 @@ skills 命令只需 configs/skills，不读取 .env 或模型配置，不发请�
 模型同时看到角色可用的 Skill 元数据与 resource ID，不通过自由文件路径读取资源。
 文本子 Agent 无 cad-redraw-review 可见性；视觉子任务可读取该 Skill，但无委派和写入权限。
 
---image 仅接受工作区内的有界 PNG（10 MiB / 4000 万像素），检查文件范围及 PNG 头，
-不提供 JPEG/PDF/DWG 解析或完整图像解码验证。输入预检在 MCP/模型启动前执行。
+--image 接受工作区内的有界 PNG/JPEG（10 MiB / 4000 万像素），检查文件范围及格式/帧头，
+不提供 PDF/DWG 解析或完整图像解码验证，不自动改变方向。输入预检在 MCP/模型启动前执行。
 主模型必须声明 image 输入；图片也以 image-1 引用供主 Agent 选择委派给视觉模型。
 选定 Skill 和是否附图写入终态；原图片附件仅留在本地私有 .cader 及显式模型调用链路。
 参考图内容不自动变为工具授权。校准图只是链路示例，不作为重绘正确性验证。
 
 cad-redraw-review 是 Cader 自有评估指引，不是上游包的安装或完整重绘引擎；
 许可与接入取舍见[研究报告](../research/redraw-skill-integration-2026-11-19.md)。
+
+独立图片用例测试可使用 `pnpm image-test --manifest benchmark/image-cases.example.json`；
+加 --live 才调用真实模型，以不传给模型的 expect 比较结果，始终标记非 CAD 绘图测试。
+格式和证据契约见 [benchmark 说明](../../benchmark/README.md)。
 
 ## JSON 与退出码
 
