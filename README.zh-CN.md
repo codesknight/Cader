@@ -303,3 +303,5 @@ DSH YAML 与 Python 诊断 JSON 使用不同 schema，不能互换。
 [MIT](LICENSE) · Copyright © 2026 codesknight
 
 真实模型自主CAD执行证据：[验收报告](docs/validation/2026-11-20-agent-execution.md)。
+
+研发快照0.4.0-dev.1已加入分段执行事实、限定恢复及真实图像反馈链路；原生可靠性/视觉完整验收仍未通过，见[实测与保留失败](docs/validation/2026-11-20-reliable-execution.md)。

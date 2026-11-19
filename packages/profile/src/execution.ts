@@ -3,8 +3,10 @@ import { resolve, relative, dirname, basename, extname, matchesGlob } from 'node
 import { createHash, randomUUID } from 'node:crypto';
 import { createMcpClient, defineTool } from '@cader/dsh-adapter';
 import type { ToolDefinition } from '@cader/dsh-adapter';
-import { loadMcp, workspacePath } from '@cader/config';
+import { loadMcp, workspacePath, readReferenceImage } from '@cader/config';
 import { runUserShell } from './interactive-shell.js';
+import { validateCadArguments } from './cad-arguments.js';
+import { environmentRedactor } from './session-store.js';
 
 export type PermissionMode = 'read-only' | 'ask' | 'workspace-write' | 'full-access';
 export const PERMISSION_MODES: PermissionMode[] = ['read-only', 'ask', 'workspace-write', 'full-access'];
@@ -12,6 +14,9 @@ const reads = new Set(['get_backend_status', 'list_layers', 'list_blocks', 'list
 const writes = new Set(['new_drawing', 'draw_line', 'draw_circle', 'draw_arc', 'draw_rectangle', 'draw_text', 'draw_polyline', 'draw_mtext', 'draw_hatch', 'add_dimension', 'create_layer', 'set_layer_properties', 'move_entity', 'rotate_entity', 'copy_entity', 'scale_entity', 'mirror_entity', 'delete_entity', 'save_drawing']);
 export type Approval = (description: string, cwd: string) => Promise<boolean>;
 type Client = Awaited<ReturnType<typeof createMcpClient>>;
+type Outcome = 'committed' | 'committed_observation_failed' | 'unknown' | 'blocked_not_dispatched' | 'failed_before_dispatch';
+export interface CadOperationRecord { operation_id: string; tool_call_id?: string; agent_id?: string; tool: string;
+  stage: string; outcome: Outcome; dispatched: boolean; error?: unknown; target: string | null; duration_ms: number }
 
 /** One owner and one persistent MCP process per interactive workspace. COM retains its
  * scratch document binding; a new client must never inherit write authority. */
@@ -21,19 +26,122 @@ export class ExecutionSession {
   private scratch: string | null = null;
   private lock?: string;
   private frozen = false;
+  private freeze?: { operation_id: string; stage: string; outcome: Outcome; reason: string; sameConnection: boolean };
+  private operations: CadOperationRecord[] = [];
+  private observedAt: string | null = null;
+  private observedCount: number | null = null;
+  private lastArtifact: { path: string; bytes: number; sha256: string } | null = null;
   mode: PermissionMode = 'ask';
   constructor(readonly workspace: string, readonly runDirectory: string,
-    readonly clean: (value: string) => string = value => value,
+    readonly clean: (value: string) => string = environmentRedactor().clean,
     private readonly clientFactory: typeof createMcpClient = createMcpClient) {}
   async connect(path: string) {
     await this.dispose();
+    // A transport reconnect never adopts an old scratch or clears a persisted barrier.
+    try {
+      const barrier = JSON.parse(await readFile(await workspacePath(this.workspace, '.cader/locks/managed-write.json'), 'utf8'));
+      this.frozen = true;
+      this.freeze = { operation_id: barrier.request ?? 'external-lock', stage: barrier.stage ?? 'unknown',
+        outcome: barrier.outcome ?? 'unknown', reason: 'PERSISTED_OR_EXTERNAL_WRITE_BARRIER', sameConnection: false };
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     this.client = await this.clientFactory(await loadMcp(path));
     return { connected: true, discovered: this.client.toolNames().length, exposed: this.definitions().length,
       backend: await this.client.call('get_backend_status', {}) };
   }
   async status() { return this.client ? { connected: true, discovered: this.client.toolNames().length,
     exposed: this.definitions().length, scratch: this.scratch, frozen: this.frozen,
-    backend: await this.client.call('get_backend_status', {}) } : { connected: false, hint: '/mcp use <configuration>; /mcp tools' }; }
+    health: this.facts(), backend: await this.client.call('get_backend_status', {}) } : { connected: false, frozen: this.frozen, health: this.facts(), hint: '/mcp use <configuration>; /mcp tools' }; }
+  mark() { return this.operations.length; }
+  toolAvailable(name: string) { return !this.frozen || !name.startsWith('mcp__') || reads.has(name.split('__').at(-1)!); }
+  controlTools(): ToolDefinition[] {
+    const output = { schema: { type: 'string' as const }, render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: String(value) }] };
+    return [defineTool({ name: 'cader_cad_health', description: 'Read authoritative Cader execution/lock state. COM null status fields mean unavailable metadata, not missing binding.', parameters: {}, output,
+      execute: async () => JSON.stringify(await this.status()) }),
+    defineTool({ name: 'cader_cad_recover', description: 'Reconcile a mutation already acknowledged on this original connection after a failed observation. Never replays. Unknown dispatch, reconnect and legacy barriers remain frozen.', parameters: {}, output,
+      execute: async () => JSON.stringify(await this.recover()) })];
+  }
+  async captureView(signal: AbortSignal, confirm?: Approval) {
+    return this.serial(async () => {
+      signal.throwIfAborted();
+      if (!this.client || !this.scratch) throw new Error('NEW_SCRATCH_DRAWING_REQUIRED');
+      if (this.frozen) throw new Error('CAD_CAPTURE_BLOCKED_FROZEN');
+      if (!this.client.toolNames().includes('export_current_view')) throw new Error('CAD_VIEW_EXPORT_UNAVAILABLE');
+      await this.authorize(`CAD export_current_view\nTarget: ${this.scratch}\nExport a private PNG; backend changes viewport/plot settings. No DWG save required.`, false, confirm);
+      signal.throwIfAborted(); await this.acquire();
+      await mkdir(this.runDirectory, { recursive: true });
+      const path = resolve(await workspacePath(this.workspace, this.runDirectory), `view-${randomUUID()}.png`);
+      const operationId = randomUUID();
+      const captureStarted = Date.now();
+      await this.audit({ phase: 'capture_prepared', operation_id: operationId, target: this.scratch, path });
+      let acknowledged = false;
+      try {
+        const result = await this.client.call('export_current_view', { file_path: path }, operationId);
+        acknowledged = true;
+        if (resolve(String(result)) !== path) throw new Error('CAD_CAPTURE_PATH_MISMATCH');
+        const image = await readReferenceImage(this.workspace, path);
+        const evidence = { source: 'AutoCAD export_current_view', document: this.scratch, captured_at: new Date().toISOString(),
+          sha256: createHash('sha256').update(image.data).digest('hex'), width: image.width, height: image.height,
+          view: 'backend extents plot', pixel_to_cad: null, mapping_note: 'No authoritative pixel-to-CAD transform; locate defects using entity queries before editing.' };
+        await this.audit({ phase: 'capture_completed', operation_id: operationId, duration_ms: Date.now() - captureStarted, ...evidence });
+        return { path, evidence };
+      } catch (error) {
+        const record: CadOperationRecord = { operation_id: operationId, tool: 'export_current_view', target: this.scratch,
+          dispatched: true, stage: acknowledged ? 'capture_artifact' : 'capture_dispatch',
+          outcome: acknowledged ? 'committed_observation_failed' : 'unknown', duration_ms: Date.now() - captureStarted, error: this.diagnostic(error) };
+        this.operations.push(record); this.frozen = true;
+        this.freeze = { operation_id: operationId, stage: record.stage, outcome: record.outcome, reason: 'CAD_CAPTURE_BARRIER', sameConnection: true };
+        await writeFile(this.lock!, this.clean(JSON.stringify({ ...record, frozen: true, runDirectory: this.runDirectory, request: operationId })));
+        await this.audit({ ...record, phase: 'capture_failed' });
+        throw new Error('CAD_CAPTURE_FAILED_FROZEN: inspect /mcp doctor and original capture audit; no export replay');
+      }
+    });
+  }
+  facts(since = 0) {
+    const operations = this.operations.slice(since).map(operation => structuredClone(operation));
+    return { frozen: this.frozen, write_state: this.frozen ? 'frozen' : this.scratch ? 'scratch_bound' : 'new_scratch_required',
+      freeze: this.freeze ?? null, transport: this.client ? 'connected' : 'disconnected',
+      cad_observation: { source: 'last_successful_full_query', observed_at: this.observedAt, entity_count: this.observedCount,
+        native_identity: 'legacy_COM_name_guard; no authoritative instance/revision', cached: true },
+      scratch: this.scratch, artifact: this.lastArtifact, operations,
+      counts: Object.fromEntries(['committed','committed_observation_failed','unknown','blocked_not_dispatched','failed_before_dispatch'].map(outcome => [outcome, operations.filter(op => op.outcome === outcome).length])) };
+  }
+  private diagnostic(error: unknown) {
+    const e = error as { name?: string; message?: string; code?: unknown; stack?: string; failure?: unknown };
+    const native = JSON.stringify(e?.failure ?? e?.message ?? '').match(/\((-?\d{8,}),/);
+    const hresult = native ? Number(native[1]) : null;
+    return JSON.parse(this.clean(JSON.stringify({ name: e?.name, message: e?.message?.slice(0, 4000), code: e?.code,
+      hresult, native_code: hresult === -2147418111 ? 'RPC_E_CALL_REJECTED' : null,
+      stack: e?.stack?.slice(0, 8000), protocol_failure: e?.failure })));
+  }
+  async probe() {
+    return this.serial(async () => {
+      if (!this.client) throw new Error('MCP_NOT_CONNECTED');
+      const entities = await this.client.call('query_entities', {});
+      this.observedAt = new Date().toISOString(); this.observedCount = Array.isArray(entities) ? entities.length : null;
+      await this.audit({ phase: 'probe', source: 'query_entities', scratch: this.scratch, entity_count: this.observedCount });
+      return { ...this.facts(), note: 'Query succeeded. This does not grant ownership of an existing drawing or prove mutation quiescence.' };
+    });
+  }
+  async recover() {
+    return this.serial(async () => {
+      if (!this.frozen) return { recovered: false, reason: 'NOT_FROZEN', ...this.facts() };
+      // Only a successful mutation acknowledgement plus a later failed read can be
+      // reconciled through this still-owned connection. Dispatch errors/timeouts cannot.
+      if (!this.client || !this.freeze?.sameConnection || this.freeze.outcome !== 'committed_observation_failed' || this.freeze.stage !== 'postflight')
+        return { recovered: false, reason: 'AUTHORITATIVE_OUTCOME_OR_ORIGINAL_CONNECTION_REQUIRED', ...this.facts() };
+      try {
+        const observed = await this.client.call('query_entities', {});
+        await this.audit({ phase: 'reconciled', operation_id: this.freeze.operation_id, outcome: 'committed', observed });
+        this.observedAt = new Date().toISOString(); this.observedCount = Array.isArray(observed) ? observed.length : null;
+        const op = this.operations.find(op => op.operation_id === this.freeze!.operation_id);
+        if (op) { op.outcome = 'committed'; op.stage = 'reconciled'; }
+        // Persist ready while retaining our lock until the connection is disposed.
+        await writeFile(this.lock!, JSON.stringify({ runDirectory: this.runDirectory, pid: process.pid, frozen: false }));
+        this.frozen = false; this.freeze = undefined;
+        return { recovered: true, replayed: false, ...this.facts() };
+      } catch (error) { await this.audit({ phase: 'reconcile_failed', error: this.diagnostic(error) }); return { recovered: false, ...this.facts() }; }
+    });
+  }
   private async audit(value: unknown) {
     await mkdir(this.runDirectory, { recursive: true });
     const file = await open(resolve(this.runDirectory, 'execution.jsonl'), 'a');
@@ -54,7 +162,15 @@ export class ExecutionSession {
     await mkdir(resolve(this.workspace, '.cader/locks'), { recursive: true });
     const path = await workspacePath(this.workspace, '.cader/locks');
     const lock = resolve(path, 'managed-write.json');
-    const file = await open(lock, 'wx');
+    let file;
+    try { file = await open(lock, 'wx'); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+        this.frozen = true;
+        this.freeze = { operation_id: 'external-lock', stage: 'preflight', outcome: 'blocked_not_dispatched', reason: 'WORKSPACE_WRITE_LOCKED', sameConnection: false };
+      }
+      throw error;
+    }
     try { await file.writeFile(JSON.stringify({ runDirectory: this.runDirectory, pid: process.pid })); await file.sync(); }
     finally { await file.close(); }
     this.lock = lock;
@@ -64,46 +180,79 @@ export class ExecutionSession {
       .map(tool => ({ ...tool, output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] },
         isConcurrencySafe: () => false,
         execute: async (args, exec) => this.serial(async () => {
-          exec.signal.throwIfAborted();
           const name = tool.name.split('__').at(-1)!, payload = { ...args as Record<string, unknown> };
-          if (reads.has(name)) return JSON.stringify(await this.client!.call(name, payload));
-          if (this.frozen) throw new Error('OUTCOME_UNKNOWN_FROZEN');
-          if (name !== 'new_drawing' && !this.scratch) throw new Error('NEW_SCRATCH_DRAWING_REQUIRED');
-          let destructive = name === 'delete_entity' || payload.erase_source === true;
-          let output: string | undefined;
-          if (name === 'save_drawing') {
-            output = resolve(this.workspace, String(payload.file_path));
-            if (extname(output).toLowerCase() !== '.dwg') throw new Error('DWG_OUTPUT_REQUIRED');
-            const parent = await import('node:fs/promises').then(fs => fs.realpath(dirname(output!)));
-            output = resolve(parent, basename(output));
-            try { const info = await lstat(output); if (!info.isFile() || info.isSymbolicLink()) throw new Error('OUTPUT_TYPE_REFUSED'); destructive = true; }
-            catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-            // workspace-write also requires explicit approval for an external destination.
-            try { await workspacePath(this.workspace, parent!); } catch { destructive = true; }
-            payload.file_path = output; payload.overwrite = destructive;
+          const operationId = randomUUID(), started = Date.now();
+          const correlation = { operation_id: operationId, tool_call_id: String(exec.callId), agent_id: exec.agent ? String(exec.agent.id) : undefined };
+          if (reads.has(name)) {
+            exec.signal.throwIfAborted();
+            try {
+              const result = await this.client!.call(name, payload, operationId);
+              if (name === 'query_entities' && !payload.entity_type) { this.observedAt = new Date().toISOString(); this.observedCount = Array.isArray(result) ? result.length : null; }
+              await this.audit({ ...correlation, phase: 'read_result', tool: name, args: payload, result, duration_ms: Date.now() - started });
+              return JSON.stringify(result);
+            } catch (error) { await this.audit({ ...correlation, phase: 'read_failed', tool: name, error: this.diagnostic(error) }); throw error; }
           }
-          await this.authorize(this.clean(`CAD ${name}\n${JSON.stringify(payload)}\nTarget: ${this.scratch ?? 'new scratch drawing'}`), destructive, confirm);
-          exec.signal.throwIfAborted(); await this.acquire();
-          const request = randomUUID();
-          await this.audit({ phase: 'prepared', request, tool: name, target: this.scratch, args: payload });
+          const record: CadOperationRecord = { ...correlation, tool: name, target: this.scratch, stage: 'preflight', outcome: 'failed_before_dispatch', dispatched: false, duration_ms: 0 };
+          let acknowledged = false;
           try {
-            // Once dispatched, await quiescence; cancellation never replays the write.
-            const result = await this.client!.call(name, payload);
+            exec.signal.throwIfAborted();
+            if (this.frozen) { record.outcome = 'blocked_not_dispatched'; throw new Error('CAD_WRITE_BLOCKED_FROZEN_NOT_DISPATCHED'); }
+            validateCadArguments(name, payload);
+            if (name !== 'new_drawing' && !this.scratch) throw new Error('NEW_SCRATCH_DRAWING_REQUIRED');
+            let destructive = name === 'delete_entity' || payload.erase_source === true;
+            let output: string | undefined;
+            if (name === 'save_drawing') {
+              output = resolve(this.workspace, String(payload.file_path));
+              if (extname(output).toLowerCase() !== '.dwg') throw new Error('DWG_OUTPUT_REQUIRED');
+              const parent = await import('node:fs/promises').then(fs => fs.realpath(dirname(output!)));
+              output = resolve(parent, basename(output));
+              try { const info = await lstat(output); if (!info.isFile() || info.isSymbolicLink()) throw new Error('OUTPUT_TYPE_REFUSED'); destructive = true; }
+              catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+              try { await workspacePath(this.workspace, parent); } catch { destructive = true; }
+              payload.file_path = output; payload.overwrite = destructive;
+            }
+            await this.authorize(this.clean(`CAD ${name}\n${JSON.stringify(payload)}\nTarget: ${this.scratch ?? 'new scratch drawing'}`), destructive, confirm);
+            exec.signal.throwIfAborted(); await this.acquire();
+            await this.audit({ ...record, phase: 'prepared', request: operationId, args: payload });
+            record.stage = 'dispatch'; record.dispatched = true;
+            // Cancellation after dispatch never abandons, automatically retries or replays a mutation.
+            const result = await this.client!.call(name, payload, operationId);
+            acknowledged = true; record.outcome = 'committed'; record.stage = 'acknowledgement';
             if (name === 'new_drawing') this.scratch = String(result);
-            const observed = await this.client!.call('query_entities', {});
-            let artifact: unknown;
+            record.target = this.scratch;
+            await this.audit({ ...record, phase: 'mutation_acknowledged', result });
+            record.stage = 'postflight';
+            const objectId = Number(payload.object_id ?? String(result).match(/object_id=(\d+)/)?.[1]);
+            const targeted = name !== 'delete_entity' && Number.isSafeInteger(objectId) && objectId > 0;
+            const observed = targeted ? [await this.client!.call('get_entity', { object_id: objectId }, operationId + '-query')]
+              : await this.client!.call('query_entities', {}, operationId + '-query');
+            const observation_scope = targeted ? 'affected_entity' : 'full_document';
+            if (!targeted) { this.observedAt = new Date().toISOString(); this.observedCount = Array.isArray(observed) ? observed.length : null; }
             if (output) {
+              record.stage = 'artifact_verification';
               const bytes = await readFile(output);
               if (!/^AC10\d\d/.test(bytes.subarray(0, 6).toString('ascii'))) throw new Error('DWG_FILE_VERIFICATION_FAILED');
-              artifact = { path: output, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
+              this.lastArtifact = { path: output, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
             }
-            await this.audit({ phase: 'confirmed', request, tool: name, target: this.scratch, result, observed, artifact });
-            return JSON.stringify({ result, observed, artifact, verification: 'queried-after-write; geometry and reopen acceptance are separate' });
-          } catch {
-            this.frozen = true;
-            await writeFile(this.lock!, JSON.stringify({ frozen: true, runDirectory: this.runDirectory, request, tool: name, target: this.scratch }));
-            await this.audit({ phase: 'outcome_unknown', request, tool: name });
-            throw new Error('OUTCOME_UNKNOWN_FROZEN');
+            record.stage = 'confirmed'; record.duration_ms = Date.now() - started;
+            await this.audit({ ...record, phase: 'confirmed', request: operationId, result, observed, observation_scope, artifact: output ? this.lastArtifact : null });
+            this.operations.push(record);
+            return JSON.stringify({ operation: record, result, observed, observation_scope, artifact: output ? this.lastArtifact : null,
+              verification: 'queried-after-write; geometric/semantic/visual/file-reopen acceptance is separate' });
+          } catch (error) {
+            if (!record.dispatched && this.frozen) record.outcome = 'blocked_not_dispatched';
+            record.error = this.diagnostic(error); record.duration_ms = Date.now() - started;
+            if (record.dispatched) {
+              record.outcome = acknowledged ? 'committed_observation_failed' : 'unknown'; this.frozen = true;
+              this.freeze = { operation_id: operationId, stage: record.stage, outcome: record.outcome, reason: 'CAD_WRITE_BARRIER', sameConnection: true };
+              await writeFile(this.lock!, this.clean(JSON.stringify({ frozen: true, runDirectory: this.runDirectory,
+                request: operationId, tool: name, target: this.scratch, stage: record.stage, outcome: record.outcome, error: record.error })));
+            }
+            this.operations.push(record);
+            await this.audit({ ...record, phase: record.dispatched ? 'frozen' : 'not_dispatched', request: operationId });
+            throw new Error(this.clean(JSON.stringify({ code: record.dispatched ? acknowledged ? 'CAD_COMMITTED_OBSERVATION_FAILED' : 'OUTCOME_UNKNOWN_FROZEN' : record.outcome === 'blocked_not_dispatched' ? 'CAD_WRITE_BLOCKED_FROZEN_NOT_DISPATCHED' : 'CAD_FAILED_BEFORE_DISPATCH',
+              operation_id: operationId, dispatched: record.dispatched, stage: record.stage, outcome: record.outcome,
+              cause: (record.error as { message?: string })?.message, recovery: this.frozen ? 'Use cader_cad_health or /mcp recover. Do not submit probe writes, reconnect, restart CAD or replay to bypass the barrier.' : 'Correct arguments or obtain approval before a new request.' })));
           }
         }) }));
   }

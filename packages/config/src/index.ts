@@ -31,6 +31,7 @@ const Runtime = z.object({
   max_parallel_subagents: z.int().min(1).max(5), max_delegation_depth: z.literal(1),
   max_model_steps: z.int().min(1).max(50), max_tool_calls: z.int().min(1).max(100),
   max_delegations: z.int().min(1).max(25), timeout_ms: z.int().min(1000).max(600000),
+  max_visual_reviews_per_turn: z.int().min(1).max(5).default(3),
   read_only_tools: z.array(z.string().regex(/^mcp__[A-Za-z0-9_-]+__(list_layers|list_symbol_library|get_backend_status)$/)),
 }).strict();
 

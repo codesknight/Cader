@@ -38,6 +38,9 @@ interface LiveOptions {
   disableTools?: boolean;
   executionTools?: ToolDefinition[];
   permissionMode?: string;
+  executionState?: () => unknown;
+  toolAvailable?: (name: string) => boolean;
+  captureCadView?: (signal: AbortSignal) => Promise<{ path: string; evidence: unknown }>;
 }
 
 export async function createLiveRuntime(options: LiveOptions) {
@@ -49,7 +52,7 @@ export async function createLiveRuntime(options: LiveOptions) {
   const images = new Map(Object.entries(options.images ?? {}));
   const completed: AgentResult[] = [];
   const emit = (event: PublicEvent) => options.onEvent?.({ at: new Date().toISOString(), ...event });
-  let steps = 0, calls = 0, delegations = 0;
+  let steps = 0, calls = 0, delegations = 0, visualReviews = 0;
   const lifetime = new AbortController();
   const deadline = setTimeout(() => lifetime.abort(), options.runtime.timeout_ms);
   deadline.unref();
@@ -162,7 +165,38 @@ export async function createLiveRuntime(options: LiveOptions) {
               || images.get(ref) === request.image) : [];
             const allowed = options.disableTools ? [] : options.runtime.read_only_tools.filter(name => Boolean(ctx.tools.get(name)));
             if (profile.role === 'main' && !options.disableTools && options.executionTools) {
-              for (const tool of options.executionTools) { agentCtx.tools.register(tool); allowed.push(tool.name); }
+              for (const tool of options.executionTools) { agentCtx.tools.register(tool, { when: () => options.toolAvailable?.(tool.name) ?? true }); allowed.push(tool.name); }
+            }
+            if (profile.role === 'main' && !options.disableTools && options.captureCadView) {
+              const vision = options.profiles.find(value => value.role === 'vision' && value.input.includes('image'));
+              if (vision) {
+                agentCtx.tools.register(defineTool({ name: 'cader_review_cad_view',
+                  description: 'Capture the actual current scratch CAD view and automatically send image bytes to the configured vision worker. No reference upload or DWG save needed. Returns evidence and defects; never authorizes edits.',
+                  parameters: { question: { type: 'string', required: true, description: 'State user requirements and ask for structured defects with severity, location, evidence, suggestions and uncertainty.' } },
+                  output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+                  isConcurrencySafe: () => false,
+                  async execute(args, exec) {
+                    if (++visualReviews > options.runtime.max_visual_reviews_per_turn) throw new Error('VISUAL_REVIEW_BUDGET_EXCEEDED');
+                    if (++delegations > options.runtime.max_delegations) throw new Error('DELEGATION_BUDGET_EXCEEDED');
+                    const capture = await options.captureCadView!(exec.signal);
+                    const ref = `cad-view-${randomUUID()}`; images.set(ref, capture.path);
+                    emit({ type: 'cad.view', agentId: id, evidence: capture.evidence, image_ref: ref });
+                    const review = await pool.run('main', () => run(vision.id,
+                      'Review this actual CAD render against the user requirements. Return JSON with defects (type,severity,location,evidence,suggestion), uncertainties and verdict. Do not claim geometric topology or saved-file verification from pixels. Do not use tools.\n' + args.question,
+                      { parent: agent, image: capture.path, signal: exec.signal }));
+                    let structured: unknown = null;
+                    try {
+                      const parsed = JSON.parse(review.text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
+                      if (Array.isArray(parsed.defects) && Array.isArray(parsed.uncertainties) && typeof parsed.verdict === 'string' &&
+                        parsed.defects.every((defect: Record<string, unknown>) => ['type','severity','location','evidence','suggestion'].every(key => key in defect))) structured = parsed;
+                    } catch { /* Unstructured text is evidence, never a validated pass. */ }
+                    emit({ type: 'cad.review', agentId: id, image_ref: ref, review_valid: structured !== null,
+                      structured, text: review.text, status: review.status });
+                    return JSON.stringify({ image_ref: ref, evidence: capture.evidence, review_valid: structured !== null, structured, review });
+                  },
+                }), { when: () => options.toolAvailable?.('mcp__capture__export_current_view') ?? true });
+                allowed.push('cader_review_cad_view');
+              }
             }
             if (profile.can_delegate && !options.disableTools) {
               agentCtx.tools.register(defineTool({
@@ -247,6 +281,7 @@ export async function createLiveRuntime(options: LiveOptions) {
                   .map(worker => ({ id: worker.id, role: worker.role, model: worker.model, input: worker.input })) : [],
                 image_refs: imageRefs,
                 permission_mode: options.permissionMode ?? 'read-only',
+                execution_state: options.executionState?.() ?? null,
                 execution: options.executionTools ? 'Program-controlled tools available; request actions and obey approval results. New scratch drawings require no existing DWG or reference image.' : 'No dynamic execution session selected.',
                 document_identity_and_units: 'not verified; do not assume target identity or units',
               }) });
@@ -279,8 +314,23 @@ export async function createLiveRuntime(options: LiveOptions) {
             });
             agentCtx.on('tools/result', (exec, result) => {
               tools.push(exec.name);
+              let cadFailure: unknown;
+              if (result.isError) {
+                try {
+                  const parsed = JSON.parse(result.error.message);
+                  if (typeof parsed.dispatched === 'boolean' && typeof parsed.outcome === 'string')
+                    cadFailure = { code: parsed.code, stage: parsed.stage, outcome: parsed.outcome, dispatched: parsed.dispatched, operation_id: parsed.operation_id };
+                } catch { /* Non-CAD failures keep their own public error contract. */ }
+              }
               emit({ type: 'tool.result', agentId: id, role: profile.role, callId: exec.callId,
-                tool: exec.name, isError: result.isError });
+                tool: exec.name, arguments: exec.arguments, isError: result.isError,
+                ...(cadFailure ? { cadFailure } : {}),
+                ...(result.isError ? { error: result.error } : {}) });
+            });
+            agentCtx.on('tools/execute', async (exec, next) => {
+              emit({ type: 'tool.dispatch', agentId: id, role: profile.role, batch_id: `${id}:step:${agentSteps}`,
+                callId: exec.callId, rootCallId: exec.rootCallId, tool: exec.name, arguments: exec.arguments });
+              return next();
             });
             const prompt = await agentCtx.systemPrompt.assemble({ scope: agent, agent });
             emit({ type: 'prompt.assembled', agentId: id, role: profile.role,

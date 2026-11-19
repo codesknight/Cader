@@ -138,3 +138,6 @@ BUG-016验收补充：实现c68dffc的[CI run 44539527045](https://github.com/co
 首轮真实Pro模型完成绘制与保存但验收器将AcDb2dPolyline误判为错误；旧失败保留，补充顶点/闭合/颜色独立检查后通过。
 初始文件回归46/47：绝对路径包含测试根.cader导致误拦；改为相对作用域+规范路径检查后47/47通过。
 实际模型/真实CAD通过不替代CI、COM受控重开或真实响应丢失验收；这些边界见验收报告。原BUG-010复杂图片问题保持未解决。
+
+
+BUG-019 (#19): v0.3吞掉首发错误，将已确认写入后的读回失败与未知派发混同；后续未派发请求也称未知，模型误诊空COM状态。修复分段证据、blocked_not_dispatched、健康/受限恢复、动态写工具隐藏及任务blocked报告。新实机捕获Name就绪异常、postflight RPC_E_CALL_REJECTED和视图导出超时后PNG延迟到达；这些后端问题尚未修复，未认定为历史draw_line唯一根因。二维点展平误绘由Cader preflight拦截，MCP原生schema修补另待授权。

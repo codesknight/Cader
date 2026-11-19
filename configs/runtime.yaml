@@ -6,6 +6,7 @@ max_delegation_depth: 1
 max_model_steps: 24
 max_tool_calls: 60
 max_delegations: 10
+max_visual_reviews_per_turn: 3
 timeout_ms: 600000
 read_only_tools:
   - mcp__autocad__get_backend_status

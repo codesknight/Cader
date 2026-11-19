@@ -13,7 +13,7 @@ import type { PermissionMode } from './execution.js';
 
 export const SLASH_COMMANDS = [
   ['/help', '命令与快捷键'], ['/open', '选择图片或DWG引用；CAD打开需后端能力'], ['/cd', '切换工作目录'],
-  ['/status', '工作区与CAD状态'], ['/model', '查看或切换配置模型'], ['/mcp', 'list / use <配置> / tools / off'],
+  ['/status', '工作区与CAD状态'], ['/model', '查看或切换配置模型'], ['/mcp', 'list / use <配置> / tools / doctor / recover / off'],
   ['/skills', 'list / use <技能> / off'], ['/domain', '查看或切换专业'], ['/context', '上下文统计'],
   ['/compact', '用模型总结上下文，保留原始对话'], ['/clear', '保存并新建空白会话'], ['/resume', '列出或恢复会话ID'],
   ['/undo', '检查受控撤销能力'], ['/checkpoint', '创建会话与工程引用检查点'], ['/permissions', 'read-only | ask | workspace-write | full-access；shell ask|deny'], ['/exit', '保存并退出'],
@@ -171,6 +171,8 @@ export class InteractiveSession {
         case '/mcp': {
           if (!arg || arg === 'list') return { text: (await readdir(join(this.configRoot, 'configs/mcp'))).filter(file => /\.(yaml|json)$/.test(file)).join('\n') + `\n当前 ${this.state.mcp ?? '未选择'}\n/mcp use <配置路径> 选择；/mcp tools 发现；/mcp off 禁用连接。` };
           if (arg === 'tools') return { text: await this.mcpProbe(true) };
+          if (arg === 'doctor') return { text: this.clean(JSON.stringify(await this.execution.probe(), null, 2)) };
+          if (arg === 'recover') return { text: this.clean(JSON.stringify(await this.execution.recover(), null, 2)) };
           await this.dispose();
           if (arg === 'off') this.state.mcp = null;
           else { const selected = arg.replace(/^use\s+/, ''); const path = await workspacePath(this.configRoot, /[\\/]/.test(selected) ? selected : join('configs/mcp', selected)); await loadMcp(path); this.state.mcp = path; }
@@ -180,7 +182,7 @@ export class InteractiveSession {
           if (arg === 'shell ask' || arg === 'shell deny') { this.state.shell = arg.endsWith('ask') ? 'ask' : 'deny'; await this.store.save(this.state); }
           else if (PERMISSION_MODES.includes(arg as PermissionMode)) { this.state.permission = arg as PermissionMode; await this.store.save(this.state); }
           else if (arg) return { text: '支持 /permissions read-only|ask|workspace-write|full-access 或 shell ask|deny。', error: true };
-          return { text: `执行权限 ${this.state.permission} · Shell ${this.state.shell}\nCAD写入仅绑定本连接新建的工作图。Agent Shell为本机执行，除full-access外逐条审批。` };
+          return { text: `执行权限 ${this.state.permission} · Shell ${this.state.shell}\nCAD写入仅绑定本连接新建的工作图。Agent Shell有效策略：${this.state.shell === 'deny' ? 'deny（优先于full-access）' : this.state.permission === 'read-only' ? 'deny' : this.state.permission === 'full-access' ? 'automatic' : 'ask'}。` };
         }
         case '/open': {
           if (!arg) return { text: '/open <工作区图片或DWG路径>', error: true };
@@ -246,10 +248,13 @@ export class InteractiveSession {
     this.state.messages.push({ role: 'user', content, status: 'submitted', at: new Date().toISOString() }); await this.store.save(this.state);
     if (this.state.mcp && !(await this.execution.status()).connected) await this.execution.connect(this.state.mcp);
     this.execution.mode = this.state.permission;
+    const executionMark = this.execution.mark();
     const report = await this.runner(this.configRoot, { task: content + '\nAuthorized reference metadata (DWG content is NOT decoded):\n'
       + JSON.stringify(this.state.references.map(ref => ({ ...ref, path: relative(this.state.workspace, ref.path) }))),
       workspaceRoot: this.state.workspace, modelProfile: this.state.model,
-      executionTools: [...this.execution.definitions(callbacks.confirm), ...this.execution.fileTools(callbacks.confirm).filter(tool => this.state.shell !== 'deny' || tool.name !== 'cader_shell')],
+      executionTools: [...this.execution.definitions(callbacks.confirm), ...this.execution.controlTools(), ...this.execution.fileTools(callbacks.confirm).filter(tool => this.state.shell !== 'deny' || tool.name !== 'cader_shell')],
+      executionState: () => this.execution.facts(executionMark), toolAvailable: name => this.execution.toolAvailable(name),
+      captureCadView: this.state.mcp ? signal => this.execution.captureView(signal, callbacks.confirm) : undefined,
       permissionMode: this.state.permission,
       executionAuditDirectory: this.execution.runDirectory,
       skill: this.state.skill ?? undefined, image: image?.path, history, summary: this.state.summary,
@@ -259,8 +264,9 @@ export class InteractiveSession {
     this.state.messages.push({ role: 'assistant', content: this.clean(report.text || (report.run_status === 'cancelled' ? '[已取消，未形成完整结论]' : `[失败 ${report.errorCode ?? 'UNKNOWN'}]`)),
       status: report.run_status, at: new Date().toISOString() });
     await this.store.save(this.state);
-    return { text: this.clean(report.text), error: !report.ok, note: `${this.state.permission} · 工具执行以审计为准，模型回复不等于独立验收`,
-      ...(!report.ok ? { text: this.clean(`${report.text}\n${report.errorCode ?? report.run_status}: ${report.hint ?? report.blocked_reasons.join(', ')}`) } : {}) };
+    const counts = this.execution.facts(executionMark).counts;
+    return { text: this.clean(report.text), error: !report.ok, note: `${this.state.permission} · CAD ${this.execution.facts().write_state} · 确认操作 ${counts.committed} · 未知 ${counts.unknown} · 未派发阻断 ${counts.blocked_not_dispatched} · 模型回复不等于独立验收`,
+      ...(!report.ok ? { text: this.clean(`${report.text}\n${report.blocked_reasons[0] ?? report.errorCode ?? report.run_status}: ${report.hint ?? (report.blocked_reasons.includes('CAD_WRITE_FROZEN') ? '程序写屏障仍有效；/mcp doctor 诊断，/mcp recover 仅对账已确认操作，不重放。' : report.blocked_reasons.join(', '))}`) } : {}) };
   }
   async dispose() { await this.execution.dispose(); }
 }

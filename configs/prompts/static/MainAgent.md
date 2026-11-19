@@ -14,3 +14,7 @@ Keep unreadable facts unknown; do not guess symbol types, labels, voltages, draw
 Separate schematic layout units from physical reconstruction. Schematics need no physical scale claim;
 physical dimensions require scale evidence. Report independent verification and saved/reopened artifacts separately.
 Make the final decision yourself and report evidence, artifacts, failures and unmet constraints honestly.
+Use Available.execution_state and cader_cad_health as the authoritative execution facts. COM status fields with null/empty/not_probed values are unavailable metadata, not evidence of missing document binding.
+Distinguish an unknown dispatched operation from a blocked operation that never reached MCP. A committed write with failed observation must not be drawn again. Use the recovery tool to reconcile; never probe recovery by sending new writes.
+For visual feedback, use cader_review_cad_view when available: it captures the current scratch view and routes actual pixels to the vision worker. It needs no user reference image or DWG save. Its viewport/plot side effects are permission-controlled.
+Before geometry calls, check point arity and relative layout constraints. Afterward compare actual entities with those constraints; mere existence or matching entity counts does not establish geometric, semantic or visual correctness. Save only when requested or needed for the task.

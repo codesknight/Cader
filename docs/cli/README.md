@@ -2,7 +2,7 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Project home](../../README.md) · [Documentation](../README.md)
 
-**Applies to Cader 0.3.0 · Updated 2026-11-20**
+**Applies to Cader 0.4.0-dev.1 · Updated 2026-11-20**
 
 Cader CLI is a CAD agent terminal built on DeepSeek Harness. Describe tasks in a persistent conversation, select models and skills, reference images, inspect CAD status, or use a single command from a script.
 
@@ -406,3 +406,31 @@ On Linux/macOS use `pnpm` instead of `pnpm.cmd`. Preserve `.env`, `*.local.yaml`
 When reporting an issue on [GitHub](https://github.com/codesknight/Cader/issues), include Cader/Node versions, OS and terminal, the command, a sanitized `errorCode`, and expected/actual behavior. Upload images only if they are explicitly cleared for publication.
 
 CLI changes must update both language guides, help and examples in the same commit. Resolve documentation/implementation differences before acceptance. The [development process](../development/process.md) describes the checks; unavailable features retain an explicit status.
+
+
+## v0.4 development snapshot: evidence, recovery and view feedback
+
+`0.4.0-dev.1` is a development snapshot, not full v0.4 acceptance.
+
+- `/mcp doctor` queries the backend and separates transport, cached observations, scratch ownership and freeze state. The current COM backend may lazily launch CAD/create a default document when none exists; this is not an independent native side-effect-free health API.
+- `/mcp recover` only reconciles an acknowledged mutation followed by a postflight read failure on the same original connection. It repeats the read, never the mutation. Unknown dispatch, timeouts, reconnects, legacy locks and capture uncertainty remain frozen; no lock deletion, CAD restart or implicit rebinding.
+- Model tools `cader_cad_health` and `cader_cad_recover` expose those operations. Frozen mutation tools disappear from subsequent model steps. Already queued sibling requests return blocked_not_dispatched, distinct from an unknown dispatched operation.
+- Private JSONL records preflight/dispatch/acknowledgement/postflight/artifact verification, original MCP failures, extractable HRESULT, call/operation IDs and stacks. Unavailable native thread/revision/MCP wire IDs are not invented.
+- Entity-specific postflight uses get_entity with the returned ObjectID and labels observation_scope=affected_entity. It is not a full drawing listing. Document operations and explicit final queries still inspect the full drawing. Health counts are timestamped cached full observations.
+- Polyline/hatch points must explicitly contain finite [x,y,z] values. Invalid arguments are rejected before dispatch without freezing.
+- Reports include execution_evidence; a freeze forces ok=false and task_status=blocked even when the model finished normally. Terminal counts refer to operations, not entities.
+- `cader_review_cad_view` captures the owned scratch view and automatically sends a real image attachment to the vision worker; no user reference or prior DWG save is required. Export changes viewport/plot settings and writes a private PNG under existing approval/serialization. max_visual_reviews_per_turn defaults to 3 (range 1–5). No authoritative pixel-to-CAD mapping is available; edits still require entity coordinates. Actual export timeout evidence means the complete visual correction gate has not passed.
+
+Explicit mutually exclusive live entries, all using isolated new scratch targets:
+
+```powershell
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --reliability
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --faults
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --visual
+```
+
+Reliability is deterministic real-CAD A/B/E reproduction, with no model calls. Faults inject client-boundary response suppression/read failure/cancellation around real CAD writes; they do not claim native COM crashes or real packet loss. Visual uses paid real models to autonomously draw a seeded defect and request correction; implementation alone does not establish acceptance.
+
+See [actual results and failures](../validation/2026-11-20-reliable-execution.md). The original Drawing8 barrier remains intact. Full-access and model changes cannot clear it. Adjacent MCP changes require separate authorization and have not been applied.
+
+CAD failure lines display the code, stage and dispatched/not-dispatched status; full errors stay in private JSONL.

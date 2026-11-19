@@ -2,7 +2,7 @@
 
 [English](README.md) · **简体中文** · [项目首页](../../README.zh-CN.md) · [文档导航](../README.md)
 
-**适用版本：Cader 0.3.0 · 更新日期：2026-11-20**
+**适用版本：Cader 0.4.0-dev.1 · 更新日期：2026-11-20**
 
 Cader CLI 是基于 DeepSeek Harness 的 CAD Agent 终端：在一个持续会话中描述任务、选择模型和技能、引用图片、查看 CAD 状态，或用单次命令接入脚本。
 
@@ -406,3 +406,31 @@ Linux/macOS 将 `pnpm.cmd` 换为 `pnpm`。保留自己的 `.env`、`*.local.yam
 在 [GitHub Issues](https://github.com/codesknight/Cader/issues) 反馈时提供 Cader/Node 版本、操作系统与终端、命令、脱敏 `errorCode` 和预期/实际行为；图片需明确允许公开后再上传。
 
 CLI 功能变更须在同一提交中同步两种语言手册、帮助与示例；若行为不同，先修正文档或实现，再标记验收。[开发流程](../development/process.md)记录检查要求，未实现能力保留明确状态。
+
+
+## v0.4 研发快照：执行事实、恢复与视觉反馈
+
+当前是 `0.4.0-dev.1`，不是 v0.4 全量验收发布。新增行为：
+
+- `/mcp doctor`：通过实际查询诊断读能力，分别报告传输、缓存观察、工作图与冻结状态。当前COM可能惰性启动CAD，空文档时可能由后端创建默认图；不是独立的原生无副作用health接口。
+- `/mcp recover`：仅在**同一原连接**收到明确写入成功响应、随后postflight读回失败时，重读并对账后恢复。结果未知、超时、重连、旧锁、截图未知均不自动解除，不重放写入。命令不会删除旧锁、关闭或重启AutoCAD。
+- `cader_cad_health` / `cader_cad_recover`：模型可调用相同诊断/恢复能力。冻结后写工具从后续模型步骤移除；同批已排队请求返回 `blocked_not_dispatched`，不同于首个已派发操作的 `unknown`。
+- 写入分别记录preflight、dispatch、acknowledgement、postflight、artifact verification。原MCP错误、HRESULT（可提取时）、调用/操作ID及异常栈留在私有执行JSONL。当前后端没有提供的COM线程ID、权威revision与MCP wire ID不伪造。
+- 实体操作优先通过实际返回ObjectID调用get_entity核验，响应标记 `observation_scope=affected_entity`；它不是全图实体列表。文档级操作和显式最终查询仍读全图。健康状态里的全图数量是带时间戳的缓存。
+- 三维多段线/填充要求每个点明确为有限的 `[x,y,z]`；不自动补零或展平错误点。非法参数在派发前拒绝且不冻结。
+- 工具审计生成 `execution_evidence`；冻结强制 `ok=false` / `task_status=blocked`，即使模型本轮正常结束。终端显示确认操作数、未知数和未派发阻断数；操作数不是实体数。
+- `cader_review_cad_view`：主Agent可导出本连接工作图的真实视图，并自动把图片附件交给视觉模型；不要求用户参考图或先存DWG。导出会改变视口/打印设置并写私有PNG，受现有权限及串行控制。默认每轮最多3次，配置 `max_visual_reviews_per_turn`（1–5）。当前后端未提供像素到CAD的权威映射；修改仍需查询实体坐标。真实导出已有超时失败记录，因此完整视觉纠错尚未验收。
+
+显式实机入口（互斥，均会创建隔离草稿；后两种不以固定计划冒充模型推理）：
+
+```powershell
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --reliability
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --faults
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --visual
+```
+
+`--reliability` 是真实CAD确定性A/B/E复现，不调用模型；`--faults` 在真实CAD写入外注入客户端响应抑制/读回失败/取消，不冒充原生COM崩溃或真实网络丢包。`--visual` 使用付费真实模型自主绘制带缺陷房屋并请求视觉纠错；是否通过只看实际报告，不能以代码存在代替验收。
+
+边界与失败证据见[本轮报告](../validation/2026-11-20-reliable-execution.md)。原Drawing8未知结果屏障仍保留；full-access和切换模型不能清除它。相邻MCP修补需另有授权，当前未修改。
+
+CAD失败行现在直接显示错误码、阶段与“已派发/未派发”，完整异常留在私有JSONL。

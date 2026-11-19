@@ -324,3 +324,5 @@ private drawings, and raw live-run artifacts out of commits.
 [MIT](LICENSE) · Copyright © 2026 codesknight
 
 Real-model CAD execution evidence: [acceptance report](docs/validation/2026-11-20-agent-execution.md).
+
+Development snapshot 0.4.0-dev.1 adds stage-specific operation evidence, bounded recovery and an actual image-feedback route. Full native reliability/visual acceptance is still open; see the [actual results and retained failures](docs/validation/2026-11-20-reliable-execution.md).
