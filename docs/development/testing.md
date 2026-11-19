@@ -86,3 +86,4 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 - Python ruff check/format 通过；10 项 pytest 通过；MCP 协议 smoke 3/3。新子进程在 PYTHONUTF8=0、PYTHONIOENCODING=gb18030 下验证重定向 JSON 及 stderr 中文可按严格 UTF-8 解码。
 - 初次 TS 检查中，spawnSync 收到 URL 类型、CLI 测试路径多退一层导致失败，已修正；首次 thrown LlmError 漏报根因，补 agent/error 后通过。没有把这些初次失败记成成功。
 - 本轮没有真实 API/CAD/写入测试。用户反馈的 QUOTA、40 工具及旧 GB18030 字节为外部实测线索，未声称本轮实机重现。
+- 远端验收：实现 `92b79dd`，[CI run 44460992169](https://github.com/codesknight/Cader/actions/runs/44460992169) 的 4 jobs 全部通过，覆盖 Windows/Linux DSH 与 Python；22 文件实际凭据扫描泄漏 0，55 个本地文档链接和暂存 whitespace 检查通过。
