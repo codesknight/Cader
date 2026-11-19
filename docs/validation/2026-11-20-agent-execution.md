@@ -46,3 +46,5 @@ COM provides name-based active-document protection, not HTTP revision/instance b
 Final third run passed all 15 executed checks, including a real-model disconnected-guidance turn after MCP off. Model-requested host Shell checks were denied; the independent verifier still confirmed file/geometry/color. Sanitized actual model/tool events and independent observations: [evidence JSON](2026-11-20-agent-execution.evidence.json).
 
 Windows真实PTY补测：直接启动 cader.cmd（0.3.0），自动发现44/暴露27项CAD工具；选择真实Pro模型，用自然语言新建空图并绘制半径2圆。分别在new_drawing和draw_circle审批框输入y，真实执行后query_entities回读一个AcDbCircle（中心0,0,0，半径2）。未保存，未执行Shell；/exit正常保存会话并释放MCP。此为真实终端审批，区别于自动验收回调。
+
+CI acceptance: implementation commit `7709770`, [Windows/Linux CI](https://github.com/codesknight/Cader/actions/runs/44575837079) completed successfully, 4/4 jobs (DSH components and Python MCP on both OSes). No credentials, paid model or real CAD were used in CI. #18 core execution acceptance passed; #3 retains controlled reopen/reconciliation/fault-followup scope.

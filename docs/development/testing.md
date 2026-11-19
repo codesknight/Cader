@@ -185,3 +185,5 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 最终固定Node24.9.0：pnpm typecheck通过，pnpm test 47/47通过，pnpm smoke 6/6组件门槛通过；真实live-smoke第三轮15/15通过（含真实模型断线引导），无固定操作计划。CI等待提交后执行。
 
 Windows真实PTY补测：直接启动 cader.cmd（0.3.0），自动发现44/暴露27项CAD工具；选择真实Pro模型，用自然语言新建空图并绘制半径2圆。分别在new_drawing和draw_circle审批框输入y，真实执行后query_entities回读一个AcDbCircle（中心0,0,0，半径2）。未保存，未执行Shell；/exit正常保存会话并释放MCP。此为真实终端审批，区别于自动验收回调。
+
+CI acceptance: implementation commit `7709770`, [Windows/Linux CI](https://github.com/codesknight/Cader/actions/runs/44575837079) completed successfully, 4/4 jobs (DSH components and Python MCP on both OSes). No credentials, paid model or real CAD were used in CI. #18 core execution acceptance passed; #3 retains controlled reopen/reconciliation/fault-followup scope.
