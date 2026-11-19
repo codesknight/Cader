@@ -129,3 +129,11 @@ REQ-023：用户明确要求Gemini CLI/Claude Code式持续终端、彩色Cader�
 逐条确认Shell及取消、Windows PTY和跨平台CI。原始设计仍是参考；不把/open、/undo、/checkpoint菜单当作CAD执行授权或已实现接口。
 关联M0 [#16](https://github.com/codesknight/Cader/issues/16)、基础入口[#10](https://github.com/codesknight/Cader/issues/10)；
 社区[#9](https://github.com/codesknight/Cader/issues/9)本轮只做固定版本静态审查，保留实际运行验收。
+
+
+## 2026-11-19：开源CLI使用手册（#17）
+
+REQ-024：用户要求同步维护专门介绍Cader CLI功能与用法的开源文档。
+验收为独立中英文用户手册与语言切换、可发现的项目/文档入口、安装到排障的完整已实现命令说明、
+配置/权限/数据与CAD能力边界，以及同提交同步文档/帮助的开发约束。
+关联M0 [DOCS-001 / #17](https://github.com/codesknight/Cader/issues/17)。本轮只维护Markdown与开发规范，不改Harness、MCP、图纸或真实模型状态。

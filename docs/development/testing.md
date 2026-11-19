@@ -160,3 +160,12 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 
 - 发布验收：实现c68dffc的[CI run 44539527045](https://github.com/codesknight/Cader/actions/runs/44539527045)，Windows/Linux DSH及Python共4/4 jobs成功，覆盖44项TS、10项Python、组件/协议smoke及Python lint/format。Linux实际直接执行100755的bin/shebang通过。
 - 暂存30文件实际模型凭据扫描0泄漏、79个本地Markdown链接有效、whitespace检查通过。Git push仍受既有未监听代理阻塞，核对完整tree/commit后以既有API回退非强制推进，未更改全局代理。
+
+
+## 2026-11-19：CLI公开使用手册（#17）
+
+- 文档及规范变更；Node24.9.0/pnpm11.28.5的pnpm typecheck、pnpm test共44/44通过。无Harness/Python源码变更，不新增镜像测试或调用付费模型。
+- 本地私有审查脚本.cader/check-cli-manual.py核对两种语言的16根Slash、11个单次命令族及18个参数名；实际运行13次CLI子进程：裸非TTY、help、version、doctor、models、skills list/show/resource、cad-contract、harness-smoke、redraw阻塞、非法选项、chat --stdio。
+- stdio会话覆盖16根Slash的离线分支，MCP未选择，/compact为空会话不发请求，Shell被deny拒绝；未做真实模型摘要、实际MCP连接或CAD操作。已有交互/DSH回归另由44项测试执行，不将示例核对计为真实CAD验证。
+- harness-smoke六项组件检查通过；redraw返回退出3/WRITE_CAPABILITY_UNAVAILABLE且artifact=null，非法选项退出2。校准图裁剪示例在原图边界内。
+- 初次完整手册检查167个相对链接、24个文档锚点有效，语言切换互通；最终记录追加后再查。原始检查JSON/会话在.cader，不上传私人输入或历史会话。Windows/Linux CI待发布后补记。

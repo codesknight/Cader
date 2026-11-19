@@ -1,5 +1,8 @@
 # Cader交互终端
 
+面向安装和日常使用的长期说明见 **[中文 CLI 使用手册](../cli/README.zh-CN.md) · [English User Guide](../cli/README.md)**。
+本页保留终端实现、边界与历史验证说明；新用户从使用手册开始。
+
 关联[#16](https://github.com/codesknight/Cader/issues/16)、CLI入口[#10](https://github.com/codesknight/Cader/issues/10)。
 当前实现为持续运行的Node终端应用，保留滚动记录、彩色CADER标识、流式正文、工具状态和输入历史。
 复用现有DSH/Cordis，不另建Agent框架。原始CLI设计文档保留原文，不把其中所有规划当作已实现能力。

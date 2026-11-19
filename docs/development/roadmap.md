@@ -16,6 +16,7 @@
 | CLI-001 社区 TUI | 已固定版本静态审查，运行兼容未验 | [Issue #9](https://github.com/codesknight/Cader/issues/9)：保留独立社区 profile 实测条件 |
 | CLI-002 Cader CLI 基础 | 本地 bin/CMD、keyless help/version、裸命令退出语义与只读 exec 已实现 | [Issue #10](https://github.com/codesknight/Cader/issues/10)：跨平台入口测试与用户目录安装 |
 | CADER-014 持续交互终端 | Node TTY/Readline、16命令入口、会话与上下文、引用、确认 Shell | [Issue #16](https://github.com/codesknight/Cader/issues/16)：Windows PTY及离线DSH通过；真实模型QUOTA，CAD打开/撤销尚无受控接口 |
+| DOCS-001 开源CLI手册 | 独立中英文手册、文档导航与同提交同步规则 | [Issue #17](https://github.com/codesknight/Cader/issues/17)：安装、命令、配置、会话、脚本、能力限制及排障，随实现维护 |
 | CADER-011 重绘评估 Skill | 调研后接入目录、角色、资源和 PNG 评估入口 | [Issue #13](https://github.com/codesknight/Cader/issues/13)：不包含完整 DWG 重绘引擎 |
 | CADER-012 本地图片测试 | 14图输入、2例既有识别通过；图片重绘未执行 | [Issue #14](https://github.com/codesknight/Cader/issues/14)：固定几何实机基础已通过，图片计划与验收继续推进 |
 

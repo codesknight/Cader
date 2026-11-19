@@ -9,6 +9,7 @@
 - [测试记录](testing.md)
 - [Bug 与排障](bugs.md)
 - [阶段路线](roadmap.md)
+- **[CLI 中文使用手册](../cli/README.zh-CN.md) / [English User Guide](../cli/README.md)**
 - [CLI 用户任务与诊断](cli.md)
 - [CLI First 实施边界](../architecture/cli-first.md)
 

@@ -78,6 +78,8 @@ CI 只运行无需凭据的 fixture / 单元测试，不触发付费请求。Liv
 
 ## 交互终端中的选择
 
+面向用户的完整配置与操作步骤见[CLI 中文使用手册](../cli/README.zh-CN.md#configuration) / [English User Guide](../cli/README.md#configuration)。
+
 /model列出configs/models的注册ID，/model <ID>只切换主会话所用模型，保留主Agent角色与子Agent权限。
 configs/domains/catalog.yaml提供/domain的general/electrical指导；专业选择不授予新工具或写权限。
 配置根.env与YAML在启动/装配时读取，修改后重启终端。/mcp use选择配置；不自动启动AutoCAD或切换服务端COM/HTTP。

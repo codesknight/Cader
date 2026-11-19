@@ -20,6 +20,7 @@
 <p align="center">
   <a href="#overview">Overview</a> ·
   <a href="#quick-start">Quick Start</a> ·
+  <a href="docs/cli/README.md">CLI User Guide</a> ·
   <a href="#configuration">Configuration</a> ·
   <a href="#roadmap">Roadmap</a> ·
   <a href="#documentation">Documentation</a>
@@ -35,6 +36,8 @@ Cader is an extensible AI agent project for computer-aided design. It combines
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) and Cordis with
 CAD tools exposed through the Model Context Protocol (MCP).
 [AutoCAD-MCP](https://github.com/codesknight/AutoCAD-MCP) is the first backend integration.
+
+**[Read the CLI user guide →](docs/cli/README.md)** · [简体中文](docs/cli/README.zh-CN.md)
 
 The strategy is **CLI First**: establish the agent foundation with DSH Headless,
 evaluate a community TUI, then build Cader's own CLI. Web UI and CAD-embedded plugins
@@ -145,7 +148,7 @@ cader [general] › /resume
 Use `/status`, `/skills`, `/domain`, `/context`, `/compact`, `/checkpoint` and the other
 registered commands; Tab completes input, Esc cancels work, and `!dir` requests a confirmed
 user Shell command. Conversation and compaction require paid model credentials; startup,
-help and session management do not. See the [terminal guide](docs/architecture/interactive-terminal.md).
+help and session management do not. See the [CLI user guide](docs/cli/README.md).
 DWG `/open` currently registers a reference; `/undo` reports an unavailable capability.
 Checkpoints contain conversation and reference manifests, without a CAD snapshot.
 The live model probe returned `QUOTA`; successful live multi-turn behavior remains unverified.
@@ -296,6 +299,8 @@ See the [CLI First plan](docs/architecture/cli-first.md) for stage acceptance cr
 
 | Resource | Contents |
 |---|---|
+| **[CLI User Guide](docs/cli/README.md) · [中文使用手册](docs/cli/README.zh-CN.md)** | Installation, commands, configuration, sessions, scripting and troubleshooting; maintained with the code |
+| [Documentation index](docs/README.md) | User, integration, architecture and contributor documentation |
 | [Technical design v0.2](docs/designs/Cader_Technical_Design_v0.2.md) · [CLI design](docs/designs/Cader_CLI_Design.md) | Original proposals; planned APIs are not shipped features |
 | [Architecture decisions](docs/adr/) | Harness selection, model roles, configuration layout, CLI First |
 | [Model and MCP guide](docs/development/model-configuration.md) | Profiles, credentials, local MCP setup, live smoke |
@@ -311,7 +316,7 @@ The cover is conceptual artwork, not an application screenshot or CAD test resul
 
 Start with the [open issues](https://github.com/codesknight/Cader/issues) and
 [development process](docs/development/process.md). Run `pnpm typecheck` and `pnpm test`
-before submitting changes; add `pnpm smoke` for Harness changes. Keep credentials,
+before submitting changes; add `pnpm smoke` for Harness changes. Update both language CLI guides with command, configuration or behavior changes. Keep credentials,
 private drawings, and raw live-run artifacts out of commits.
 
 ## License

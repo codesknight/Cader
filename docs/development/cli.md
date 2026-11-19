@@ -1,5 +1,8 @@
 # Cader CLI：用户任务与诊断
 
+安装、交互与日常使用请先阅读 **[中文使用手册](../cli/README.zh-CN.md) · [English User Guide](../cli/README.md)**。
+本页保留集成诊断、受控执行及历史协议说明。
+
 当前 CLI 支持传入自然语言任务的 `exec`，与固定只读的 `live-smoke` 分开。
 `exec` 仍使用 M0 只读策略，不代表已经实现绘图。它可以使用现有主/子 Agent、Skill 和已审查的只读工具。
 
@@ -111,6 +114,8 @@ uv run --project cader-mcp cader-mcp mcp list --config configs/mcp/python.local.
 
 `live-smoke` 不接受用户任务；`--task`、`--write` 等不支持的参数会返回 USAGE_ERROR。
 绘图通过独立[受控调度器](../architecture/controlled-writes.md)，不能通过修改 read_only_tools 开放。
+
+<a id="controlled-execution"></a>
 
 ## 受控固定几何与独立检查
 

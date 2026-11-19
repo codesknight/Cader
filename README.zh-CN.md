@@ -20,6 +20,7 @@
 <p align="center">
   <a href="#overview">项目介绍</a> ·
   <a href="#quick-start">快速开始</a> ·
+  <a href="docs/cli/README.zh-CN.md">CLI 使用手册</a> ·
   <a href="#configuration">配置说明</a> ·
   <a href="#roadmap">开发路线</a> ·
   <a href="#documentation">文档索引</a>
@@ -35,6 +36,8 @@ Cader 是面向计算机辅助设计的可扩展 AI Agent 项目，以
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 与 Cordis 为运行基础，
 通过模型上下文协议（MCP）连接 CAD 工具。
 [AutoCAD-MCP](https://github.com/codesknight/AutoCAD-MCP) 是首个后端集成。
+
+**[阅读 CLI 使用手册 →](docs/cli/README.zh-CN.md)** · [English](docs/cli/README.md)
 
 项目采用 **CLI First** 策略：先复用 DSH Headless 建立基础 Agent、验证社区 TUI，
 再逐步实现 Cader CLI。待底层服务稳定后，继续开发 Web UI 与 CAD 内嵌插件。
@@ -138,7 +141,7 @@ cader [general] › /resume
 
 支持 `/status`、`/skills`、`/domain`、`/context`、`/compact`、`/checkpoint` 等入口，
 Tab 补全、Esc 中断、`!dir` 逐条确认执行。自然语言和 `/compact` 需要模型凭据并产生 API 调用；
-启动、帮助和会话管理不发模型请求。详见[交互终端指南](docs/architecture/interactive-terminal.md)。
+启动、帮助和会话管理不发模型请求。详见[CLI 使用手册](docs/cli/README.zh-CN.md)。
 `/open` 对 DWG 暂仅登记引用，`/undo` 明确报告能力缺口，检查点保存会话与引用清单；尚非 CAD 恢复点。
 本轮真实模型探测返回 `QUOTA`，真实多轮成功待配额恢复后验证；离线 DSH 多轮与 Windows 交互已验证。
 
@@ -276,6 +279,8 @@ DSH YAML 与 Python 诊断 JSON 使用不同 schema，不能互换。
 
 | 资料 | 内容 |
 |---|---|
+| **[CLI 使用手册](docs/cli/README.zh-CN.md) · [English User Guide](docs/cli/README.md)** | 安装、命令、配置、会话、脚本与排障，随代码同步维护 |
+| [文档导航](docs/README.md) | 用户、集成、架构及开发者文档入口 |
 | [技术设计 v0.2](docs/designs/Cader_Technical_Design_v0.2.md) · [CLI 设计](docs/designs/Cader_CLI_Design.md) | 原始设计稿；规划接口不等同于已实现功能 |
 | [架构决策](docs/adr/) | Harness 选型、模型角色、配置目录与 CLI First |
 | [模型与 MCP 指南](docs/development/model-configuration.md) | 模型 profile、凭据、本机 MCP 与真实 smoke |
@@ -291,7 +296,7 @@ DSH YAML 与 Python 诊断 JSON 使用不同 schema，不能互换。
 
 从[开放的 Issues](https://github.com/codesknight/Cader/issues)和
 [开发流程](docs/development/process.md)开始。提交前运行 `pnpm typecheck`、`pnpm test`；
-涉及 Harness 时增加 `pnpm smoke`。密钥、私有图纸和原始真实运行记录不提交仓库。
+涉及 Harness 时增加 `pnpm smoke`。CLI 命令、配置或行为变更同步更新中英文使用手册。密钥、私有图纸和原始真实运行记录不提交仓库。
 
 ## 开源协议
 
