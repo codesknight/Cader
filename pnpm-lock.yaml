@@ -11,6 +11,9 @@ importers:
       '@cader/cad-policy':
         specifier: workspace:*
         version: link:packages/plugins/cad-policy
+      '@cader/cli':
+        specifier: workspace:*
+        version: link:apps/cli
       '@cader/config':
         specifier: workspace:*
         version: link:packages/config

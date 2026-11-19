@@ -3,6 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
+  "bin": { "cader": "bin/cader.cjs" },
   "dependencies": {
     "@cader/profile": "workspace:*",
     "@cader/config": "workspace:*"

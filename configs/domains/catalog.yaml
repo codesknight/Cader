@@ -1,0 +1,8 @@
+version: 1
+domains:
+  - id: general
+    label: 通用 CAD
+    instruction: Review geometry, units, evidence and verification. Domain selection grants no CAD write permission.
+  - id: electrical
+    label: 电气与电路
+    instruction: Distinguish symbols, ports, nodes, wires, junctions and bridges. Link text and voltage facts to image regions; retain unknowns. Schematic layout units do not imply physical scale. Domain selection grants no tools or write permission.

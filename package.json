@@ -8,6 +8,7 @@
     "node": ">=24.9.0"
   },
   "scripts": {
+    "cli:install": "pnpm build && node benchmark/install-cli.mjs",
     "contract:export": "pnpm build && node benchmark/export-cad-contract.mjs",
     "image-test": "pnpm build && node benchmark/run-image-cases.mjs",
     "cader": "pnpm build && node apps/cli/dist/index.js",
@@ -20,6 +21,7 @@
     "live-smoke": "pnpm build && node apps/cli/dist/index.js live-smoke"
   },
   "devDependencies": {
+    "@cader/cli": "workspace:*",
     "@cader/dsh-adapter": "workspace:*",
     "@cader/cad-policy": "workspace:*",
     "@cader/profile": "workspace:*",

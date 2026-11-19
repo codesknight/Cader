@@ -1,8 +1,10 @@
+#!/usr/bin/env node
 import { runHarnessSmoke, runLiveSmoke, runTask, failureFromError, runControlledCad,
   reconcileControlledCad, contractSchemas, validateAssessment, assessmentSchemas, CAD_DRAFT_REVISION } from '@cader/profile';
 import { recordSmoke } from './record.js';
 import { loadConfig, loadSkills, redactSecrets, workspacePath } from '@cader/config';
 import { readFile } from 'node:fs/promises';
+import { runTerminal } from './terminal.js';
 
 const command = process.argv[2];
 const usage = 'Cader CLI (read-only by default)\nexec "<task>" [--intent assess|redraw] [--mcp <local.yaml>] [--skill <name>] [--image <workspace.png|jpg>] [--crop x,y,w,h] [--rotate 0|90|180|270]\nskills list | skills show <name> [--resource <id>] | doctor | models | harness-smoke\nlive-smoke --mcp <local.yaml> [--image <file> --expected-image <json>]\ncad-contract\ncad-test --backend http --mcp <local.yaml> --plan <plan.json> --output .cader/artifacts/<name>.dwg [--authorize-write]\ncad-reconcile --run <managed-run-directory> --mcp <local.yaml>\nassessment-check --assessment <json> --expect <independent.json>';
@@ -20,6 +22,18 @@ function flags(keys: string[], booleans: string[] = []) {
   return result;
 }
 try {
+  if (!command || command === 'chat') {
+    let workspace: string | undefined;
+    let stdio = false;
+    const args = process.argv.slice(3);
+    for (let index = 0; index < args.length; index++) {
+      if (args[index] === '--stdio' && !stdio) stdio = true;
+      else if (args[index] === '--workspace' && !workspace && args[index + 1]) workspace = args[++index];
+      else throw new Error('USAGE_ERROR');
+    }
+    if (!command && !(process.stdin.isTTY && process.stdout.isTTY)) console.log(usage + '\n\nUse cader in a terminal for interactive mode; chat --stdio accepts scripted slash commands.');
+    else await runTerminal({ workspace, stdio });
+  } else {
   // Parse before loading credentials or starting any runtime.
   let taskInput: { task: string; mcpPath?: string; skill?: string; image?: string; intent?: 'assess' | 'redraw';
     imageView?: { rotation?: 0 | 90 | 180 | 270; crop?: { left: number; top: number; width: number; height: number } } } | undefined;
@@ -62,8 +76,11 @@ try {
     taskInput = { task, mcpPath: flags.get('--mcp'), skill: flags.get('--skill'), image: flags.get('--image'),
       intent: intent as 'assess' | 'redraw', imageView: { rotation: rotation as 0 | 90 | 180 | 270, crop } };
   }
-  if (command === '--help' || command === 'help' || (command === 'exec' && process.argv.includes('--help'))) {
+  if (command === '--version' || command === '-v') {
+    console.log('Cader 0.2.0');
+  } else if (command === '--help' || command === 'help' || (command === 'exec' && process.argv.includes('--help'))) {
     console.log(usage);
+    console.log('\nNo command: interactive Cader terminal. chat [--workspace <dir>] [--stdio]\n--version  Show version without configuration or network.');
   } else {
     if (command === 'models' || command === 'live-smoke' || command === 'exec' || command === 'cad-test' || command === 'cad-reconcile') {
       try { process.loadEnvFile('.env'); }
@@ -126,6 +143,7 @@ try {
       console.error(usage);
       process.exitCode = 2;
     }
+  }
   }
 } catch (error) {
   const failure = failureFromError(error);

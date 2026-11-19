@@ -120,3 +120,12 @@ REQ-022：用户提供MCP完成profile及实机验收的报告，明确要求Cad
 验收为原生CLI单次执行已审查line/circle/text计划，持久化请求与身份、保存真实DWG、只读新文档重开独立查询、
 另外新MCP客户端复查及文件hash、源输入不变、专用实例清理。模型驱动、图片重绘和真实响应丢失故障分别跟踪，不能并入固定计划成功。
 MCP确认修订2/映射修订1是实施基线；原共享snapshot不修改、不擅自宣称联合发布冻结。本轮不修改MCP源码/默认COM配置或原图。
+
+
+## 2026-11-19：持续交互终端（#16 / #10）
+
+REQ-023：用户明确要求Gemini CLI/Claude Code式持续终端、彩色Cader、16个Slash入口、文件引用、用户Shell、Esc和Tab。
+验收为本地可直接启动的bin/CMD、共享命令应用服务、默认只读DSH多轮可见上下文、配置选择、摘要与恢复、引用hash、
+逐条确认Shell及取消、Windows PTY和跨平台CI。原始设计仍是参考；不把/open、/undo、/checkpoint菜单当作CAD执行授权或已实现接口。
+关联M0 [#16](https://github.com/codesknight/Cader/issues/16)、基础入口[#10](https://github.com/codesknight/Cader/issues/10)；
+社区[#9](https://github.com/codesknight/Cader/issues/9)本轮只做固定版本静态审查，保留实际运行验收。

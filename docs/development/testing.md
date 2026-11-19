@@ -146,3 +146,14 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 - 原schema e239266e和cases 9e33ab75仍完全相同，hash manifest未改；当前无acad进程。完整Python回归由跨平台CI执行，Python源码未改。
 - 发布验收：提交3d471ea，[CI run 44525767262](https://github.com/codesknight/Cader/actions/runs/44525767262) 的Windows/Linux DSH与Python共4/4 jobs成功，覆盖38项TS、10项Python及各自smoke/lint/format。
 - 发布前15文件扫描实际模型密钥和Bridge令牌两类凭据，泄漏0；82个本地文档链接有效，暂存whitespace通过。原始资料、DWG、完整request_json和私有日志未提交。普通Git因既有未监听代理失败，核对完整tree/commit后非强制API同步，不更改全局代理。
+
+
+## 2026-11-19：持续终端与CLI入口（#16 / #10）
+
+- Node24.9.0/pnpm11.28.5：pnpm install --offline通过；最终pnpm typecheck、pnpm test（44/44）、pnpm smoke（6/6）通过。新增6项测试含实际DSH loop与确定性模型，无付费请求。
+- 新增测试初次把返回false误断言为undefined失败，修正测试后通过；没有隐藏最初失败。多轮历史/选择/域上下文、无工具压缩、取消后继续、resume、路径/hash变化和跨chunk凭据脱敏均通过。
+- 用户Shell真实子进程验证中文UTF-8、逐条确认、deny/非TTY无批准、20秒Sleep取消，输出没有进入模型历史。会话/引用检查点与DWG能力缺口明确测试；不执行CAD。
+- Windows实际PTY：TERM=dumb初期未启用Node原生Tab编辑，定位Readline简化分支，保留原生补全并加入提示；VT环境TERM=xterm-256color/FORCE_COLOR=1下，彩色CADER、/con→Tab→/context、中文、Shell确认、Esc取消及后续输入、保存退出通过。
+- 实际安装：管理员所有的Node全局目录返回EPERM，没有改ACL；选择已在PATH中的用户.local/bin安装cader.cmd，cader --version及--help通过。不改PATH/PowerShell策略，无需pnpm.ps1。
+- 一次真实TUI模型请求返回QUOTA，错误根因正确显示且界面继续运行；停止后续付费探测。真实模型多轮成功、实际Agent PTY取消、窗口resize、社区profile、真实CAD不标通过。
+- 原始session/events/PTY诊断仅在.cader；公开[验证报告](../validation/2026-11-19-interactive-terminal.md)只包含合成用例结论。Python未变，完整Python检查由跨平台CI执行。CI结果待发布后补记。

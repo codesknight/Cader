@@ -74,3 +74,11 @@ pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --image benchmark/fixtures/
 
 CI 只运行无需凭据的 fixture / 单元测试，不触发付费请求。Live smoke 是 headless Cader
 组合，不等于已经验证 DSH Web UI、实际 CAD 图片评测或绘图保存闭环。
+
+
+## 交互终端中的选择
+
+/model列出configs/models的注册ID，/model <ID>只切换主会话所用模型，保留主Agent角色与子Agent权限。
+configs/domains/catalog.yaml提供/domain的general/electrical指导；专业选择不授予新工具或写权限。
+配置根.env与YAML在启动/装配时读取，修改后重启终端。/mcp use选择配置；不自动启动AutoCAD或切换服务端COM/HTTP。
+/skills off仅取消预加载，角色可见的按需技能目录仍可用。完整说明见[交互终端指南](../architecture/interactive-terminal.md)。

@@ -40,13 +40,14 @@ Cader 是面向计算机辅助设计的可扩展 AI Agent 项目，以
 再逐步实现 Cader CLI。待底层服务稳定后，继续开发 Web UI 与 CAD 内嵌插件。
 
 > **当前阶段：M0 集成。** 模型配置、受限子任务委派和 AutoCAD 只读集成已有 smoke 验证记录。
-> 当前可用入口是下文的 `pnpm` 命令，已增加接收用户任务的只读 `exec`；
-> 可安装的 `cader` 产品入口、社区 TUI 接入仍在规划中。受控调度器已通过组件测试，
+> 已提供 **`cader` 持续交互终端**：彩色启动、Slash 命令、会话恢复、文件引用与流式回复；
+> 也保留脚本使用的只读 `exec`。社区 TUI 已完成版本固定与静态审查，运行兼容性仍待验证。受控调度器已通过组件测试，
 > 已通过固定直线/圆/文字计划的**真实绘制—保存—只读重开验收**；图片到DWG执行仍未开放。
 
 | 能力 | 当前实现 |
 |---|---|
 | Agent 运行时 | DSH 默认 AgentLoop、Cordis、官方模型适配器与 MCP 客户端 |
+| 交互终端 | 彩色 CADER、16 个 Slash 入口、Tab 补全、Esc 中断、私有会话与用户 Shell 确认 |
 | 上下文组装 | 稳定 Static 与动态 Available；显式 Skill 清单、角色可见性与按需引用资料 |
 | 子任务委派 | 主 Agent 最多协调 **5 个并行子 Agent**；子 Agent 返回结果，不继续委派 |
 | 模型配置 | 主 Agent、文本审查和视觉子任务使用 YAML profile；凭据通过环境变量提供 |
@@ -111,7 +112,37 @@ Python smoke 是离线 MCP 协议 fixture。连接真实服务需另行配置本
 
 </details>
 
-### 3. 体验用户任务
+### 3. 启动交互终端
+
+先构建，再启动。Windows PowerShell 使用 `.cmd` 入口，避免 `pnpm.ps1` 执行策略限制：
+
+```powershell
+pnpm.cmd build
+.\cader.cmd
+```
+
+Linux/macOS 使用 `pnpm build` 后运行 `pnpm exec cader`。Windows 可将启动器安装到**已在 PATH 中**的用户可写目录：
+
+```powershell
+pnpm.cmd run cli:install --bin-dir "$env:USERPROFILE\.local\bin"
+cader
+```
+
+```text
+cader [general] › /help
+cader [general] › /model
+cader [general] › /mcp use configs/mcp/AutoCAD.local.yaml
+cader [general] › 评估 @benchmark/fixtures/vision-calibration.png
+cader [general] › /resume
+```
+
+支持 `/status`、`/skills`、`/domain`、`/context`、`/compact`、`/checkpoint` 等入口，
+Tab 补全、Esc 中断、`!dir` 逐条确认执行。自然语言和 `/compact` 需要模型凭据并产生 API 调用；
+启动、帮助和会话管理不发模型请求。详见[交互终端指南](docs/architecture/interactive-terminal.md)。
+`/open` 对 DWG 暂仅登记引用，`/undo` 明确报告能力缺口，检查点保存会话与引用清单；尚非 CAD 恢复点。
+本轮真实模型探测返回 `QUOTA`，真实多轮成功待配额恢复后验证；离线 DSH 多轮与 Windows 交互已验证。
+
+### 单次用户任务
 
 根 `.env` 和本机 MCP 配置就绪后执行：
 
@@ -158,6 +189,7 @@ pnpm run cader cad-test --backend http --mcp configs/mcp/AutoCAD.managed.local.y
 ```text
 configs/
 ├── models/                  # 主 Agent、文本子 Agent、视觉子 Agent
+├── domains/                 # 终端专业指导目录
 ├── mcp/                     # DSH YAML 与 Python 诊断 JSON 示例
 ├── cad/                     # 允许操作与已审查计划哈希
 ├── contracts/               # CAD、任务、读图的版本化 JSON schema
@@ -232,7 +264,7 @@ DSH YAML 与 Python 诊断 JSON 使用不同 schema，不能互换。
 |---|---|---|
 | Agent 基础 | DSH 集成、模型配置、Static / Available、MCP 只读 smoke | 已实现；M0 继续扩展验证 |
 | Headless + 社区 TUI | 完整 Headless profile、会话生命周期、Windows TUI 兼容性 | 下一阶段 / [TUI 验证 #9](https://github.com/codesknight/Cader/issues/9) |
-| Cader CLI | 已有只读 `exec`、帮助和诊断；打包入口、事件流及会话待完成 | 部分实现 / [CLI 基础 #10](https://github.com/codesknight/Cader/issues/10) |
+| Cader CLI | 本地启动器、持续终端、可见会话与只读 `exec`；结构化事件流待实现 | [交互终端 #16](https://github.com/codesknight/Cader/issues/16) / [CLI 基础 #10](https://github.com/codesknight/Cader/issues/10) |
 | CAD 操作闭环 | 工作副本、绘制—保存—重开、独立验证与基准评测 | 规划中 / [CAD 闭环 #3](https://github.com/codesknight/Cader/issues/3) |
 | 更多交互入口 | 共享底层服务的 Web UI 与 CAD 内嵌插件 | 后续阶段 |
 

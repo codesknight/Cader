@@ -2,7 +2,8 @@
 
 依据用户本轮要求和 [CLI 设计原稿](../designs/Cader_CLI_Design.md)，
 执行顺序为 DSH Headless / 社区 TUI → Cader CLI → Web UI / CAD 内嵌插件。
-原稿是目标接口；当前提供 README 列出的 pnpm 诊断、smoke，以及只读用户任务 exec。
+原稿是目标接口；当前已提供诊断、smoke、只读exec及[持续交互终端](interactive-terminal.md)。
+裸cader在TTY启动彩色会话；非TTY显示帮助退出0。原稿中的CAD打开/撤销等能力仍以实际接口为准。
 
 ## 当前基线与边界
 
@@ -31,17 +32,17 @@
 
 CLI / slash / 未来界面 → Command Registry → Application Services。
 确定性诊断直接调用配置、会话或 MCP 服务；自然语言任务通过 DSH adapter 执行。
-CLI 不直接访问 COM。受控 shell 与 CAD 原生命令待权限、工作目录、取消和审计契约明确后再开放。
+CLI 不直接访问 COM。交互Shell已限定用户直接输入、逐条确认、工作目录、取消和审计边界；CAD原生命令仍未开放。
 
 `cader exec` 计划归一化上游结构化事件为有版本的 RunEvent，包含 seq、timestamp、runId、
 sessionId、type 和 payload；stdout JSONL 与 stderr 诊断分开，恰好一个 terminal event。
 不解析面向人的 TUI 文本，不原样转发上游全部事件。上游 Headless 可能输出 reasoning，
 Cader 展示与持久化层需过滤 reasoning；密钥和私有图纸不写公开日志。
 当前 smoke JSONL 不是承诺稳定的 RunEvent v1，正式 schema 和退出码以 CLI-005 验收为准。
-2026-11-19 的 exec 先返回单个终态 JSON，默认只读；稳定事件流、恢复和绘图仍待后续验收。
+2026-11-19 的 exec 返回单个终态 JSON，默认只读；交互层支持可见对话恢复，稳定事件流与任意模型绘图仍待后续验收。
 
 沿用 DSH `0.2.2-rc.4`、Cordis `4.1.0`、Node >=24.9 和 pnpm 11.28.5。
-先做 keyless CLI 基础和非交互链路，再决定是否采用 Commander；UI 需求明确前不加入 Ink / React。
+本轮用户已明确UI需求，采用Node原生TTY/Readline和共享交互服务，保留keyless入口与非交互链路，不加入Ink/React。
 保留 node:test，避免因原稿的建议重做测试基础。
 
 ## 社区 TUI 调研状态（2026-11-19）
@@ -51,7 +52,7 @@ Cader 展示与持久化层需过滤 reasoning；密钥和私有图纸不写公�
 | [nexlineai/dsh-tui](https://github.com/nexlineai/dsh-tui) | 独立 DSH plugin、MIT；README 声明 macOS / Linux，提供会话与权限交互 | 锁定依赖、Windows 支持、可否装配 Cader profile 与子任务限制 |
 | [TonyWang-hub/deepseek-harness-tui](https://github.com/TonyWang-hub/deepseek-harness-tui) | MIT 社区 fork，使用进程内终端和共享 client core | 与当前官方版本差异、能否仅复用 UI、Windows / 升级成本 |
 
-以上是作者文档声明，不是 Cader 实测结果；尚未安装、选定或将任一依赖加入锁文件。
+候选已按[本轮静态审查](../research/interactive-cli-2026-11-19.md)固定版本检查；没有安装或运行社区profile，未将依赖加入锁文件。
 优先试独立 plugin，避免默认承担完整 runtime fork 的维护成本；不把旧 `turtle-ui` 示例当作可用依赖。
 验收时锁定候选版本/commit，记录 Node/DSH/Windows 版本和失败证据。
 
@@ -61,5 +62,6 @@ Cader 展示与持久化层需过滤 reasoning；密钥和私有图纸不写公�
 ## 与原稿的差异
 
 本轮 [ADR 0003](../adr/0003-config-layout-and-cli-first.md) 明确配置统一到 `configs/`，
-社区 TUI 验证优先于自建 TUI；不自动执行原稿中的全部命令、依赖安装或 shell 能力。
+社区 TUI 验证优先于自建 TUI；本轮用户明确要求持续交互后，通过静态兼容审查实施Node终端，详见[ADR0007](../adr/0007-interactive-terminal-and-visible-sessions.md)。
+不自动执行原稿中的全部命令或依赖安装。
 CLI-001 至 CLI-012 作为需求拆分依据，逐项以代码和测试验收，不用设计完成代替功能完成。

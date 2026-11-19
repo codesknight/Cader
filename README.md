@@ -41,15 +41,17 @@ evaluate a community TUI, then build Cader's own CLI. Web UI and CAD-embedded pl
 follow once the underlying services are stable.
 
 > **Project status — M0 integration.** Model profiles, bounded delegation, and read-only
-> AutoCAD integration have smoke-test evidence. Today's entry points are the `pnpm`
-> commands below, including user tasks through read-only `exec`. An installable
-> `cader` binary and community TUI integration remain planned. A controlled CAD scheduler
+> AutoCAD integration have smoke-test evidence. The **persistent `cader` terminal** provides
+> a colored banner, Slash commands, resumable sessions, references and streamed replies.
+> Read-only `exec` remains available for scripts. Community TUI compatibility has only been
+> statically reviewed. A controlled CAD scheduler
 > passes component fixtures and a **real AutoCAD draw–save–read-only reopen** test for
 > the reviewed line/circle/text plan. Image-to-DWG execution remains blocked.
 
 | Capability | Current implementation |
 |---|---|
 | Agent runtime | DSH default AgentLoop, Cordis, official model adapter and MCP client |
+| Interactive terminal | Colored CADER banner, 16 Slash entries, Tab completion, Esc cancellation, private sessions and confirmed user Shell |
 | Context assembly | Stable Static prompts plus dynamic Available context; explicit, role-scoped Skill catalog and on-demand references |
 | Delegation | Main agent coordinates up to **5 concurrent subagents**; children return results without delegating |
 | Model profiles | YAML profiles for main, text-review, and vision agents; credentials come from environment variables |
@@ -115,7 +117,41 @@ separate local JSON configuration; see the [configuration guide](docs/developmen
 
 </details>
 
-### 3. Try a user task
+### 3. Start the interactive terminal
+
+Build once, then launch. Windows PowerShell users should use the `.cmd` entry points:
+
+```powershell
+pnpm.cmd build
+.\cader.cmd
+```
+
+On Linux/macOS, run `pnpm build`, then `pnpm exec cader`. Windows users can install the
+launcher into a writable user directory **already on PATH**:
+
+```powershell
+pnpm.cmd run cli:install --bin-dir "$env:USERPROFILE\.local\bin"
+cader
+```
+
+```text
+cader [general] › /help
+cader [general] › /model
+cader [general] › /mcp use configs/mcp/AutoCAD.local.yaml
+cader [general] › Assess @benchmark/fixtures/vision-calibration.png
+cader [general] › /resume
+```
+
+Use `/status`, `/skills`, `/domain`, `/context`, `/compact`, `/checkpoint` and the other
+registered commands; Tab completes input, Esc cancels work, and `!dir` requests a confirmed
+user Shell command. Conversation and compaction require paid model credentials; startup,
+help and session management do not. See the [terminal guide](docs/architecture/interactive-terminal.md).
+DWG `/open` currently registers a reference; `/undo` reports an unavailable capability.
+Checkpoints contain conversation and reference manifests, without a CAD snapshot.
+The live model probe returned `QUOTA`; successful live multi-turn behavior remains unverified.
+Offline DSH multi-turn tests and Windows terminal interactions have passed.
+
+### Single user task
 
 With your root `.env` and local MCP configuration ready:
 
@@ -167,6 +203,7 @@ Editable agent assets live together under `configs/`:
 ```text
 configs/
 ├── models/                  # MainAgent, SubAgent, VisionAgent YAML profiles
+├── domains/                 # Registered terminal domain guidance
 ├── mcp/                     # DSH YAML and Python diagnostic JSON examples
 ├── cad/                     # Allowed operations and reviewed plan hashes
 ├── contracts/               # Versioned CAD/task/perception JSON schemas
@@ -247,7 +284,7 @@ See the [model and MCP guide](docs/development/model-configuration.md) for full 
 |---|---|---|
 | Agent foundation | DSH, model profiles, Static / Available, read-only MCP smoke | Implemented; broader M0 validation continues |
 | Headless + community TUI | Full Headless profile, session lifecycle, Windows TUI compatibility | Next / [TUI validation #9](https://github.com/codesknight/Cader/issues/9) |
-| Cader CLI | Read-only `exec`, help and diagnostics available; packaging, event stream and sessions pending | Partial / [CLI foundation #10](https://github.com/codesknight/Cader/issues/10) |
+| Cader CLI | Local launcher, persistent terminal, visible sessions and read-only `exec`; structured event stream pending | [Interactive terminal #16](https://github.com/codesknight/Cader/issues/16) / [CLI foundation #10](https://github.com/codesknight/Cader/issues/10) |
 | CAD workflow | Working copies, draw–save–reopen, independent verification, benchmarks | Planned / [CAD workflow #3](https://github.com/codesknight/Cader/issues/3) |
 | Additional interfaces | Web UI and CAD-embedded plugins sharing the same services | Later |
 

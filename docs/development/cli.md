@@ -23,7 +23,9 @@ task_status=unverified、verification=not_performed，不从模型正文推断�
 `exec "重绘并保存" --intent redraw` 返回 blocked/WRITE_CAPABILITY_UNAVAILABLE，退出3，
 不调用模型或MCP。user_task_authorized=true与runtime_write_available=false分别记录。
 输出中的 `text` 是模型回复，`runDirectory` 指向本地私有 events.jsonl 和 verification.json。
-当前还没有交互 REPL、resume、稳定 RunEvent JSONL 或可全局安装的产品入口。
+已提供持续交互终端、私有会话恢复和本地安装启动器，见[交互终端指南](../architecture/interactive-terminal.md)。
+Windows 可直接运行 `cader`（需先安装本地启动器）或仓库根的 `.\cader.cmd`；裸命令在 TTY 启动界面，非 TTY 显示帮助并退出0。
+`chat --stdio` 提供显式文本会话输入，不是稳定 RunEvent JSONL 接口。单次 `exec` 继续返回原 JSON 契约。
 
 ## Skill 与参考图
 
