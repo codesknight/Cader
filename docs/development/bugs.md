@@ -120,3 +120,5 @@ BUG-011–014验收补充：Cader实现eed2f33的CI run 44480295260共4/4 jobs�
 - TERM=dumb为初次PTY补全失败的已确认条件：Node使用简化Readline。保留原生编辑、显示简化提示；支持VT的PTY声明xterm-256color后补全及Esc清行正常。未对真实终端能力进行未经验证的强制假设。
 - 本轮真实provider QUOTA属于配额/权限环境，根因代码已传播，未归因为MCP失败；没有重试付费请求，真实多轮验收保持未通过。原BUG-010复杂图识别仍未解决。
 - CAD任意DWG打开、受控撤销与CAD快照为尚无公共接口的能力缺口，不通过菜单伪装执行或扩张只读白名单。
+
+BUG-016验收补充：实现c68dffc的[CI run 44539527045](https://github.com/codesknight/Cader/actions/runs/44539527045)共4/4 jobs通过，状态改为已验收。终端可用不代表QUOTA或尚缺的CAD接口已解决。

@@ -157,3 +157,6 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 - 实际安装：管理员所有的Node全局目录返回EPERM，没有改ACL；选择已在PATH中的用户.local/bin安装cader.cmd，cader --version及--help通过。不改PATH/PowerShell策略，无需pnpm.ps1。
 - 一次真实TUI模型请求返回QUOTA，错误根因正确显示且界面继续运行；停止后续付费探测。真实模型多轮成功、实际Agent PTY取消、窗口resize、社区profile、真实CAD不标通过。
 - 原始session/events/PTY诊断仅在.cader；公开[验证报告](../validation/2026-11-19-interactive-terminal.md)只包含合成用例结论。Python未变，完整Python检查由跨平台CI执行。CI结果待发布后补记。
+
+- 发布验收：实现c68dffc的[CI run 44539527045](https://github.com/codesknight/Cader/actions/runs/44539527045)，Windows/Linux DSH及Python共4/4 jobs成功，覆盖44项TS、10项Python、组件/协议smoke及Python lint/format。Linux实际直接执行100755的bin/shebang通过。
+- 暂存30文件实际模型凭据扫描0泄漏、79个本地Markdown链接有效、whitespace检查通过。Git push仍受既有未监听代理阻塞，核对完整tree/commit后以既有API回退非强制推进，未更改全局代理。

@@ -21,3 +21,5 @@
 
 私有session、provider错误事件及PTY诊断在.cader；不提交原始对话、密钥、Shell输出或私有图片。
 本报告只发布合成测试结论。跨平台CI结果在[测试日志](../development/testing.md)与关联Issue补记。
+
+发布补充：c68dffc的[Windows/Linux CI](https://github.com/codesknight/Cader/actions/runs/44539527045)共4/4 jobs通过（44项TS、10项Python及各自smoke/lint/format）。Linux bin实际shebang入口通过；真实模型/CAD/社区profile的未验收状态保持不变。
