@@ -117,3 +117,6 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 - 真实MCP仅get_backend_status，当前COM，退出3/HTTP_BACKEND_REQUIRED，runtime_write_available=false，artifact=null，无写入/保存/重开；证据.cader/runs/managed-f47d2131-6938-410f-a7a4-a689e54c3d3c/verification.json。本轮不改MCP代码、配置或默认后端。
 - Python源码未变；Windows/Linux完整Python lint/format/pytest/协议smoke由CI验证。真实HTTP、完整DWG与复杂图片识别未执行，保持未验收状态。
 - 最终本地复验：pnpm install --offline --frozen-lockfile、pnpm typecheck、pnpm test（32/32）、pnpm smoke（6/6）通过。发布前增加拒绝未支持几何属性的验证后再执行必要复验；不重复付费模型或真实CAD写入。
+- 实现提交d061b55已核对完整tree/commit并非强制同步GitHub；[CI run 44475849146](https://github.com/codesknight/Cader/actions/runs/44475849146) 的Windows/Linux DSH与Python共4/4 jobs成功，包含32项TS、10项Python及各自smoke和Python lint/format。
+- 最后几何属性拒绝分支新增后，本地typecheck、32项TS、smoke6/6复验通过。发布前39文件实际凭据扫描0泄漏、15个Markdown的59个本地链接有效、暂存whitespace检查通过。
+- 新增schema导出和请求校验均已进入上述CI；真实模型/复杂图片识别、真实HTTP写入及DWG闭环未执行，不标为通过。BUG-008的业务状态修复已由远端CI验收；BUG-010及#3/#14的实机门槛保持开放。
