@@ -151,3 +151,5 @@ BUG-021：视觉自由文本截断/非schema造成structured=null；DSH raw sche
 BUG-022：真实模型验收计划把语义符号当原生类型、组件位置重复及端口位于禁入区域；先验证计划再写入，schema约束及精确图相交回归通过。初版任务授权测试改变返回ObjectID后，使原测试未命中get_entity读回故障；已让故障fixture覆盖目标读回和全图读回，最终全测通过。
 
 BUG-023：真实图像有疑似裁切、视觉/几何分歧及无关uncertainty导致无谓重验。增加保守边缘证据、ObjectID校验、观察稳定性、分歧记录、域知识和非可定位问题pending；不会直接把视觉uncertain改为pass。E第4次捕获未知派发，Drawing5被冻结，unknown=1；没有重放/删锁。原生缺少显式fit-to-page只是根因假设，权威像素映射仍未实现。最后调度优化仅离线回归，实机冻结恢复与完整案例保持未通过。证据见[实测与JSON](../validation/2026-11-20-autonomous-quality.md)。
+
+BUG-024（#20/#19，已定位、未修复）：12:32用户日志中draw_text缺height，原始MCP工具schema没有客户端执行前输入校验，明确参数拒绝被统一归dispatch/unknown而冻结Drawing6。实际DSH无CAD fixture复现缺required仍进入execute；已有defineTool测试没有覆盖真实原始定义。另确认turn/session计数语义、旧全图缓存与文字过滤查询、COM not_probed误诊、recover调用成功但业务拒绝及错误回复重复渲染。完整证据和修复验收清单见[12:32审计](../validation/2026-11-20-user-log-1232.md)。本轮仅诊断，保留锁，未操作CAD或修改相邻MCP。

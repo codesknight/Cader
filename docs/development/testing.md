@@ -220,3 +220,7 @@ Node24.9.0 / pnpm11.28.5。`pnpm typecheck`通过，`pnpm test`63/63通过；`pn
 入口补充本地复验：typecheck、测试63/63及smoke通过；组件运行`.cader/runs/dsh-component-2026-11-20T04-24-22-416Z-0c5261d7-4b16-43b5-99ca-d645423c5e29`。8个补充文件的文档链接、密钥泄漏检查及diff检查通过；补充提交CI最终状态在[#20](https://github.com/codesknight/Cader/issues/20)记录，不改变完整CAD验收未通过结论。
 
 补充代码提交`2d7b818`已正常推送；[CI 44674290412](https://github.com/codesknight/Cader/actions/runs/44674290412)四项全部成功：Windows/Linux DSH组件及Python MCP。离线 `cader --version` 返回`0.4.0-dev.2`。根目录原屏障及quality-e450…的Drawing5屏障均仍存在，后者为capture_dispatch/unknown/frozen；没有通过重连或删锁绕过。源码本地及CI通过，完整CAD质量案例仍未通过。
+
+12:32用户日志排障：`.cader/probe-raw-schema.mjs`使用实际DSH+无副作用原始定义，缺必填height时body=1、isError=false，缺陷复现成功；server_called=false、cad_called=false。这不是预期行为通过，也不是修复回归通过。阅读用户原始审计确认参数拒绝及14确认/1未知，未执行真实CAD/模型复验，BUG-024未修复。报告见[排障](../validation/2026-11-20-user-log-1232.md)。
+
+该文档审计本地复核：`pnpm typecheck`、`pnpm test`63/63、Markdown链接、密钥泄漏及`git diff --check`通过。未修改Harness/Python，无新增smoke或真实API/CAD执行。通过的旧测试不会覆盖本次已复现的参数预检缺陷。
