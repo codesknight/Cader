@@ -198,3 +198,7 @@ CI acceptance: implementation commit `7709770`, [Windows/Linux CI](https://githu
 ## 2026-11-20 / REQ-027：提交前离线复核
 
 固定 Node 24.9.0 / pnpm 11.28.5：`pnpm typecheck` 通过；`pnpm test` 53/53 通过；`pnpm smoke` 六项组件门槛全部通过，记录 `.cader/runs/dsh-component-2026-11-20T03-28-09-770Z-244c21ea-2202-45b3-9013-c4ec9bbd833a`。文档新增相对链接检查、`git diff --check` 通过；指导原文 SHA256 保持不变。本轮未重新调用付费模型或真实CAD，既有实机失败不变；CI实际结果待远端运行后追加。
+
+REQ-027 远端复核：`55ad82f` 的 [CI 44667978153](https://github.com/codesknight/Cader/actions/runs/44667978153) 4/4 jobs成功：python-mcp/windows、python-mcp/ubuntu、dsh-components/windows、dsh-components/ubuntu。CI没有读取密钥、调用付费模型或真实CAD。本地53/53及上述CI不替代仍未通过的压力/生命周期和视觉纠错验收。
+
+原文校验：提交后的指导文件blob与用户提供文件SHA256一致。将原文纳入暂存区后，`git diff --check` 报告原稿第3–5行Markdown换行用的尾部空格；按保留原文要求未改写。排除该原稿后，本次变更的 `git diff 55ad82f^ 55ad82f --check -- . ':!docs/designs/Cader_v0.4.0_Development_Guide.md'` 通过。此前历史推送失败保留，本次远端同步成功已在日志补记。

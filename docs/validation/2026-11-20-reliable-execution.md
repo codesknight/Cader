@@ -55,3 +55,7 @@ A concrete MCP Name-readiness/point-arity patch was prepared and approval reques
 Source checkpoints for this snapshot: Cader packages/profile/src/execution.ts:23 (owner), :63 (capture), :124 (recovery), :216–223 (dispatch/ack/postflight); packages/dsh-adapter/src/live.ts:317 (public error classification). Read-only MCP audit: src/autocad_mcp/cad/connection.py:62/77 (readiness/new document), cad/backends/com_backend.py:83 (lifecycle-only status), cad/controller.py:226 (asynchronous file wait). Line numbers identify the inspected snapshot; future commits may move them.
 
 Local pinned-Node checks: typecheck passed, 53/53 tests passed, Harness smoke 6/6 passed. Early failures (new tool expectation and compiled test import path) were corrected and retained in testing.md. Cross-platform CI follows the implementation commit; real-CAD failures above remain failures regardless of CI status.
+
+## Remote publication and offline CI
+
+Development branch `codex/v0.4-reliable-execution` is published, including implementation commits 880baf1/cf1dbc1 and documentation submission 55ad82f. [CI run 44667978153](https://github.com/codesknight/Cader/actions/runs/44667978153) passed all four Windows/Linux DSH/Python jobs. This resolves the earlier Git push limitation, not the real-CAD failures recorded above. No paid-model/real-CAD checks were rerun during this documentation submission; #19 and the v0.4 milestone remain open.
