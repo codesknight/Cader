@@ -484,4 +484,6 @@ pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality
 
 上述自然诊断/恢复短语由程序处理，不调用模型；受限恢复不成功会明确显示“未恢复”及资格原因。模型调用恢复工具返回`recovered:false`时也不再显示成功勾号。冻结期间受控查询仍可用，重连/重启不会赋予旧文档权限。已经流式显示的回答只追加程序状态，失败时不再重打全文。
 
+原连接已关闭或更换时，恢复原因是`ORIGINAL_CONNECTION_REQUIRED`；连接仍在但派发未获确认时是`DISPATCH_OUTCOME_UNCONFIRMED`。两者都不能通过重复恢复来放行写入。
+
 本次真实Flash/AutoCAD验证已越过文字绘制并进入自动视觉，缺参负向预检未派发、未冻结；完整电路仍因疑似导出裁切和计划约束未通过。详见[dev.3修复与实际结果](../validation/2026-11-20-schema-preflight-fix.md)。

@@ -234,3 +234,5 @@ Node24.9.0 / pnpm11.28.5。最终`pnpm typecheck`通过；`pnpm test`69/69通过
 真实集成显式执行`pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality`。首次测试入口负向预检在延迟连接前读取定义失败，未绘图；连接准备修正后，quality-77de84c9…通过真实schema缺height拒绝（未派发、未冻结），真实Flash确认17次CAD写入含文字2、unknown=0、审批1、自动视觉valid=true。完整图纸质量ok=false/pending，疑似裁切和计划计数范围仍未通过；原始日志、初次失败及[实际证据](../validation/2026-11-20-schema-preflight-fix.md)保留，不当作完整质量通过。
 
 本轮Python/独立MCP无变更，本地Python检查未新增；CI仍运行原矩阵。`cader --version`为0.4.0-dev.3；Drawing6、旧Drawing5和原根屏障均保留，未自动迁移或重放。提交/远端CI结果另记。
+
+2026-11-21收尾：实现提交`0c5eba3`的[CI 44680055023](https://github.com/codesknight/Cader/actions/runs/44680055023) Windows/Linux DSH组件与Python MCP四项全部成功。连接关闭原因补充断言此前已全量通过69/69及smoke，运行`.cader/runs/dsh-component-2026-11-20T05-19-11-904Z-c29128a5-073f-418e-af7d-2eb7309aa57b`；此日核对源码差异与日志，未新增付费模型/真实CAD复验。完整图纸质量仍未通过，补充提交的最终CI在#20记录。

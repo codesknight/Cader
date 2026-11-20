@@ -129,6 +129,7 @@ test('only trusted local rejection is undispatched; validation-looking remote er
         assert.equal((await f.owner.recover()).recovered,false);
         assert.match(f.owner.diagnosticSummary(),/受控只读查询仍可用/);
         await f.owner.dispose();
+        assert.equal(f.owner.facts().recovery.reason,'ORIGINAL_CONNECTION_REQUIRED');
         const restarted=new ExecutionSession(f.root,join(f.root,'.cader/runs/restarted'),undefined,f.factory);
         try {
           await restarted.connect(resolve('configs/mcp/AutoCAD.example.yaml'));

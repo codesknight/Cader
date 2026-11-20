@@ -484,4 +484,6 @@ Facts add `counts_scope`, `operation_mark`, `session_counts`, `freeze_operation`
 
 These Chinese diagnostic/recovery shortcuts are program-owned and do not invoke a model. Refused recovery is displayed explicitly; model-tool `recovered:false` no longer receives a success checkmark. Controlled reads remain available during a freeze; reconnect/restart grants no inherited ownership. Once streamed, answers receive only application status afterward rather than being printed twice on failure.
 
+A closed or replaced original connection reports `ORIGINAL_CONNECTION_REQUIRED`; an unacknowledged dispatch on the live connection reports `DISPATCH_OUTCOME_UNCONFIRMED`. Repeated recovery does not authorize writes in either case.
+
 Real Flash/AutoCAD validation now reaches text creation and automatic vision; the missing-input probe was rejected without dispatch or freeze. Full circuit acceptance still fails on suspected capture clipping and plan constraints. See [dev.3 fix and actual evidence](../validation/2026-11-20-schema-preflight-fix.md).

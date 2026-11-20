@@ -154,7 +154,7 @@ export class ExecutionSession {
   }
   private recoveryEligibility(){
     const eligible=Boolean(this.frozen&&this.client&&this.freeze?.sameConnection&&this.freeze.outcome==='committed_observation_failed'&&this.freeze.stage==='postflight');
-    return {eligible,reason:!this.frozen?'NOT_FROZEN':eligible?'ACKNOWLEDGED_WRITE_READBACK_FAILED':!this.freeze?.sameConnection?'ORIGINAL_CONNECTION_REQUIRED':'DISPATCH_OUTCOME_UNCONFIRMED',
+    return {eligible,reason:!this.frozen?'NOT_FROZEN':eligible?'ACKNOWLEDGED_WRITE_READBACK_FAILED':!this.client||!this.freeze?.sameConnection?'ORIGINAL_CONNECTION_REQUIRED':'DISPATCH_OUTCOME_UNCONFIRMED',
       guidance:!this.frozen?'No recovery is needed.':eligible?'Only re-query on the original connection; never replay.':'Repeated recovery, reconnecting or restarting CAD cannot establish a missing acknowledgement. Preserve the barrier; controlled reads remain available.'};
   }
   diagnosticSummary(){
