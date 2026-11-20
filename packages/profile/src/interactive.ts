@@ -23,7 +23,7 @@ export const SLASH_COMMANDS = [
 const Domains = z.object({ version: z.literal(1), domains: z.array(z.object({ id: z.string().regex(/^[a-z][a-z0-9-]*$/),
   label: z.string(), instruction: z.string().max(4000) }).strict()).min(1) }).strict();
 const hash = (value: Buffer) => createHash('sha256').update(value).digest('hex');
-export interface ChatReply { text: string; error?: boolean; exit?: boolean; note?: string }
+export interface ChatReply { text: string; afterStream?:string; error?: boolean; exit?: boolean; note?: string }
 export interface ChatCallbacks { signal?: AbortSignal; onEvent?: (event: PublicEvent) => void;
   confirm?: (command: string, cwd: string) => Promise<boolean> }
 export type TaskRunner = typeof runTask;
@@ -120,6 +120,14 @@ export class InteractiveSession {
   }
   private async dispatch(line: string, callbacks: ChatCallbacks): Promise<ChatReply> {
     if (!line) return { text: '' };
+    if(/^(?:为什么(?:会)?(?:阻塞|冻结)(?:了)?|为何(?:阻塞|冻结)|查看冻结原因)[？?。！!]*$/.test(line)){
+      await this.store.event(this.state,{kind:'cad-diagnostic',frozen:this.execution.facts().frozen});
+      return {text:this.execution.diagnosticSummary()};
+    }
+    if(/^(?:恢复|恢复核对)[？?。！!]*$/.test(line)){
+      const result=await this.execution.recover();
+      return {text:`${result.recovered?'已完成原连接只读对账，未重放。':'未恢复：'+('reason' in result?result.reason:result.recovery.reason)+'。'}\n${this.execution.diagnosticSummary()}`,error:!result.recovered};
+    }
     if (line.startsWith('!')) {
       const command = line.slice(1).trim();
       const command_sha256 = hash(Buffer.from(command, 'utf8'));
@@ -184,7 +192,7 @@ export class InteractiveSession {
           if (!arg || arg === 'list') return { text: (await readdir(join(this.configRoot, 'configs/mcp'))).filter(file => /\.(yaml|json)$/.test(file)).join('\n') + `\n当前 ${this.state.mcp ?? '未选择'}\n/mcp use <配置路径> 选择；/mcp tools 发现；/mcp off 禁用连接。` };
           if (arg === 'tools') return { text: await this.mcpProbe(true) };
           if (arg === 'doctor') return { text: this.clean(JSON.stringify(await this.execution.probe(), null, 2)) };
-          if (arg === 'recover') return { text: this.clean(JSON.stringify(await this.execution.recover(), null, 2)) };
+          if (arg === 'recover') {const result=await this.execution.recover();return {text:this.clean(JSON.stringify(result,null,2)),error:!result.recovered};}
           await this.dispose();
           if (arg === 'off') this.state.mcp = null;
           else { const selected = arg.replace(/^use\s+/, ''); const path = await workspacePath(this.configRoot, /[\\/]/.test(selected) ? selected : join('configs/mcp', selected)); await loadMcp(path); this.state.mcp = path; }
@@ -279,9 +287,10 @@ export class InteractiveSession {
     this.state.messages.push({ role: 'assistant', content: this.clean(report.text || (report.run_status === 'cancelled' ? '[已取消，未形成完整结论]' : `[失败 ${report.errorCode ?? 'UNKNOWN'}]`)),
       status: report.run_status, at: new Date().toISOString() });
     await this.store.save(this.state);
-    const counts = this.execution.facts(executionMark).counts;
-    return { text: this.clean(report.text), error: !report.ok, note: `${this.state.permission} · CAD ${this.execution.facts().write_state} · 确认操作 ${counts.committed} · 未知 ${counts.unknown} · 未派发阻断 ${counts.blocked_not_dispatched} · 模型回复不等于独立验收`,
-      ...(!report.ok ? { text: this.clean(`${report.text}\n${report.blocked_reasons[0] ?? report.errorCode ?? report.run_status}: ${report.hint ?? (report.blocked_reasons.includes('CAD_WRITE_FROZEN') ? '程序写屏障仍有效；/mcp doctor 诊断，/mcp recover 仅对账已确认操作，不重放。' : report.blocked_reasons.join(', '))}`) } : {}) };
+    const facts=this.execution.facts(executionMark),counts=facts.counts,total=facts.session_counts;
+    const status=!report.ok?this.clean(`${report.blocked_reasons[0] ?? report.errorCode ?? report.run_status}: ${report.hint ?? (report.blocked_reasons.includes('CAD_WRITE_FROZEN') ? `程序写屏障仍有效；自动恢复资格：${facts.recovery.eligible?'可对账':'不具备'}（${facts.recovery.reason}）。受控查询仍可用，重连/重启不能解除。` : report.blocked_reasons.join(', '))}`):'';
+    return {text:this.clean(report.text)+(status?'\n'+status:''),afterStream:status,error:!report.ok,
+      note:`${this.state.permission} · CAD ${facts.write_state} · 本轮确认 ${counts.committed} / 未知 ${counts.unknown} / 未派发阻断 ${counts.blocked_not_dispatched} · 会话确认 ${total.committed} / 未知 ${total.unknown} · 模型回复不等于独立验收`};
   }
   async dispose() { await this.execution.dispose(); }
 }

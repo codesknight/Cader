@@ -6,6 +6,7 @@ import * as mcpClient from '@deepseek-ai/dsh-mcp-client';
 import type { McpConfig } from '@cader/config';
 import { mcpEnvironment } from '@cader/config';
 import { invokeTool } from './tool-call.js';
+import { assertToolArguments, ToolArgumentsError } from './tool-validation.js';
 
 /** Preserve protocol failure evidence. Owners redact this before displaying/persisting. */
 export class McpCallError extends Error {
@@ -32,6 +33,9 @@ export async function createMcpClient(config: McpConfig) {
       definitions: () => ctx.tools.schemas().map(tool => ctx.tools.get(tool.name)!),
       toolNames: () => ctx.tools.schemas().map(tool => tool.name.replace(`mcp__${config.server_name}__`, '')),
       async call(name: string, args: Record<string, unknown>, callId?: string): Promise<unknown> {
+        const definition = ctx.tools.get(`mcp__${config.server_name}__${name}`);
+        if (!definition) throw new ToolArgumentsError(name,[{path:'/',keyword:'tool',message:'Tool is absent from this local registry; no request sent'}]);
+        assertToolArguments(definition, args);
         const result = await invokeTool(ctx, `mcp__${config.server_name}__${name}`, args, undefined, callId);
         if (result.isError) throw new McpCallError(name, { error: result.error,
           content: result.content.filter(block => block.type === 'text') });

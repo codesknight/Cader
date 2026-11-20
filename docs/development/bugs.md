@@ -153,3 +153,7 @@ BUG-022：真实模型验收计划把语义符号当原生类型、组件位置�
 BUG-023：真实图像有疑似裁切、视觉/几何分歧及无关uncertainty导致无谓重验。增加保守边缘证据、ObjectID校验、观察稳定性、分歧记录、域知识和非可定位问题pending；不会直接把视觉uncertain改为pass。E第4次捕获未知派发，Drawing5被冻结，unknown=1；没有重放/删锁。原生缺少显式fit-to-page只是根因假设，权威像素映射仍未实现。最后调度优化仅离线回归，实机冻结恢复与完整案例保持未通过。证据见[实测与JSON](../validation/2026-11-20-autonomous-quality.md)。
 
 BUG-024（#20/#19，已定位、未修复）：12:32用户日志中draw_text缺height，原始MCP工具schema没有客户端执行前输入校验，明确参数拒绝被统一归dispatch/unknown而冻结Drawing6。实际DSH无CAD fixture复现缺required仍进入execute；已有defineTool测试没有覆盖真实原始定义。另确认turn/session计数语义、旧全图缓存与文字过滤查询、COM not_probed误诊、recover调用成功但业务拒绝及错误回复重复渲染。完整证据和修复验收清单见[12:32审计](../validation/2026-11-20-user-log-1232.md)。本轮仅诊断，保留锁，未操作CAD或修改相邻MCP。
+
+BUG-024 dev.3复验：已修复Cader客户端/执行层和整批补丁schema预检，可信本地拒绝分型、作用域/缓存/原始错误/恢复资格、程序诊断/恢复及输出去重；原始raw-definition回归覆盖缺口已补。真实发现schema的缺height输入未派发未冻结，真实Flash随后确认17次写入（文字2）并自动进入视觉；unknown=0。旧Drawing6锁不自动迁移或清除，远端文本不能证明无副作用。结果见[报告](../validation/2026-11-20-schema-preflight-fix.md)，代码检查/CI另记。
+
+BUG-025（#20，后续）：上述实机计划将电源的线段上限用于全图，现有entity_count忽略component范围，导致实际10对期望2..8失败；完整验收未通过。应明确全图/组件计数语义并独立验证计划覆盖，不能为该案例调整阈值。原BUG-023疑似裁切仍存在，屏幕映射/原生导出范围未修复。

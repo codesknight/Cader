@@ -19,3 +19,5 @@ User guides describe shipped behavior. Design proposals, fixture results, live m
 [Project home / 项目首页](../README.md) · [简体中文](../README.zh-CN.md) · [Report an issue / 反馈问题](https://github.com/codesknight/Cader/issues)
 
 dev.2: [自主绘图质量实测 / autonomous quality evidence](validation/2026-11-20-autonomous-quality.md) · [Harness quality gate ADR](adr/0010-harness-owned-quality-gate.md)。完整实机案例仍未通过。
+
+dev.3: [MCP参数预检修复与实测 / input validation fix](validation/2026-11-20-schema-preflight-fix.md) · [ADR0011](adr/0011-mcp-input-validation-and-result-classification.md)。文字与自动视觉阶段已实测，完整图纸质量仍未通过。

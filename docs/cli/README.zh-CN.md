@@ -2,7 +2,7 @@
 
 [English](README.md) · **简体中文** · [项目首页](../../README.zh-CN.md) · [文档导航](../README.md)
 
-**适用版本：Cader 0.4.0-dev.2 · 更新日期：2026-11-20**
+**适用版本：Cader 0.4.0-dev.3 · 更新日期：2026-11-20**
 
 Cader CLI 是基于 DeepSeek Harness 的 CAD Agent 终端：在一个持续会话中描述任务、选择模型和技能、引用图片、查看 CAD 状态，或用单次命令接入脚本。
 
@@ -464,4 +464,24 @@ CLI 显示规划、绘制、几何验证、拓扑验证、视觉验证、修正�
 pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality
 ```
 
-该入口让真实 Pro 模型仅收到上述一个自然语言需求，由 Harness 自动调用 Flash 视觉；审批回调仅授权 CAD 操作，不是人工终端按键验收。它不保存 DWG，也不测试任意电路、原生文档修订或像素映射。查看[真实结果、失败和未完成项](../validation/2026-11-20-autonomous-quality.md)。
+该入口使用默认 MainAgent（当前 Flash）完成上述一个自然语言需求，由 Harness 自动调用 Flash 视觉，并先用真实发现的 schema 做漏参负向预检；审批回调仅授权 CAD 操作，不是人工终端按键验收。它不保存 DWG，也不测试任意电路、原生文档修订或像素映射。查看[真实结果、失败和未完成项](../validation/2026-11-20-autonomous-quality.md)。
+
+## dev.3：参数拒绝、诊断与恢复显示
+
+直接CAD调用与程序MCP客户端在发送前执行schema校验；批量补丁先验证整个批次的schema，再执行任何一项。缺少height等必填项、类型/枚举/嵌套不符会明确显示`TOOL_ARGUMENTS_INVALID`或`CAD_FAILED_BEFORE_DISPATCH`、`preflight`、`未派发`，不会因此冻结。程序不替模型填默认值、不强制转换参数；Agent可以纠参后重新提交未执行的请求。补丁不是原子事务：后续权限/原生执行失败时，已经确认的项仍可能保留，禁止整批盲目重放。
+
+远端isError、超时、丢响应不能仅凭“validation”等报错文字认定无副作用。没有成功确认的写入仍unknown/frozen；只允许既有同连接、已确认写入后的postflight读回恢复。本次不会自动清理旧版本的Drawing6或任何持久unknown锁。
+
+状态新增`counts_scope`、`operation_mark`、`session_counts`、`freeze_operation`/`freeze_evidence`、`recovery.eligible/reason`及`cad_observation.stale_due_to_mutations`。CLI尾行明确区分本轮与会话累计；重开进程后历史屏障不计入新会话计数，仍会显示其来源及首发错误。缓存值过时或过滤查询为空不能证明全图为空，COM生命周期空字段也不能证明断连。
+
+```text
+为什么阻塞了
+为何冻结
+查看冻结原因
+恢复
+/mcp recover
+```
+
+上述自然诊断/恢复短语由程序处理，不调用模型；受限恢复不成功会明确显示“未恢复”及资格原因。模型调用恢复工具返回`recovered:false`时也不再显示成功勾号。冻结期间受控查询仍可用，重连/重启不会赋予旧文档权限。已经流式显示的回答只追加程序状态，失败时不再重打全文。
+
+本次真实Flash/AutoCAD验证已越过文字绘制并进入自动视觉，缺参负向预检未派发、未冻结；完整电路仍因疑似导出裁切和计划约束未通过。详见[dev.3修复与实际结果](../validation/2026-11-20-schema-preflight-fix.md)。

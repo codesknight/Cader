@@ -224,3 +224,13 @@ Node24.9.0 / pnpm11.28.5。`pnpm typecheck`通过，`pnpm test`63/63通过；`pn
 12:32用户日志排障：`.cader/probe-raw-schema.mjs`使用实际DSH+无副作用原始定义，缺必填height时body=1、isError=false，缺陷复现成功；server_called=false、cad_called=false。这不是预期行为通过，也不是修复回归通过。阅读用户原始审计确认参数拒绝及14确认/1未知，未执行真实CAD/模型复验，BUG-024未修复。报告见[排障](../validation/2026-11-20-user-log-1232.md)。
 
 该文档审计本地复核：`pnpm typecheck`、`pnpm test`63/63、Markdown链接、密钥泄漏及`git diff --check`通过。未修改Harness/Python，无新增smoke或真实API/CAD执行。通过的旧测试不会覆盖本次已复现的参数预检缺陷。
+
+## REQ-030 / dev.3：BUG-024代码修复
+
+Node24.9.0 / pnpm11.28.5。最终`pnpm typecheck`通过；`pnpm test`69/69通过；`pnpm smoke`六项组件门槛通过，运行`.cader/runs/dsh-component-2026-11-20T05-13-44-396Z-53a701c0-1ec3-4616-89b7-5175b18949d8`。新负向回归使用raw ToolDefinition，含本地拒绝与伪造/远端类似validation错误的区分、合法纠参、整批预检、计数/缓存、持久屏障、捕获拒绝、恢复事件和实际流式去重；均不调用真实服务或付费模型。
+
+修复过程中typecheck曾因validator异步类型及旧facts fixture新增字段失败，随后诊断结果union和测试fixture字面量类型失败，修正后上述检查通过。首次依赖查询因系统npm缓存不可写失败，使用本工作区私有cache和官方registry完成固定Ajv8.20.0安装，不改全局权限或配置。
+
+真实集成显式执行`pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality`。首次测试入口负向预检在延迟连接前读取定义失败，未绘图；连接准备修正后，quality-77de84c9…通过真实schema缺height拒绝（未派发、未冻结），真实Flash确认17次CAD写入含文字2、unknown=0、审批1、自动视觉valid=true。完整图纸质量ok=false/pending，疑似裁切和计划计数范围仍未通过；原始日志、初次失败及[实际证据](../validation/2026-11-20-schema-preflight-fix.md)保留，不当作完整质量通过。
+
+本轮Python/独立MCP无变更，本地Python检查未新增；CI仍运行原矩阵。`cader --version`为0.4.0-dev.3；Drawing6、旧Drawing5和原根屏障均保留，未自动迁移或重放。提交/远端CI结果另记。

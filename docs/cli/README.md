@@ -2,7 +2,7 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Project home](../../README.md) · [Documentation](../README.md)
 
-**Applies to Cader 0.4.0-dev.2 · Updated 2026-11-20**
+**Applies to Cader 0.4.0-dev.3 · Updated 2026-11-20**
 
 Cader CLI is a CAD agent terminal built on DeepSeek Harness. Describe tasks in a persistent conversation, select models and skills, reference images, inspect CAD status, or use a single command from a script.
 
@@ -464,4 +464,24 @@ Explicit paid-model/real-CAD entry, creating an isolated workspace and actual sc
 pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality
 ```
 
-The real Pro model receives one original request; Harness routes Flash visual review automatically. The callback approves CAD operations only, which is separate from human terminal approval testing. This case does not save a DWG or establish arbitrary circuit, native revision or pixel-mapping acceptance. See [actual results and retained failures](../validation/2026-11-20-autonomous-quality.md).
+The configured default MainAgent (currently Flash) receives one original request; Harness routes Flash visual review automatically and first checks a deterministic missing-argument input against the real discovered schema. The callback approves CAD operations only, which is separate from human terminal approval testing. This case does not save a DWG or establish arbitrary circuit, native revision or pixel-mapping acceptance. See [actual results and retained failures](../validation/2026-11-20-autonomous-quality.md).
+
+## dev.3: input rejection, diagnostics and recovery display
+
+Direct CAD calls and the program MCP client validate schemas before sending. Composite patches prevalidate every operation's schema before any operation runs. Missing required fields such as height, wrong types/enums and nested constraints report `TOOL_ARGUMENTS_INVALID` or `CAD_FAILED_BEFORE_DISPATCH`, preflight, not dispatched, without freezing. No defaults are inserted and no types are coerced. The agent may correct unexecuted requests. Patches are not rollback transactions: subsequent permission/native failures can retain prior committed operations; never blindly replay the whole batch.
+
+Remote isError, timeout or a lost response does not prove absence of side effects, even if its message contains “validation.” Unacknowledged writes still freeze; recovery remains limited to acknowledged writes with failed postflight observation on the original connection. Old Drawing6 or other persisted unknown locks are never automatically removed.
+
+Facts add `counts_scope`, `operation_mark`, `session_counts`, `freeze_operation`/`freeze_evidence`, `recovery.eligible/reason` and `cad_observation.stale_due_to_mutations`. The terminal separates turn and cumulative session counts. Historical barriers are not counted as operations in a restarted session, but retain their source/error. Stale counts and empty filtered results do not establish an empty drawing; empty COM lifecycle metadata does not establish disconnection.
+
+```text
+为什么阻塞了
+为何冻结
+查看冻结原因
+恢复
+/mcp recover
+```
+
+These Chinese diagnostic/recovery shortcuts are program-owned and do not invoke a model. Refused recovery is displayed explicitly; model-tool `recovered:false` no longer receives a success checkmark. Controlled reads remain available during a freeze; reconnect/restart grants no inherited ownership. Once streamed, answers receive only application status afterward rather than being printed twice on failure.
+
+Real Flash/AutoCAD validation now reaches text creation and automatic vision; the missing-input probe was rejected without dispatch or freeze. Full circuit acceptance still fails on suspected capture clipping and plan constraints. See [dev.3 fix and actual evidence](../validation/2026-11-20-schema-preflight-fix.md).

@@ -1,7 +1,7 @@
 import { mkdir, open, readFile, writeFile, unlink, lstat, readdir } from 'node:fs/promises';
 import { resolve, relative, dirname, basename, extname, matchesGlob } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { createMcpClient, defineTool, inspectCadImageBorder } from '@cader/dsh-adapter';
+import { createMcpClient, defineTool, inspectCadImageBorder, assertToolArguments, ToolArgumentsError } from '@cader/dsh-adapter';
 import type { ToolDefinition } from '@cader/dsh-adapter';
 import { loadMcp, workspacePath, readReferenceImage } from '@cader/config';
 import { runUserShell } from './interactive-shell.js';
@@ -29,8 +29,10 @@ export class ExecutionSession {
   private frozen = false;
   private freeze?: { operation_id: string; stage: string; outcome: Outcome; reason: string; sameConnection: boolean };
   private operations: CadOperationRecord[] = [];
+  private persistedBarrier?:{tool?:string;error?:unknown};
   private observedAt: string | null = null;
   private observedCount: number | null = null;
+  private observedOperationMark = -1;
   private lastArtifact: { path: string; bytes: number; sha256: string } | null = null;
   mode: PermissionMode = 'ask';
   private taskGrant?: { id: string; target: string | null; newAllowed: boolean; created: Set<number> };
@@ -53,6 +55,7 @@ export class ExecutionSession {
     const entities=await this.client.call('query_entities',{},operationId);
     if(!Array.isArray(entities))throw new Error('INVALID_ENTITY_SNAPSHOT');
     this.observedAt=new Date().toISOString();this.observedCount=entities.length;
+    this.observedOperationMark=this.operations.length;
     await this.audit({phase:'quality_snapshot',operation_id:operationId,tool:'query_entities',target:this.scratch,observed:entities,document_revision:null});
     return {document:this.scratch,document_revision:null,entities,observed_at:new Date().toISOString()};
   });}
@@ -61,9 +64,11 @@ export class ExecutionSession {
     private readonly clientFactory: typeof createMcpClient = createMcpClient) {}
   async connect(path: string) {
     await this.dispose();
+    this.observedAt=null;this.observedCount=null;this.observedOperationMark=this.operations.length;
     // A transport reconnect never adopts an old scratch or clears a persisted barrier.
     try {
       const barrier = JSON.parse(await readFile(await workspacePath(this.workspace, '.cader/locks/managed-write.json'), 'utf8'));
+      this.persistedBarrier={tool:typeof barrier.tool==='string'?barrier.tool:undefined,error:barrier.error};
       this.frozen = true;
       this.freeze = { operation_id: barrier.request ?? 'external-lock', stage: barrier.stage ?? 'unknown',
         outcome: barrier.outcome ?? 'unknown', reason: 'PERSISTED_OR_EXTERNAL_WRITE_BARRIER', sameConnection: false };
@@ -75,9 +80,10 @@ export class ExecutionSession {
   }
   async status() { return this.client ? { connected: true, discovered: this.client.toolNames().length,
     exposed: this.definitions().length, scratch: this.scratch, frozen: this.frozen,
-    health: this.facts(), backend: await this.client.call('get_backend_status', {}) } : { connected: false, frozen: this.frozen, health: this.facts(), hint: '/mcp use <configuration>; /mcp tools' }; }
+    health: this.facts(), backend: await this.client.call('get_backend_status', {}),
+    backend_metadata_note:'COM not_probed and documents=[] are lifecycle metadata, not a native document query or evidence of disconnection.' } : { connected: false, frozen: this.frozen, health: this.facts(), hint: '/mcp use <configuration>; /mcp tools' }; }
   mark() { return this.operations.length; }
-  toolAvailable(name: string) { return !this.frozen || (name !== 'cader_shell' && (!name.startsWith('mcp__') || reads.has(name.split('__').at(-1)!))); }
+  toolAvailable(name: string) { return !this.frozen || (!['cader_shell','cader_apply_cad_patch','cader_review_cad_view'].includes(name) && (!name.startsWith('mcp__') || reads.has(name.split('__').at(-1)!))); }
   controlTools(): ToolDefinition[] {
     const output = { schema: { type: 'string' as const }, render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: String(value) }] };
     return [defineTool({ name: 'cader_cad_health', description: 'Read authoritative Cader execution/lock state. COM null status fields mean unavailable metadata, not missing binding.', parameters: {}, output,
@@ -92,9 +98,13 @@ export class ExecutionSession {
       if (this.frozen) throw new Error('CAD_CAPTURE_BLOCKED_FROZEN');
       if (!this.client.toolNames().includes('export_current_view')) throw new Error('CAD_VIEW_EXPORT_UNAVAILABLE');
       await this.authorize(`CAD export_current_view\nTarget: ${this.scratch}\nExport a private PNG; backend changes viewport/plot settings. No DWG save required.`, false, confirm,false,{name:'export_current_view',payload:{}});
-      signal.throwIfAborted(); await this.acquire();
+      signal.throwIfAborted();
       await mkdir(this.runDirectory, { recursive: true });
       const path = resolve(await workspacePath(this.workspace, this.runDirectory), `view-${randomUUID()}.png`);
+      const exporter=this.client.definitions().find(tool=>tool.name.endsWith('__export_current_view'));
+      if(!exporter)throw new ToolArgumentsError('export_current_view',[{path:'/',keyword:'tool',message:'Export definition is unavailable; no request sent'}]);
+      assertToolArguments(exporter,{file_path:path});
+      await this.acquire();
       const operationId = randomUUID();
       const captureStarted = Date.now();
       await this.audit({ phase: 'capture_prepared', operation_id: operationId, target: this.scratch, path });
@@ -114,6 +124,10 @@ export class ExecutionSession {
         const record: CadOperationRecord = { operation_id: operationId, tool: 'export_current_view', target: this.scratch,
           dispatched: true, stage: acknowledged ? 'capture_artifact' : 'capture_dispatch',
           outcome: acknowledged ? 'committed_observation_failed' : 'unknown', duration_ms: Date.now() - captureStarted, error: this.diagnostic(error) };
+        if(!acknowledged&&error instanceof ToolArgumentsError){
+          record.dispatched=false;record.stage='capture_preflight';record.outcome='failed_before_dispatch';this.operations.push(record);
+          await this.audit({...record,phase:'not_dispatched'});throw error;
+        }
         this.operations.push(record); this.frozen = true;
         this.freeze = { operation_id: operationId, stage: record.stage, outcome: record.outcome, reason: 'CAD_CAPTURE_BARRIER', sameConnection: true };
         await writeFile(this.lock!, this.clean(JSON.stringify({ ...record, frozen: true, runDirectory: this.runDirectory, request: operationId })));
@@ -124,12 +138,38 @@ export class ExecutionSession {
   }
   facts(since = 0) {
     const operations = this.operations.slice(since).map(operation => structuredClone(operation));
+    const count=(items:CadOperationRecord[])=>Object.fromEntries(['committed','committed_observation_failed','unknown','blocked_not_dispatched','failed_before_dispatch'].map(outcome=>[outcome,items.filter(op=>op.outcome===outcome).length]));
+    const stale=this.observedAt===null||this.operations.slice(Math.max(0,this.observedOperationMark)).some(op=>op.dispatched);
+    const frozenOperation=this.freeze?this.operations.find(op=>op.operation_id===this.freeze!.operation_id):undefined;
     return { frozen: this.frozen, local_connection_id:this.localConnectionId, write_state: this.frozen ? 'frozen' : this.scratch ? 'scratch_bound' : 'new_scratch_required',
       freeze: this.freeze ?? null, transport: this.client ? 'connected' : 'disconnected',
       cad_observation: { source: 'last_successful_full_query', observed_at: this.observedAt, entity_count: this.observedCount,
-        native_identity: 'legacy_COM_name_guard; no authoritative instance/revision', cached: true },
+        native_identity: 'legacy_COM_name_guard; no authoritative instance/revision', cached: true, scope:'full_document',stale_due_to_mutations:stale,
+        interpretation:stale?'Cached count is stale; it does not describe the current drawing. Controlled reads remain available.':'Last full observation; not a native revision guarantee.' },
       scratch: this.scratch, artifact: this.lastArtifact, operations,
-      counts: Object.fromEntries(['committed','committed_observation_failed','unknown','blocked_not_dispatched','failed_before_dispatch'].map(outcome => [outcome, operations.filter(op => op.outcome === outcome).length])) };
+      counts:count(operations),counts_scope:since===0?'session':'since_operation_mark',operation_mark:since,session_counts:count(this.operations),
+      freeze_operation:frozenOperation?structuredClone(frozenOperation):null,
+      freeze_evidence:this.freeze?{source:frozenOperation?'current_session':'persisted_barrier',tool:frozenOperation?.tool??this.persistedBarrier?.tool,error:frozenOperation?.error??this.persistedBarrier?.error}:null,
+      recovery:this.recoveryEligibility() };
+  }
+  private recoveryEligibility(){
+    const eligible=Boolean(this.frozen&&this.client&&this.freeze?.sameConnection&&this.freeze.outcome==='committed_observation_failed'&&this.freeze.stage==='postflight');
+    return {eligible,reason:!this.frozen?'NOT_FROZEN':eligible?'ACKNOWLEDGED_WRITE_READBACK_FAILED':!this.freeze?.sameConnection?'ORIGINAL_CONNECTION_REQUIRED':'DISPATCH_OUTCOME_UNCONFIRMED',
+      guidance:!this.frozen?'No recovery is needed.':eligible?'Only re-query on the original connection; never replay.':'Repeated recovery, reconnecting or restarting CAD cannot establish a missing acknowledgement. Preserve the barrier; controlled reads remain available.'};
+  }
+  diagnosticSummary(){
+    const facts=this.facts(),observation=facts.cad_observation;
+    const error=facts.freeze_evidence?.error as {message?:string;protocol_failure?:{error?:{message?:string}}}|undefined;
+    return this.clean([
+      `CAD写入状态：${facts.write_state}；MCP传输：${facts.transport}。`,
+      `会话累计：确认 ${facts.session_counts.committed}，未知 ${facts.session_counts.unknown}，派发前失败 ${facts.session_counts.failed_before_dispatch}。`,
+      facts.freeze?`冻结操作：${facts.freeze_evidence?.tool??'见原审计'}；阶段 ${facts.freeze.stage}；结果 ${facts.freeze.outcome}；来源 ${facts.freeze_evidence?.source==='persisted_barrier'?'持久屏障（历史操作不计入本会话累计）':'本会话执行审计'}。`:facts.transport==='disconnected'?'执行连接未建立，尚未核对持久屏障。':'当前没有写屏障。',
+      error?`首发错误：${(error.protocol_failure?.error?.message??error.message??'见执行审计').slice(0,800)}`:'',
+      `最近全图缓存：${observation.entity_count??'未观测'}，时间 ${observation.observed_at??'无'}；${observation.stale_due_to_mutations?'已过时，不能代表当前实体数':'不是原生revision保证'}。过滤查询不覆盖此全图缓存。`,
+      `自动恢复资格：${facts.recovery.eligible?'可在原连接只重查':'不可自动恢复'}（${facts.recovery.reason}）。`,
+      facts.frozen?'受控只读查询仍可用；未知写入不重放，重连/重启不会解除屏障。':'',
+      'COM的not_probed和documents=[]只是生命周期元数据，不代表图纸为空或连接失效。'
+    ].filter(Boolean).join('\n'));
   }
   private diagnostic(error: unknown) {
     const e = error as { name?: string; message?: string; code?: unknown; stack?: string; failure?: unknown };
@@ -144,21 +184,25 @@ export class ExecutionSession {
       if (!this.client) throw new Error('MCP_NOT_CONNECTED');
       const entities = await this.client.call('query_entities', {});
       this.observedAt = new Date().toISOString(); this.observedCount = Array.isArray(entities) ? entities.length : null;
+      this.observedOperationMark=this.operations.length;
       await this.audit({ phase: 'probe', source: 'query_entities', scratch: this.scratch, entity_count: this.observedCount });
       return { ...this.facts(), note: 'Query succeeded. This does not grant ownership of an existing drawing or prove mutation quiescence.' };
     });
   }
   async recover() {
     return this.serial(async () => {
-      if (!this.frozen) return { recovered: false, reason: 'NOT_FROZEN', ...this.facts() };
+      if (!this.frozen) {await this.audit({phase:'recovery_refused',reason:'NOT_FROZEN'});return { recovered: false, reason: 'NOT_FROZEN', ...this.facts() };}
       // Only a successful mutation acknowledgement plus a later failed read can be
       // reconciled through this still-owned connection. Dispatch errors/timeouts cannot.
-      if (!this.client || !this.freeze?.sameConnection || this.freeze.outcome !== 'committed_observation_failed' || this.freeze.stage !== 'postflight')
+      if (!this.client || !this.freeze?.sameConnection || this.freeze.outcome !== 'committed_observation_failed' || this.freeze.stage !== 'postflight'){
+        await this.audit({phase:'recovery_refused',operation_id:this.freeze?.operation_id,eligibility:this.recoveryEligibility()});
         return { recovered: false, reason: 'AUTHORITATIVE_OUTCOME_OR_ORIGINAL_CONNECTION_REQUIRED', ...this.facts() };
+      }
       try {
         const observed = await this.client.call('query_entities', {});
         await this.audit({ phase: 'reconciled', operation_id: this.freeze.operation_id, outcome: 'committed', observed });
         this.observedAt = new Date().toISOString(); this.observedCount = Array.isArray(observed) ? observed.length : null;
+        this.observedOperationMark=this.operations.length;
         const op = this.operations.find(op => op.operation_id === this.freeze!.operation_id);
         if (op) { op.outcome = 'committed'; op.stage = 'reconciled'; }
         // Persist ready while retaining our lock until the connection is disposed.
@@ -217,8 +261,9 @@ export class ExecutionSession {
           if (reads.has(name)) {
             exec.signal.throwIfAborted();
             try {
+              assertToolArguments(tool,args);
               const result = await this.client!.call(name, payload, operationId);
-              if (name === 'query_entities' && !payload.entity_type) { this.observedAt = new Date().toISOString(); this.observedCount = Array.isArray(result) ? result.length : null; }
+              if (name === 'query_entities' && !payload.entity_type) { this.observedAt = new Date().toISOString(); this.observedCount = Array.isArray(result) ? result.length : null; this.observedOperationMark=this.operations.length; }
               await this.audit({ ...correlation, phase: 'read_result', tool: name, args: payload, result, duration_ms: Date.now() - started });
               return JSON.stringify(result);
             } catch (error) { await this.audit({ ...correlation, phase: 'read_failed', tool: name, error: this.diagnostic(error) }); throw error; }
@@ -228,6 +273,7 @@ export class ExecutionSession {
           try {
             exec.signal.throwIfAborted();
             if (this.frozen) { record.outcome = 'blocked_not_dispatched'; throw new Error('CAD_WRITE_BLOCKED_FROZEN_NOT_DISPATCHED'); }
+            assertToolArguments(tool,args);
             validateCadArguments(name, payload);
             if (name !== 'new_drawing' && !this.scratch) throw new Error('NEW_SCRATCH_DRAWING_REQUIRED');
             let destructive = name === 'delete_entity' || payload.erase_source === true;
@@ -262,7 +308,7 @@ export class ExecutionSession {
             const observed = targeted ? [await this.client!.call('get_entity', { object_id: objectId }, operationId + '-query')]
               : await this.client!.call('query_entities', {}, operationId + '-query');
             const observation_scope = targeted ? 'affected_entity' : 'full_document';
-            if (!targeted) { this.observedAt = new Date().toISOString(); this.observedCount = Array.isArray(observed) ? observed.length : null; }
+            if (!targeted) { this.observedAt = new Date().toISOString(); this.observedCount = Array.isArray(observed) ? observed.length : null; this.observedOperationMark=this.operations.length+1; }
             if (output) {
               record.stage = 'artifact_verification';
               const bytes = await readFile(output);
@@ -275,6 +321,7 @@ export class ExecutionSession {
             return JSON.stringify({ operation: record, result, observed, observation_scope, artifact: output ? this.lastArtifact : null,
               verification: 'queried-after-write; geometric/semantic/visual/file-reopen acceptance is separate' });
           } catch (error) {
+            if(!acknowledged&&error instanceof ToolArgumentsError){record.dispatched=false;record.stage='preflight';record.outcome='failed_before_dispatch';}
             if (!record.dispatched && this.frozen) record.outcome = 'blocked_not_dispatched';
             record.error = this.diagnostic(error); record.duration_ms = Date.now() - started;
             if (record.dispatched) {
@@ -287,7 +334,7 @@ export class ExecutionSession {
             await this.audit({ ...record, phase: record.dispatched ? 'frozen' : 'not_dispatched', request: operationId });
             throw new Error(this.clean(JSON.stringify({ code: record.dispatched ? acknowledged ? 'CAD_COMMITTED_OBSERVATION_FAILED' : 'OUTCOME_UNKNOWN_FROZEN' : record.outcome === 'blocked_not_dispatched' ? 'CAD_WRITE_BLOCKED_FROZEN_NOT_DISPATCHED' : 'CAD_FAILED_BEFORE_DISPATCH',
               operation_id: operationId, dispatched: record.dispatched, stage: record.stage, outcome: record.outcome,
-              cause: (record.error as { message?: string })?.message, recovery: this.frozen ? 'Use cader_cad_health or /mcp recover. Do not submit probe writes, reconnect, restart CAD or replay to bypass the barrier.' : 'Correct arguments or obtain approval before a new request.' })));
+              cause: (record.error as { message?: string })?.message, recovery: this.frozen ? this.recoveryEligibility().guidance : 'Correct arguments or obtain approval before a new request.' })));
           }
         }) }));
   }

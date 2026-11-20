@@ -6,6 +6,7 @@ import ToolsService, { defineTool } from '@deepseek-ai/dsh-tools';
 
 export { Context, defineTool };
 export { invokeTool } from './tool-call.js';
+export { assertToolArguments, ToolArgumentsError } from './tool-validation.js';
 export { createLiveRuntime } from './live.js';
 export type { AgentResult, PublicEvent } from './live.js';
 export type { StreamChunk } from '@deepseek-ai/dsh-llm';

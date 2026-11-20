@@ -1,0 +1,183 @@
+{
+  "date": "2026-11-20",
+  "version": "0.4.0-dev.3",
+  "run_id": "quality-77de84c9-a37d-4f15-94de-3ab35ee960b5",
+  "original_request": "画一个带有 5V 电源和一个灯泡的串联电路图。",
+  "negative_real_schema_fixture": {
+    "kind": "deterministic-negative-input-real-MCP-schema",
+    "rejected": true,
+    "dispatched": false,
+    "frozen": false,
+    "outcome": "failed_before_dispatch",
+    "error_code": "TOOL_ARGUMENTS_INVALID"
+  },
+  "autonomous_real_model_real_CAD": {
+    "model_steps": [
+      "deepseek-flash",
+      "deepseek-flash",
+      "deepseek-flash",
+      "deepseek-flash",
+      "deepseek-flash",
+      "deepseek-flash",
+      "deepseek-flash",
+      "deepseek-flash",
+      "deepseek-flash"
+    ],
+    "approval_count": 1,
+    "confirmed_by_tool": {
+      "create_layer": 3,
+      "draw_circle": 1,
+      "draw_line": 10,
+      "draw_text": 2,
+      "new_drawing": 1
+    },
+    "tool_results": {
+      "cader_apply_cad_patch": {
+        "ok": 3,
+        "error": 0
+      },
+      "cader_cad_health": {
+        "ok": 1,
+        "error": 0
+      },
+      "cader_submit_acceptance_plan": {
+        "ok": 1,
+        "error": 0
+      },
+      "cader_submit_visual_report": {
+        "ok": 1,
+        "error": 0
+      },
+      "mcp__autocad__create_layer": {
+        "ok": 3,
+        "error": 0
+      },
+      "mcp__autocad__draw_circle": {
+        "ok": 1,
+        "error": 0
+      },
+      "mcp__autocad__draw_line": {
+        "ok": 10,
+        "error": 0
+      },
+      "mcp__autocad__draw_text": {
+        "ok": 2,
+        "error": 0
+      },
+      "mcp__autocad__get_backend_status": {
+        "ok": 1,
+        "error": 0
+      },
+      "mcp__autocad__new_drawing": {
+        "ok": 1,
+        "error": 0
+      },
+      "mcp__autocad__query_entities": {
+        "ok": 1,
+        "error": 0
+      }
+    },
+    "overall_ok": false,
+    "smoke_checks": {
+      "completed": false,
+      "autonomousVision": true,
+      "realImageRequest": true,
+      "taskApproval": true
+    },
+    "quality_phase": "pending_verification",
+    "round": 0,
+    "frozen": false,
+    "counts": {
+      "committed": 17,
+      "committed_observation_failed": 0,
+      "unknown": 0,
+      "blocked_not_dispatched": 0,
+      "failed_before_dispatch": 1
+    },
+    "quality_checks": [
+      {
+        "id": "req_psu_5v_count",
+        "status": "fail"
+      },
+      {
+        "id": "req_lamp_1_count",
+        "status": "pass"
+      },
+      {
+        "id": "req_two_components_only",
+        "status": "pass"
+      },
+      {
+        "id": "req_label_5v",
+        "status": "pass"
+      },
+      {
+        "id": "req_label_lamp",
+        "status": "pass"
+      },
+      {
+        "id": "req_series_topology",
+        "status": "pass"
+      },
+      {
+        "id": "req_no_wire_through_component",
+        "status": "pass"
+      },
+      {
+        "id": "req_text_clearance",
+        "status": "pass"
+      },
+      {
+        "id": "req_layout_separation",
+        "status": "pass"
+      },
+      {
+        "id": "req_visual_semantics",
+        "status": "fail"
+      },
+      {
+        "id": "capture_bounds",
+        "status": "not_run"
+      }
+    ],
+    "visual_valid": true,
+    "visual_verdict": "fail",
+    "image_hash": "b2823855d963906d4c5726c2d1bb981cfd30d833962c2a99832c285f9fa769c6",
+    "image_bounds": {
+      "foreground_border_pixels": 15,
+      "possible_clipping": true,
+      "method": "corner-background contrast; conservative uncertainty, not geometric mapping"
+    },
+    "document_revision": null,
+    "pixel_to_cad": null,
+    "phases": [
+      {
+        "phase": "planning",
+        "at": "2026-11-20T05:02:02.954Z"
+      },
+      {
+        "phase": "drawing",
+        "at": "2026-11-20T05:02:14.819Z"
+      },
+      {
+        "phase": "geometry",
+        "at": "2026-11-20T05:02:30.030Z"
+      },
+      {
+        "phase": "topology",
+        "at": "2026-11-20T05:02:30.232Z"
+      },
+      {
+        "phase": "vision",
+        "at": "2026-11-20T05:02:30.233Z"
+      },
+      {
+        "phase": "pending_verification",
+        "at": "2026-11-20T05:03:10.553Z"
+      }
+    ]
+  },
+  "full_upstream_app_profile_evaluated": false,
+  "DWG_save_or_reopen_evaluated": false,
+  "source": "Derived from private actual verification, quality, event and execution journals; raw data retained locally."
+}

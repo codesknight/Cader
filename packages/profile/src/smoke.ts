@@ -74,3 +74,4 @@ export { runQualitySmoke } from './quality-smoke.js';
 export { verifyQuality, requiresQuality, runQualityTask } from './quality.js';
 export { ExecutionSession, PERMISSION_MODES } from './execution.js';
 export { validateCadArguments } from './cad-arguments.js';
+export { replyTextAfterStreaming, toolResultLine } from './terminal-output.js';

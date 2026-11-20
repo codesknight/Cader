@@ -24,6 +24,7 @@ import { parseVisualReport, visualReportSchema, requireCredential, loadSkills, m
 import { ChildPool } from './pool.js';
 import { prepareImageView, attachmentToSource } from './image-view.js';
 import type { ImageView } from './image-view.js';
+import { assertToolArguments, patchArgumentsSchema } from './tool-validation.js';
 
 export interface PublicEvent { type: string; agentId?: string; role?: string; [key: string]: unknown }
 export interface AgentResult {
@@ -171,11 +172,20 @@ export async function createLiveRuntime(options: LiveOptions) {
             if(profile.role==='main'&&!request.onlyTools&&!options.disableTools&&options.executionTools){
               const patchNames=options.executionTools.map(t=>t.name).filter(name=>/^mcp__.+__(?:draw_\w+|create_layer|set_layer_properties|move_entity|rotate_entity|scale_entity|copy_entity|mirror_entity|delete_entity)$/.test(name));
               if(patchNames.length){
+                const definitions=new Map(options.executionTools.map(tool=>[tool.name,tool]));
+                const variants=patchNames.map((name,index)=>({type:'object',properties:{tool:{type:'string',const:name},arguments:patchArgumentsSchema(definitions.get(name)!,`#/properties/operations/items${patchNames.length===1?'':`/oneOf/${index}`}/properties/arguments`)},required:['tool','arguments'],additionalProperties:false}));
                 const patch:ToolDefinition={name:'cader_apply_cad_patch',description:'Apply a model-generated local CAD patch in order, at most 32 operations. Each operation uses the original tool schema, permission checks and write journal. Stops at first failure; committed operations must never be replayed. New drawing, saving, file and Shell operations are excluded.',
-                  parameters:{type:'object',properties:{operations:{type:'array',minItems:1,maxItems:32,items:{type:'object',properties:{tool:{type:'string',enum:patchNames},arguments:{type:'object',additionalProperties:true}},required:['tool','arguments'],additionalProperties:false}}},required:['operations'],additionalProperties:false},
+                  parameters:{type:'object',properties:{operations:{type:'array',minItems:1,maxItems:32,items:variants.length===1?variants[0]:{oneOf:variants}}},required:['operations'],additionalProperties:false},
                   output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},isConcurrencySafe:()=>false,
                   async execute(args,exec){
+                    assertToolArguments({name:patch.name,parameters:{type:'object',properties:{operations:{type:'array',minItems:1,maxItems:32,items:{type:'object',properties:{tool:{type:'string',enum:patchNames},arguments:{type:'object'}},required:['tool','arguments'],additionalProperties:false}}},required:['operations'],additionalProperties:false}},args);
                     const operations=(args as {operations:{tool:string;arguments:Record<string,unknown>}[]}).operations;
+                    // Validate every leaf against the original schema before any patch mutation.
+                    for(const op of operations){
+                      if(!patchNames.includes(op.tool))throw new Error('CAD_PATCH_TOOL_UNAVAILABLE');
+                      assertToolArguments(definitions.get(op.tool)!,op.arguments);
+                    }
+                    emit({type:'cad.patch_preflight',agentId:id,operations:operations.length,status:'passed'});
                     const results:unknown[]=[];
                     for(const [index,op]of operations.entries()){
                       exec.signal.throwIfAborted();
@@ -325,6 +335,10 @@ export async function createLiveRuntime(options: LiveOptions) {
             agentCtx.on('tools/result', (exec, result) => {
               tools.push(exec.name);
               let cadFailure: unknown;
+              let businessOutcome:unknown;
+              if(!result.isError&&exec.name==='cader_cad_recover'){
+                try{const value=JSON.parse(String(result.value));businessOutcome={status:value.recovered?'succeeded':'refused',reason:value.recovery?.reason??value.reason};}catch{/* Canonical recovery output remains authoritative. */}
+              }
               if (result.isError) {
                 try {
                   const parsed = JSON.parse(result.error.message);
@@ -335,6 +349,7 @@ export async function createLiveRuntime(options: LiveOptions) {
               emit({ type: 'tool.result', agentId: id, role: profile.role, callId: exec.callId,
                 tool: exec.name, arguments: exec.arguments, isError: result.isError,
                 ...(cadFailure ? { cadFailure } : {}),
+                ...(businessOutcome?{businessOutcome}:{}),
                 ...(result.isError ? { error: result.error } : {}) });
             });
             agentCtx.on('tools/execute', async (exec, next) => {
