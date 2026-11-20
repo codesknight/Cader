@@ -1,0 +1,1026 @@
+{
+  "date": "2026-11-20",
+  "timezone": "Asia/Shanghai; phase timestamps UTC",
+  "request": "画一个带有 5V 电源和一个灯泡的串联电路图。",
+  "source": "derived from private verification.json, quality.json and events.jsonl; no simulated CAD results",
+  "full_dsh_app_profile_evaluated": false,
+  "native_pixel_mapping_available": false,
+  "runs": [
+    {
+      "run_id": "quality-6bd0f809-4cd2-4a6e-a0de-540d8207472a",
+      "kind": "real-model-real-CAD-autonomous-quality",
+      "ok": false,
+      "real_model_steps": 21,
+      "approval_count": 1,
+      "smoke_checks": {
+        "completed": false,
+        "autonomousVision": true,
+        "realImageRequest": true,
+        "taskApproval": true
+      },
+      "final_phase": "pending_verification",
+      "round": 3,
+      "run_status": "succeeded",
+      "task_status": "blocked",
+      "blocked_reasons": [
+        "QUALITY_NOT_ACCEPTED"
+      ],
+      "phases": [
+        {
+          "phase": "planning",
+          "at": "2026-11-20T03:48:26.233Z"
+        },
+        {
+          "phase": "drawing",
+          "at": "2026-11-20T03:48:33.704Z"
+        },
+        {
+          "phase": "geometry",
+          "at": "2026-11-20T03:49:22.916Z"
+        },
+        {
+          "phase": "topology",
+          "at": "2026-11-20T03:49:23.085Z"
+        },
+        {
+          "phase": "vision",
+          "at": "2026-11-20T03:49:23.086Z"
+        },
+        {
+          "phase": "correcting",
+          "at": "2026-11-20T03:50:00.140Z"
+        },
+        {
+          "phase": "geometry",
+          "at": "2026-11-20T03:50:32.309Z"
+        },
+        {
+          "phase": "topology",
+          "at": "2026-11-20T03:50:32.474Z"
+        },
+        {
+          "phase": "vision",
+          "at": "2026-11-20T03:50:32.474Z"
+        },
+        {
+          "phase": "correcting",
+          "at": "2026-11-20T03:51:02.851Z"
+        },
+        {
+          "phase": "geometry",
+          "at": "2026-11-20T03:51:30.417Z"
+        },
+        {
+          "phase": "topology",
+          "at": "2026-11-20T03:51:30.582Z"
+        },
+        {
+          "phase": "vision",
+          "at": "2026-11-20T03:51:30.583Z"
+        },
+        {
+          "phase": "correcting",
+          "at": "2026-11-20T03:52:00.587Z"
+        },
+        {
+          "phase": "geometry",
+          "at": "2026-11-20T03:52:59.384Z"
+        },
+        {
+          "phase": "topology",
+          "at": "2026-11-20T03:52:59.556Z"
+        },
+        {
+          "phase": "vision",
+          "at": "2026-11-20T03:52:59.557Z"
+        },
+        {
+          "phase": "pending_verification",
+          "at": "2026-11-20T03:53:31.153Z"
+        }
+      ],
+      "checks": [
+        {
+          "id": "power_entity",
+          "status": "fail"
+        },
+        {
+          "id": "bulb_entity",
+          "status": "fail"
+        },
+        {
+          "id": "volt_label",
+          "status": "pass"
+        },
+        {
+          "id": "series_cycle",
+          "status": "fail"
+        },
+        {
+          "id": "no_wire_through_comp",
+          "status": "pass"
+        },
+        {
+          "id": "text_clearance",
+          "status": "pass"
+        },
+        {
+          "id": "visual_quality",
+          "status": "fail"
+        }
+      ],
+      "tool_results": {
+        "cader_cad_health": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "cader_submit_acceptance_plan": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "cader_submit_visual_report": {
+          "succeeded": 4,
+          "failed": 1
+        },
+        "mcp__autocad__create_layer": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "mcp__autocad__draw_circle": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "mcp__autocad__draw_line": {
+          "succeeded": 8,
+          "failed": 0
+        },
+        "mcp__autocad__draw_text": {
+          "succeeded": 3,
+          "failed": 0
+        },
+        "mcp__autocad__get_backend_status": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "mcp__autocad__get_entity": {
+          "succeeded": 2,
+          "failed": 0
+        },
+        "mcp__autocad__list_blocks": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "mcp__autocad__list_layers": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "mcp__autocad__list_symbol_library": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "mcp__autocad__new_drawing": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "mcp__autocad__query_entities": {
+          "succeeded": 4,
+          "failed": 0
+        }
+      },
+      "visual_reviews": [
+        {
+          "review_valid": true,
+          "verdict": "fail",
+          "attempts": [
+            {
+              "status": "succeeded",
+              "valid": true
+            }
+          ],
+          "image_hash": "4226aa900a6ebce4e0b2ba203d7356259aa333f4be112ee0c63c56d1d32e1350",
+          "document_revision": null,
+          "image_bounds": null
+        },
+        {
+          "review_valid": true,
+          "verdict": "fail",
+          "attempts": [
+            {
+              "status": "succeeded",
+              "valid": true
+            }
+          ],
+          "image_hash": "4226aa900a6ebce4e0b2ba203d7356259aa333f4be112ee0c63c56d1d32e1350",
+          "document_revision": null,
+          "image_bounds": null
+        },
+        {
+          "review_valid": true,
+          "verdict": "fail",
+          "attempts": [
+            {
+              "status": "succeeded",
+              "valid": true
+            }
+          ],
+          "image_hash": "4226aa900a6ebce4e0b2ba203d7356259aa333f4be112ee0c63c56d1d32e1350",
+          "document_revision": null,
+          "image_bounds": null
+        },
+        {
+          "review_valid": true,
+          "verdict": "fail",
+          "attempts": [
+            {
+              "status": "succeeded",
+              "valid": true
+            }
+          ],
+          "image_hash": "4226aa900a6ebce4e0b2ba203d7356259aa333f4be112ee0c63c56d1d32e1350",
+          "document_revision": null,
+          "image_bounds": null
+        }
+      ],
+      "frozen": false,
+      "freeze": null,
+      "write_counts": {
+        "committed": 14,
+        "committed_observation_failed": 0,
+        "unknown": 0,
+        "blocked_not_dispatched": 0,
+        "failed_before_dispatch": 0
+      },
+      "error": null,
+      "private_evidence": ".cader/runs/quality-6bd0f809-4cd2-4a6e-a0de-540d8207472a"
+    },
+    {
+      "run_id": "quality-b2cf01d2-332a-496f-b5a2-e607ec1b0be2",
+      "kind": "real-model-real-CAD-autonomous-quality",
+      "ok": false,
+      "real_model_steps": 22,
+      "approval_count": 1,
+      "smoke_checks": {
+        "completed": false,
+        "autonomousVision": true,
+        "realImageRequest": true,
+        "taskApproval": true
+      },
+      "final_phase": "pending_verification",
+      "round": 3,
+      "run_status": "succeeded",
+      "task_status": "blocked",
+      "blocked_reasons": [
+        "QUALITY_NOT_ACCEPTED"
+      ],
+      "phases": [
+        {
+          "phase": "planning",
+          "at": "2026-11-20T03:55:45.257Z"
+        },
+        {
+          "phase": "drawing",
+          "at": "2026-11-20T03:55:52.812Z"
+        },
+        {
+          "phase": "geometry",
+          "at": "2026-11-20T03:56:23.840Z"
+        },
+        {
+          "phase": "topology",
+          "at": "2026-11-20T03:56:23.987Z"
+        },
+        {
+          "phase": "vision",
+          "at": "2026-11-20T03:56:23.988Z"
+        },
+        {
+          "phase": "correcting",
+          "at": "2026-11-20T03:56:52.900Z"
+        },
+        {
+          "phase": "geometry",
+          "at": "2026-11-20T03:57:22.514Z"
+        },
+        {
+          "phase": "topology",
+          "at": "2026-11-20T03:57:22.651Z"
+        },
+        {
+          "phase": "vision",
+          "at": "2026-11-20T03:57:22.651Z"
+        },
+        {
+          "phase": "correcting",
+          "at": "2026-11-20T03:57:50.906Z"
+        },
+        {
+          "phase": "geometry",
+          "at": "2026-11-20T03:58:17.762Z"
+        },
+        {
+          "phase": "topology",
+          "at": "2026-11-20T03:58:17.900Z"
+        },
+        {
+          "phase": "vision",
+          "at": "2026-11-20T03:58:17.910Z"
+        },
+        {
+          "phase": "correcting",
+          "at": "2026-11-20T03:58:46.091Z"
+        },
+        {
+          "phase": "geometry",
+          "at": "2026-11-20T03:59:33.257Z"
+        },
+        {
+          "phase": "topology",
+          "at": "2026-11-20T03:59:33.398Z"
+        },
+        {
+          "phase": "vision",
+          "at": "2026-11-20T03:59:33.399Z"
+        },
+        {
+          "phase": "pending_verification",
+          "at": "2026-11-20T04:00:01.953Z"
+        }
+      ],
+      "checks": [
+        {
+          "id": "power_supply",
+          "status": "not_run"
+        },
+        {
+          "id": "voltage_label",
+          "status": "pass"
+        },
+        {
+          "id": "bulb",
+          "status": "not_run"
+        },
+        {
+          "id": "series_loop",
+          "status": "fail"
+        },
+        {
+          "id": "no_wire_through_power",
+          "status": "fail"
+        },
+        {
+          "id": "no_wire_through_bulb",
+          "status": "fail"
+        },
+        {
+          "id": "text_clearance",
+          "status": "pass"
+        },
+        {
+          "id": "visual_overview",
+          "status": "fail"
+        }
+      ],
+      "tool_results": {
+        "cader_cad_health": {
+          "succeeded": 3,
+          "failed": 0
+        },
+        "cader_review_cad_view": {
+          "succeeded": 0,
+          "failed": 1
+        },
+        "cader_submit_acceptance_plan": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "cader_submit_visual_report": {
+          "succeeded": 4,
+          "failed": 0
+        },
+        "mcp__autocad__create_layer": {
+          "succeeded": 2,
+          "failed": 0
+        },
+        "mcp__autocad__draw_circle": {
+          "succeeded": 2,
+          "failed": 0
+        },
+        "mcp__autocad__draw_line": {
+          "succeeded": 6,
+          "failed": 0
+        },
+        "mcp__autocad__draw_text": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "mcp__autocad__get_backend_status": {
+          "succeeded": 2,
+          "failed": 0
+        },
+        "mcp__autocad__new_drawing": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "mcp__autocad__query_entities": {
+          "succeeded": 4,
+          "failed": 0
+        }
+      },
+      "visual_reviews": [
+        {
+          "review_valid": true,
+          "verdict": "fail",
+          "attempts": [
+            {
+              "status": "succeeded",
+              "valid": true
+            }
+          ],
+          "image_hash": "69b7b3a3fa305c4a9cbb0105e1e28ada0a52955d6f06a0814cea7f459fd62720",
+          "document_revision": null,
+          "image_bounds": null
+        },
+        {
+          "review_valid": true,
+          "verdict": "fail",
+          "attempts": [
+            {
+              "status": "succeeded",
+              "valid": true
+            }
+          ],
+          "image_hash": "69b7b3a3fa305c4a9cbb0105e1e28ada0a52955d6f06a0814cea7f459fd62720",
+          "document_revision": null,
+          "image_bounds": null
+        },
+        {
+          "review_valid": true,
+          "verdict": "fail",
+          "attempts": [
+            {
+              "status": "succeeded",
+              "valid": true
+            }
+          ],
+          "image_hash": "69b7b3a3fa305c4a9cbb0105e1e28ada0a52955d6f06a0814cea7f459fd62720",
+          "document_revision": null,
+          "image_bounds": null
+        },
+        {
+          "review_valid": true,
+          "verdict": "fail",
+          "attempts": [
+            {
+              "status": "succeeded",
+              "valid": true
+            }
+          ],
+          "image_hash": "69b7b3a3fa305c4a9cbb0105e1e28ada0a52955d6f06a0814cea7f459fd62720",
+          "document_revision": null,
+          "image_bounds": null
+        }
+      ],
+      "frozen": false,
+      "freeze": null,
+      "write_counts": {
+        "committed": 12,
+        "committed_observation_failed": 0,
+        "unknown": 0,
+        "blocked_not_dispatched": 0,
+        "failed_before_dispatch": 0
+      },
+      "error": null,
+      "private_evidence": ".cader/runs/quality-b2cf01d2-332a-496f-b5a2-e607ec1b0be2"
+    },
+    {
+      "run_id": "quality-adc7146b-47be-4207-8df6-afe1dfc26174",
+      "kind": "real-model-real-CAD-autonomous-quality",
+      "ok": false,
+      "real_model_steps": 30,
+      "approval_count": 1,
+      "smoke_checks": {
+        "completed": false,
+        "autonomousVision": true,
+        "realImageRequest": true,
+        "taskApproval": true
+      },
+      "final_phase": "pending_verification",
+      "round": 3,
+      "run_status": "succeeded",
+      "task_status": "blocked",
+      "blocked_reasons": [
+        "QUALITY_NOT_ACCEPTED"
+      ],
+      "phases": [
+        {
+          "phase": "planning",
+          "at": "2026-11-20T04:00:46.801Z"
+        },
+        {
+          "phase": "drawing",
+          "at": "2026-11-20T04:00:55.537Z"
+        },
+        {
+          "phase": "geometry",
+          "at": "2026-11-20T04:01:39.215Z"
+        },
+        {
+          "phase": "topology",
+          "at": "2026-11-20T04:01:39.401Z"
+        },
+        {
+          "phase": "vision",
+          "at": "2026-11-20T04:01:39.402Z"
+        },
+        {
+          "phase": "correcting",
+          "at": "2026-11-20T04:02:10.090Z"
+        },
+        {
+          "phase": "geometry",
+          "at": "2026-11-20T04:02:51.571Z"
+        },
+        {
+          "phase": "topology",
+          "at": "2026-11-20T04:02:51.767Z"
+        },
+        {
+          "phase": "vision",
+          "at": "2026-11-20T04:02:51.768Z"
+        },
+        {
+          "phase": "correcting",
+          "at": "2026-11-20T04:03:21.442Z"
+        },
+        {
+          "phase": "geometry",
+          "at": "2026-11-20T04:03:51.869Z"
+        },
+        {
+          "phase": "topology",
+          "at": "2026-11-20T04:03:52.064Z"
+        },
+        {
+          "phase": "vision",
+          "at": "2026-11-20T04:03:52.064Z"
+        },
+        {
+          "phase": "correcting",
+          "at": "2026-11-20T04:04:20.836Z"
+        },
+        {
+          "phase": "geometry",
+          "at": "2026-11-20T04:04:54.113Z"
+        },
+        {
+          "phase": "topology",
+          "at": "2026-11-20T04:04:54.311Z"
+        },
+        {
+          "phase": "vision",
+          "at": "2026-11-20T04:04:54.312Z"
+        },
+        {
+          "phase": "pending_verification",
+          "at": "2026-11-20T04:05:30.689Z"
+        }
+      ],
+      "checks": [
+        {
+          "id": "r_5v_power_source",
+          "status": "pass"
+        },
+        {
+          "id": "r_bulb",
+          "status": "pass"
+        },
+        {
+          "id": "r_series_topo",
+          "status": "pass"
+        },
+        {
+          "id": "r_no_wire_thru_comp",
+          "status": "pass"
+        },
+        {
+          "id": "r_5v_label_text",
+          "status": "pass"
+        },
+        {
+          "id": "r_label_clearance",
+          "status": "pass"
+        },
+        {
+          "id": "r_wire_visual",
+          "status": "not_run"
+        }
+      ],
+      "tool_results": {
+        "cader_apply_cad_patch": {
+          "succeeded": 4,
+          "failed": 0
+        },
+        "cader_submit_acceptance_plan": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "cader_submit_visual_report": {
+          "succeeded": 4,
+          "failed": 3
+        },
+        "mcp__autocad__create_layer": {
+          "succeeded": 3,
+          "failed": 3
+        },
+        "mcp__autocad__delete_entity": {
+          "succeeded": 4,
+          "failed": 0
+        },
+        "mcp__autocad__draw_circle": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "mcp__autocad__draw_line": {
+          "succeeded": 12,
+          "failed": 0
+        },
+        "mcp__autocad__draw_text": {
+          "succeeded": 3,
+          "failed": 0
+        },
+        "mcp__autocad__get_backend_status": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "mcp__autocad__list_symbol_library": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "mcp__autocad__move_entity": {
+          "succeeded": 4,
+          "failed": 0
+        },
+        "mcp__autocad__new_drawing": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "mcp__autocad__query_entities": {
+          "succeeded": 5,
+          "failed": 0
+        },
+        "mcp__autocad__query_entities_in_region": {
+          "succeeded": 1,
+          "failed": 0
+        }
+      },
+      "visual_reviews": [
+        {
+          "review_valid": true,
+          "verdict": "fail",
+          "attempts": [
+            {
+              "status": "succeeded",
+              "valid": true
+            }
+          ],
+          "image_hash": "33cda9541cc67d351f04efbebca17de32232a64fba5eee452b181fb93ce5b47c",
+          "document_revision": null,
+          "image_bounds": null
+        },
+        {
+          "review_valid": true,
+          "verdict": "fail",
+          "attempts": [
+            {
+              "status": "succeeded",
+              "valid": true
+            }
+          ],
+          "image_hash": "bef34cc82147748364782bdcf916fb4bb425554860eca9e924fc1888beb11974",
+          "document_revision": null,
+          "image_bounds": null
+        },
+        {
+          "review_valid": true,
+          "verdict": "fail",
+          "attempts": [
+            {
+              "status": "succeeded",
+              "valid": true
+            }
+          ],
+          "image_hash": "bef34cc82147748364782bdcf916fb4bb425554860eca9e924fc1888beb11974",
+          "document_revision": null,
+          "image_bounds": null
+        },
+        {
+          "review_valid": true,
+          "verdict": "uncertain",
+          "attempts": [
+            {
+              "status": "succeeded",
+              "valid": true
+            }
+          ],
+          "image_hash": "670b426ece679bce4009788e2b195d1b3ca804297e549d548929a9826fe6b2c2",
+          "document_revision": null,
+          "image_bounds": null
+        }
+      ],
+      "frozen": false,
+      "freeze": null,
+      "write_counts": {
+        "committed": 28,
+        "committed_observation_failed": 0,
+        "unknown": 0,
+        "blocked_not_dispatched": 0,
+        "failed_before_dispatch": 3
+      },
+      "error": null,
+      "private_evidence": ".cader/runs/quality-adc7146b-47be-4207-8df6-afe1dfc26174"
+    },
+    {
+      "run_id": "quality-f92f4a24-c764-4b9b-87b0-467a09b34eab",
+      "kind": "real-model-real-CAD-autonomous-quality",
+      "ok": false,
+      "real_model_steps": 0,
+      "approval_count": 0,
+      "smoke_checks": {
+        "completed": false,
+        "autonomousVision": false,
+        "realImageRequest": false,
+        "taskApproval": false
+      },
+      "final_phase": "not_started",
+      "round": 0,
+      "run_status": "failed",
+      "task_status": "blocked",
+      "blocked_reasons": [
+        "QUALITY_NOT_ACCEPTED"
+      ],
+      "phases": [],
+      "checks": [],
+      "tool_results": {},
+      "visual_reviews": [],
+      "frozen": null,
+      "freeze": null,
+      "write_counts": {},
+      "error": "CONFIG_INVALID",
+      "private_evidence": ".cader/runs/quality-f92f4a24-c764-4b9b-87b0-467a09b34eab"
+    },
+    {
+      "run_id": "quality-e4507c91-c756-4f37-bef8-c21e6b4b1ab1",
+      "kind": "real-model-real-CAD-autonomous-quality",
+      "ok": false,
+      "real_model_steps": 25,
+      "approval_count": 1,
+      "smoke_checks": {
+        "completed": false,
+        "autonomousVision": true,
+        "realImageRequest": true,
+        "taskApproval": true
+      },
+      "final_phase": "blocked",
+      "round": 3,
+      "run_status": "succeeded",
+      "task_status": "blocked",
+      "blocked_reasons": [
+        "CAD_WRITE_FROZEN"
+      ],
+      "phases": [
+        {
+          "phase": "planning",
+          "at": "2026-11-20T04:07:22.000Z"
+        },
+        {
+          "phase": "drawing",
+          "at": "2026-11-20T04:07:38.601Z"
+        },
+        {
+          "phase": "geometry",
+          "at": "2026-11-20T04:08:07.081Z"
+        },
+        {
+          "phase": "topology",
+          "at": "2026-11-20T04:08:07.289Z"
+        },
+        {
+          "phase": "vision",
+          "at": "2026-11-20T04:08:07.290Z"
+        },
+        {
+          "phase": "correcting",
+          "at": "2026-11-20T04:08:36.647Z"
+        },
+        {
+          "phase": "geometry",
+          "at": "2026-11-20T04:09:04.120Z"
+        },
+        {
+          "phase": "topology",
+          "at": "2026-11-20T04:09:04.329Z"
+        },
+        {
+          "phase": "vision",
+          "at": "2026-11-20T04:09:04.330Z"
+        },
+        {
+          "phase": "correcting",
+          "at": "2026-11-20T04:09:35.563Z"
+        },
+        {
+          "phase": "geometry",
+          "at": "2026-11-20T04:09:45.268Z"
+        },
+        {
+          "phase": "topology",
+          "at": "2026-11-20T04:09:45.482Z"
+        },
+        {
+          "phase": "vision",
+          "at": "2026-11-20T04:09:45.483Z"
+        },
+        {
+          "phase": "correcting",
+          "at": "2026-11-20T04:10:13.813Z"
+        },
+        {
+          "phase": "geometry",
+          "at": "2026-11-20T04:10:21.176Z"
+        },
+        {
+          "phase": "topology",
+          "at": "2026-11-20T04:10:21.389Z"
+        },
+        {
+          "phase": "vision",
+          "at": "2026-11-20T04:10:21.390Z"
+        },
+        {
+          "phase": "blocked",
+          "at": "2026-11-20T04:10:21.476Z"
+        }
+      ],
+      "checks": [
+        {
+          "id": "power_5V_present",
+          "status": "not_run"
+        },
+        {
+          "id": "bulb_present",
+          "status": "not_run"
+        },
+        {
+          "id": "series_connection",
+          "status": "pass"
+        },
+        {
+          "id": "label_5V_text",
+          "status": "pass"
+        },
+        {
+          "id": "no_wire_through_component",
+          "status": "pass"
+        },
+        {
+          "id": "text_clearance_5V",
+          "status": "pass"
+        },
+        {
+          "id": "visual_series_circuit",
+          "status": "not_run"
+        }
+      ],
+      "tool_results": {
+        "cader_apply_cad_patch": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "cader_cad_health": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "cader_review_cad_view": {
+          "succeeded": 0,
+          "failed": 1
+        },
+        "cader_submit_acceptance_plan": {
+          "succeeded": 1,
+          "failed": 2
+        },
+        "cader_submit_visual_report": {
+          "succeeded": 3,
+          "failed": 3
+        },
+        "mcp__autocad__create_layer": {
+          "succeeded": 2,
+          "failed": 0
+        },
+        "mcp__autocad__draw_circle": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "mcp__autocad__draw_line": {
+          "succeeded": 10,
+          "failed": 0
+        },
+        "mcp__autocad__draw_text": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "mcp__autocad__get_backend_status": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "mcp__autocad__get_entity": {
+          "succeeded": 3,
+          "failed": 0
+        },
+        "mcp__autocad__move_entity": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "mcp__autocad__new_drawing": {
+          "succeeded": 1,
+          "failed": 0
+        },
+        "mcp__autocad__query_entities": {
+          "succeeded": 4,
+          "failed": 0
+        },
+        "mcp__autocad__scale_entity": {
+          "succeeded": 1,
+          "failed": 0
+        }
+      },
+      "visual_reviews": [
+        {
+          "review_valid": true,
+          "verdict": "fail",
+          "attempts": [
+            {
+              "status": "succeeded",
+              "valid": true
+            }
+          ],
+          "image_hash": "69805bd51a56b4d391acc2f9421ec9864c02d45ca2181a31643bb956380c872f",
+          "document_revision": null,
+          "image_bounds": {
+            "foreground_border_pixels": 0,
+            "possible_clipping": false,
+            "method": "corner-background contrast; conservative uncertainty, not geometric mapping"
+          }
+        },
+        {
+          "review_valid": true,
+          "verdict": "uncertain",
+          "attempts": [
+            {
+              "status": "succeeded",
+              "valid": true
+            }
+          ],
+          "image_hash": "112e6104c4a8dd0fa2f12d2fcb066f288b4c45e0519cda12c0ceb2156af6192b",
+          "document_revision": null,
+          "image_bounds": {
+            "foreground_border_pixels": 0,
+            "possible_clipping": false,
+            "method": "corner-background contrast; conservative uncertainty, not geometric mapping"
+          }
+        },
+        {
+          "review_valid": true,
+          "verdict": "uncertain",
+          "attempts": [
+            {
+              "status": "succeeded",
+              "valid": true
+            }
+          ],
+          "image_hash": "734ef2e5aded54e2385664e7deaede5c552241880db9feb771a7fbcc528cdb7a",
+          "document_revision": null,
+          "image_bounds": {
+            "foreground_border_pixels": 0,
+            "possible_clipping": false,
+            "method": "corner-background contrast; conservative uncertainty, not geometric mapping"
+          }
+        }
+      ],
+      "frozen": true,
+      "freeze": {
+        "stage": "capture_dispatch",
+        "outcome": "unknown",
+        "reason": "CAD_CAPTURE_BARRIER"
+      },
+      "write_counts": {
+        "committed": 17,
+        "committed_observation_failed": 0,
+        "unknown": 1,
+        "blocked_not_dispatched": 0,
+        "failed_before_dispatch": 0
+      },
+      "error": "CAD_CAPTURE_FAILED_FROZEN: inspect /mcp doctor and original capture audit; no export replay",
+      "private_evidence": ".cader/runs/quality-e4507c91-c756-4f37-bef8-c21e6b4b1ab1"
+    }
+  ]
+}

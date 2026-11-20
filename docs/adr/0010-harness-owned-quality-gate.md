@@ -1,0 +1,15 @@
+# ADR 0010 — Harness-owned drawing acceptance
+
+Date: 2026-11-20. Status: implemented development snapshot; real acceptance open. Work item: [CADER-017 #20](https://github.com/codesknight/Cader/issues/20).
+
+The latest user transcript demonstrates actual CAD writes, but visual review was user-initiated and an invalid report did not prevent a positive drawing summary. Prompt instructions cannot enforce task completion.
+
+Reuse the existing DSH/Cordis agent loop, scoped tool registry, ExecutionSession, write lock and recovery logic. An application task scheduler runs bounded DSH turns for acceptance planning, drawing and local corrections. It owns planning/drawing/geometry/topology/vision/correcting/complete/pending/blocked transitions. This is task scheduling around DSH, not a replacement AgentLoop.
+
+The model submits a schema-validated, immutable requirement/port/layout plan before writes. Program checks reject invalid entity types, duplicate IDs, overlapping component interiors and interior ports. CAD queries independently check supported counts, labels, wire/component intersection, text overlap and a two-port series graph. Semantic symbols and layout require real-image review when the task is complex. All required checks, a valid passing visual report where required, unchanged before/after entity observations and no write freeze are necessary for completion.
+
+Vision workers submit a compact schema report, with one format repair using the same image. Reports retain image hash, original request, observed entity-state hash, unavailable native revision (`null`), checklist, disagreements and entity references. An observed state digest is not a native document revision. Unknown ObjectIDs, changed observations, suspected clipped captures and invalid/cancelled reviews cannot drive speculative edits or completion. A conservative image-border test is a warning about completeness, not a geometric transform or proof that an image contains the full drawing.
+
+Task approval covers safe creation and patches of task-created entities on the current connection's scratch. Foreign deletions, saves/overwrites, files and Shell keep their existing checks. DSH's composite patch tool forwards each operation through the original schema, guard and owner, in order, stopping at the first failure. Correction hides new_drawing. Grants expire at task end. Resume rechecks on the original live connection without drawing replay; a new connection cannot inherit ownership. A maximum of three cumulative corrections applies across resume.
+
+Consequences: model prose cannot overrule quality status; complex tasks cost more model calls and export operations. Domain knowledge is a registered data-only skill, not a fixed electrical drawing sequence or permission source. Current geometry checks cover line-wire series diagrams, not arbitrary circuit simulation, polylines/3D networks or full drawing semantics. Native COM identity/revision, authoritative pixel mapping, capture reliability and complete real-CAD acceptance remain open. All failed experiments are retained.

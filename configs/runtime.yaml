@@ -3,10 +3,10 @@ main_profile: MainAgent
 subagent_profiles: [SubAgent, VisionAgent]
 max_parallel_subagents: 5
 max_delegation_depth: 1
-max_model_steps: 24
-max_tool_calls: 60
+max_model_steps: 40
+max_tool_calls: 100
 max_delegations: 10
-max_visual_reviews_per_turn: 3
+max_visual_reviews_per_turn: 4
 timeout_ms: 600000
 read_only_tools:
   - mcp__autocad__get_backend_status

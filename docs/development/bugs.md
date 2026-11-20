@@ -141,3 +141,13 @@ BUG-016验收补充：实现c68dffc的[CI run 44539527045](https://github.com/co
 
 
 BUG-019 (#19): v0.3吞掉首发错误，将已确认写入后的读回失败与未知派发混同；后续未派发请求也称未知，模型误诊空COM状态。修复分段证据、blocked_not_dispatched、健康/受限恢复、动态写工具隐藏及任务blocked报告。新实机捕获Name就绪异常、postflight RPC_E_CALL_REJECTED和视图导出超时后PNG延迟到达；这些后端问题尚未修复，未认定为历史draw_line唯一根因。二维点展平误绘由Cader preflight拦截，MCP原生schema修补另待授权。
+
+## 2026-11-20：BUG-020 自主质量门槛缺失（#20）
+
+已证实：最新用户日志需要用户主动要求视觉；无效报告后仍有“基本合格”描述。源码原先只有主动评审工具，无任务验收阶段。dev.2新增调度状态机、不可变清单、自动几何/拓扑/视觉及程序完成门槛。四轮真实模型/CAD实验均未通过完整质量，但全部正确保留pending/blocked，没有以模型正常结束冒充完成。安全恢复、取消及不重放离线通过；完整实机验收保持打开。
+
+BUG-021：视觉自由文本截断/非schema造成structured=null；DSH raw schema投影还拒绝zod非纯JSON元数据。修复严格提交工具、JSON schema规范化、一次格式修复及6144视觉预算，记录max-tokens。旧组件fixture的“fixture”判定并非合法业务报告，已更新为明确的合成严格报告。实际DSH截断→修复的两次尝试都有保留；真实CAD出现多次review_valid=true，不等于视觉内容必然正确。
+
+BUG-022：真实模型验收计划把语义符号当原生类型、组件位置重复及端口位于禁入区域；先验证计划再写入，schema约束及精确图相交回归通过。初版任务授权测试改变返回ObjectID后，使原测试未命中get_entity读回故障；已让故障fixture覆盖目标读回和全图读回，最终全测通过。
+
+BUG-023：真实图像有疑似裁切、视觉/几何分歧及无关uncertainty导致无谓重验。增加保守边缘证据、ObjectID校验、观察稳定性、分歧记录、域知识和非可定位问题pending；不会直接把视觉uncertain改为pass。E第4次捕获未知派发，Drawing5被冻结，unknown=1；没有重放/删锁。原生缺少显式fit-to-page只是根因假设，权威像素映射仍未实现。最后调度优化仅离线回归，实机冻结恢复与完整案例保持未通过。证据见[实测与JSON](../validation/2026-11-20-autonomous-quality.md)。

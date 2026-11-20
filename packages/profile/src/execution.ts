@@ -1,12 +1,13 @@
 import { mkdir, open, readFile, writeFile, unlink, lstat, readdir } from 'node:fs/promises';
 import { resolve, relative, dirname, basename, extname, matchesGlob } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { createMcpClient, defineTool } from '@cader/dsh-adapter';
+import { createMcpClient, defineTool, inspectCadImageBorder } from '@cader/dsh-adapter';
 import type { ToolDefinition } from '@cader/dsh-adapter';
 import { loadMcp, workspacePath, readReferenceImage } from '@cader/config';
 import { runUserShell } from './interactive-shell.js';
 import { validateCadArguments } from './cad-arguments.js';
 import { environmentRedactor } from './session-store.js';
+import type { QualityPlan } from '@cader/config';
 
 export type PermissionMode = 'read-only' | 'ask' | 'workspace-write' | 'full-access';
 export const PERMISSION_MODES: PermissionMode[] = ['read-only', 'ask', 'workspace-write', 'full-access'];
@@ -32,6 +33,29 @@ export class ExecutionSession {
   private observedCount: number | null = null;
   private lastArtifact: { path: string; bytes: number; sha256: string } | null = null;
   mode: PermissionMode = 'ask';
+  private taskGrant?: { id: string; target: string | null; newAllowed: boolean; created: Set<number> };
+  private localConnectionId: string | null = null;
+  private taskEntities = new Map<string,{connection:string|null;target:string|null;created:Set<number>}>();
+  async authorizeTask(id: string, plan: QualityPlan, confirm?: Approval) {
+    if(this.mode==='read-only'||this.frozen)return false;
+    if(this.mode==='ask'&&!await confirm?.(this.clean(`CAD 任务级授权\n目标：${this.scratch??'本连接新建工作图'}\n${JSON.stringify(plan)}\n允许：本任务创建图层、绘图、本任务新建实体的局部移动/缩放/删除和视图检查，含最多3轮修正。删除其他实体、覆盖、保存及Shell仍按原策略审批。`),this.workspace))return false;
+    const prior=this.taskEntities.get(id);
+    if(prior&&(prior.connection!==this.localConnectionId||prior.target!==this.scratch))return false;
+    const created=prior?.created??new Set<number>();
+    this.taskGrant={id,target:this.scratch,newAllowed:!prior,created};
+    this.taskEntities.set(id,{connection:this.localConnectionId,target:this.scratch,created});
+    await this.audit({phase:'task_authorized',task_id:id,target:this.scratch,plan});return true;
+  }
+  endTask(){this.taskGrant=undefined;}
+  async snapshot(){return this.serial(async()=>{
+    if(!this.client)throw new Error('MCP_NOT_CONNECTED');
+    const operationId=randomUUID();
+    const entities=await this.client.call('query_entities',{},operationId);
+    if(!Array.isArray(entities))throw new Error('INVALID_ENTITY_SNAPSHOT');
+    this.observedAt=new Date().toISOString();this.observedCount=entities.length;
+    await this.audit({phase:'quality_snapshot',operation_id:operationId,tool:'query_entities',target:this.scratch,observed:entities,document_revision:null});
+    return {document:this.scratch,document_revision:null,entities,observed_at:new Date().toISOString()};
+  });}
   constructor(readonly workspace: string, readonly runDirectory: string,
     readonly clean: (value: string) => string = environmentRedactor().clean,
     private readonly clientFactory: typeof createMcpClient = createMcpClient) {}
@@ -45,6 +69,7 @@ export class ExecutionSession {
         outcome: barrier.outcome ?? 'unknown', reason: 'PERSISTED_OR_EXTERNAL_WRITE_BARRIER', sameConnection: false };
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     this.client = await this.clientFactory(await loadMcp(path));
+    this.localConnectionId=randomUUID();
     return { connected: true, discovered: this.client.toolNames().length, exposed: this.definitions().length,
       backend: await this.client.call('get_backend_status', {}) };
   }
@@ -66,7 +91,7 @@ export class ExecutionSession {
       if (!this.client || !this.scratch) throw new Error('NEW_SCRATCH_DRAWING_REQUIRED');
       if (this.frozen) throw new Error('CAD_CAPTURE_BLOCKED_FROZEN');
       if (!this.client.toolNames().includes('export_current_view')) throw new Error('CAD_VIEW_EXPORT_UNAVAILABLE');
-      await this.authorize(`CAD export_current_view\nTarget: ${this.scratch}\nExport a private PNG; backend changes viewport/plot settings. No DWG save required.`, false, confirm);
+      await this.authorize(`CAD export_current_view\nTarget: ${this.scratch}\nExport a private PNG; backend changes viewport/plot settings. No DWG save required.`, false, confirm,false,{name:'export_current_view',payload:{}});
       signal.throwIfAborted(); await this.acquire();
       await mkdir(this.runDirectory, { recursive: true });
       const path = resolve(await workspacePath(this.workspace, this.runDirectory), `view-${randomUUID()}.png`);
@@ -81,7 +106,8 @@ export class ExecutionSession {
         const image = await readReferenceImage(this.workspace, path);
         const evidence = { source: 'AutoCAD export_current_view', document: this.scratch, captured_at: new Date().toISOString(),
           sha256: createHash('sha256').update(image.data).digest('hex'), width: image.width, height: image.height,
-          view: 'backend extents plot', pixel_to_cad: null, mapping_note: 'No authoritative pixel-to-CAD transform; locate defects using entity queries before editing.' };
+          image_bounds:await inspectCadImageBorder(path),
+          document_revision: null, view: 'backend extents plot', pixel_to_cad: null, mapping_note: 'No authoritative pixel-to-CAD transform; locate defects using entity queries before editing.' };
         await this.audit({ phase: 'capture_completed', operation_id: operationId, duration_ms: Date.now() - captureStarted, ...evidence });
         return { path, evidence };
       } catch (error) {
@@ -98,7 +124,7 @@ export class ExecutionSession {
   }
   facts(since = 0) {
     const operations = this.operations.slice(since).map(operation => structuredClone(operation));
-    return { frozen: this.frozen, write_state: this.frozen ? 'frozen' : this.scratch ? 'scratch_bound' : 'new_scratch_required',
+    return { frozen: this.frozen, local_connection_id:this.localConnectionId, write_state: this.frozen ? 'frozen' : this.scratch ? 'scratch_bound' : 'new_scratch_required',
       freeze: this.freeze ?? null, transport: this.client ? 'connected' : 'disconnected',
       cad_observation: { source: 'last_successful_full_query', observed_at: this.observedAt, entity_count: this.observedCount,
         native_identity: 'legacy_COM_name_guard; no authoritative instance/revision', cached: true },
@@ -151,8 +177,13 @@ export class ExecutionSession {
   private serial<T>(work: () => Promise<T>): Promise<T> {
     const next = this.tail.then(work); this.tail = next.catch(() => {}); return next;
   }
-  private async authorize(description: string, destructive: boolean, confirm?: Approval, shell = false) {
+  private async authorize(description: string, destructive: boolean, confirm?: Approval, shell = false, cad?:{name:string;payload:Record<string,unknown>}) {
     if (this.mode === 'read-only') throw new Error('READ_ONLY_PERMISSION');
+    if(cad?.name==='delete_entity'&&this.taskGrant?.target===this.scratch&&this.taskGrant?.created.has(Number(cad.payload.object_id)))return;
+    if(!destructive&&!shell&&cad&&this.taskGrant&&this.taskGrant.target===this.scratch){
+      const safe=new Set(['create_layer','set_layer_properties','draw_line','draw_circle','draw_arc','draw_rectangle','draw_text','draw_mtext','draw_polyline','draw_hatch','add_dimension','export_current_view']);
+      if(safe.has(cad.name)||(cad.name==='new_drawing'&&this.taskGrant.newAllowed)||(['move_entity','rotate_entity','scale_entity','copy_entity','mirror_entity'].includes(cad.name)&&this.taskGrant.created.has(Number(cad.payload.object_id))))return;
+    }
     if (this.mode === 'full-access' || (this.mode === 'workspace-write' && !destructive && !shell)) return;
     if (!await confirm?.(description, this.workspace)) throw new Error('APPROVAL_REQUIRED_OR_DENIED');
   }
@@ -211,7 +242,7 @@ export class ExecutionSession {
               try { await workspacePath(this.workspace, parent); } catch { destructive = true; }
               payload.file_path = output; payload.overwrite = destructive;
             }
-            await this.authorize(this.clean(`CAD ${name}\n${JSON.stringify(payload)}\nTarget: ${this.scratch ?? 'new scratch drawing'}`), destructive, confirm);
+            await this.authorize(this.clean(`CAD ${name}\n${JSON.stringify(payload)}\nTarget: ${this.scratch ?? 'new scratch drawing'}`), destructive, confirm,false,{name,payload});
             exec.signal.throwIfAborted(); await this.acquire();
             await this.audit({ ...record, phase: 'prepared', request: operationId, args: payload });
             record.stage = 'dispatch'; record.dispatched = true;
@@ -219,6 +250,10 @@ export class ExecutionSession {
             const result = await this.client!.call(name, payload, operationId);
             acknowledged = true; record.outcome = 'committed'; record.stage = 'acknowledgement';
             if (name === 'new_drawing') this.scratch = String(result);
+            if(name==='new_drawing'&&this.taskGrant){this.taskGrant.target=this.scratch;this.taskGrant.newAllowed=false;this.taskGrant.created.clear();}
+            if(this.taskGrant)this.taskEntities.get(this.taskGrant.id)!.target=this.scratch;
+            const createdId=Number(String(result).match(/object_id=(\d+)/)?.[1]);
+            if(this.taskGrant&&/^draw_|^copy_entity$|^mirror_entity$/.test(name)&&Number.isSafeInteger(createdId))this.taskGrant.created.add(createdId);
             record.target = this.scratch;
             await this.audit({ ...record, phase: 'mutation_acknowledged', result });
             record.stage = 'postflight';
@@ -329,5 +364,6 @@ export class ExecutionSession {
     await this.tail; await this.client?.dispose(); this.client = undefined; this.scratch = null;
     if (this.lock && !this.frozen) await unlink(this.lock);
     this.lock = undefined;
+    this.taskGrant=undefined;this.taskEntities.clear();this.localConnectionId=null;
   }
 }

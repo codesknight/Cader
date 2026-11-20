@@ -17,8 +17,8 @@ async function setup() {
   const factory: typeof createMcpClient = async () => ({ definitions: () => definitions, toolNames: () => definitions.map(d => d.name),
     async call(name) { calls.push(name); if (fail && name === 'draw_circle') throw Object.assign(new Error('response lost'), { code: 'TIMEOUT', failure: { hresult: -2147418111, message: 'RPC call rejected' } });
       if (name === 'draw_circle') { if (slow) await new Promise(resolve => setTimeout(resolve, 100)); queryPending = postflightFailure; }
-      if (name === 'query_entities' && queryPending) { queryPending = false; throw new Error('readback temporarily failed'); }
-      return name === 'new_drawing' ? 'Scratch.dwg' : name === 'query_entities' ? [] : {}; }, async dispose() {} });
+      if ((name === 'query_entities'||name==='get_entity') && queryPending) { queryPending = false; throw new Error('readback temporarily failed'); }
+      return name === 'new_drawing' ? 'Scratch.dwg' : name === 'query_entities' ? [] : name==='draw_circle'?'draw_circle ok, object_id=42':{}; }, async dispose() {} });
   const owner = new ExecutionSession(root, join(root, '.cader/runs/test'), undefined, factory);
   await owner.connect(resolve('configs/mcp/AutoCAD.example.yaml'));
   const ctx = await createToolRuntime();
@@ -40,6 +40,27 @@ test('dynamic CAD dispatch enforces ask/read-only and a fresh scratch binding, w
     assert.equal((await invokeTool(f.ctx, 'mcp__autocad__draw_circle', {})).isError, false);
     assert.equal(approvals, 2); assert.ok(f.calls.includes('query_entities'));
   } finally { await f.cleanup(); }
+});
+
+test('task approval covers owned entity patches, expires afterward and cannot delete other entities', async () => {
+  const f=await setup();let approvals=0;
+  const confirm=async()=>++approvals===1;
+  f.install(confirm);
+  try{
+    assert.equal(await f.owner.authorizeTask('fixture-task',{requirements:[]} as never,confirm),true);
+    assert.equal((await invokeTool(f.ctx,'mcp__autocad__new_drawing',{})).isError,false);
+    assert.equal((await invokeTool(f.ctx,'mcp__autocad__draw_circle',{})).isError,false);
+    assert.equal((await invokeTool(f.ctx,'mcp__autocad__delete_entity',{object_id:42})).isError,false);
+    assert.equal(approvals,1);
+    assert.equal((await invokeTool(f.ctx,'mcp__autocad__delete_entity',{object_id:99})).isError,true);
+    assert.equal(f.calls.filter(name=>name==='delete_entity').length,1);
+    f.owner.endTask();
+    assert.equal((await invokeTool(f.ctx,'mcp__autocad__draw_circle',{})).isError,true);
+    assert.equal(approvals,3);
+    const connection=f.owner.facts().local_connection_id;
+    await f.owner.connect(resolve('configs/mcp/AutoCAD.example.yaml'));
+    assert.notEqual(f.owner.facts().local_connection_id,connection);
+  }finally{await f.cleanup();}
 });
 
 test('acknowledged write with failed readback reconciles on the original connection without replay', async () => {

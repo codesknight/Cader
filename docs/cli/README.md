@@ -2,7 +2,7 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Project home](../../README.md) · [Documentation](../README.md)
 
-**Applies to Cader 0.4.0-dev.1 · Updated 2026-11-20**
+**Applies to Cader 0.4.0-dev.2 · Updated 2026-11-20**
 
 Cader CLI is a CAD agent terminal built on DeepSeek Harness. Describe tasks in a persistent conversation, select models and skills, reference images, inspect CAD status, or use a single command from a script.
 
@@ -137,9 +137,10 @@ Enter Slash commands inside the Cader session. Angle brackets denote a value to 
 | `/undo` | Report `CAD_UNDO_UNAVAILABLE`; there is no controlled CAD undo interface yet |
 | `/checkpoint` | Save the conversation and project-reference hashes; not a DWG backup or CAD database restore point |
 | `/permissions [mode]` | read-only / ask (default) / workspace-write / full-access; also supports shell ask / shell deny |
+| `/quality` / `/quality resume` | Inspect quality state or recheck on the same connection without drawing replay; at most three cumulative repairs |
 | `/exit` | Save and exit |
 
-Subcommands are expanded above; there are 16 Slash root commands. MCP connections persist across turns. Switching configuration/workspace, clearing/resuming a session, disabling MCP or exiting releases the connection. Resume resets permission to ask and grants no prior CAD write binding; a fresh connection requires a fresh scratch drawing.
+Subcommands are expanded above; there are 17 Slash root commands. MCP connections persist across turns. Switching configuration/workspace, clearing/resuming a session, disabling MCP or exiting releases the connection. Resume resets permission to ask and grants no prior CAD write binding; a fresh connection requires a fresh scratch drawing.
 
 | Mode | Queries | Scratch drawing/editing | Delete/overwrite |
 |---|---|---|---|
@@ -410,7 +411,7 @@ CLI changes must update both language guides, help and examples in the same comm
 
 ## v0.4 development snapshot: evidence, recovery and view feedback
 
-`0.4.0-dev.1` is a development snapshot, not full v0.4 acceptance.
+`0.4.0-dev.1` introduced the reliability behavior below. Current dev.2 quality scheduling is described next; full v0.4 acceptance remains open.
 
 - `/mcp doctor` queries the backend and separates transport, cached observations, scratch ownership and freeze state. The current COM backend may lazily launch CAD/create a default document when none exists; this is not an independent native side-effect-free health API.
 - `/mcp recover` only reconciles an acknowledged mutation followed by a postflight read failure on the same original connection. It repeats the read, never the mutation. Unknown dispatch, timeouts, reconnects, legacy locks and capture uncertainty remain frozen; no lock deletion, CAD restart or implicit rebinding.
@@ -419,7 +420,7 @@ CLI changes must update both language guides, help and examples in the same comm
 - Entity-specific postflight uses get_entity with the returned ObjectID and labels observation_scope=affected_entity. It is not a full drawing listing. Document operations and explicit final queries still inspect the full drawing. Health counts are timestamped cached full observations.
 - Polyline/hatch points must explicitly contain finite [x,y,z] values. Invalid arguments are rejected before dispatch without freezing.
 - Reports include execution_evidence; a freeze forces ok=false and task_status=blocked even when the model finished normally. Terminal counts refer to operations, not entities.
-- `cader_review_cad_view` captures the owned scratch view and automatically sends a real image attachment to the vision worker; no user reference or prior DWG save is required. Export changes viewport/plot settings and writes a private PNG under existing approval/serialization. max_visual_reviews_per_turn defaults to 3 (range 1–5). No authoritative pixel-to-CAD mapping is available; edits still require entity coordinates. Actual export timeout evidence means the complete visual correction gate has not passed.
+- `cader_review_cad_view` captures the owned scratch view and automatically sends a real image attachment to the vision worker; no user reference or prior DWG save is required. Export changes viewport/plot settings and writes a private PNG under existing approval/serialization. max_visual_reviews_per_turn defaults to 4 (range 1–5). No authoritative pixel-to-CAD mapping is available; edits still require entity coordinates. Actual export timeout evidence means the complete visual correction gate has not passed.
 
 Explicit mutually exclusive live entries, all using isolated new scratch targets:
 
@@ -436,3 +437,31 @@ See [actual results and failures](../validation/2026-11-20-reliable-execution.md
 CAD failure lines display the code, stage and dispatched/not-dispatched status; full errors stay in private JSONL.
 
 A CAD freeze also hides and blocks Agent Shell, including full-access, to prevent bypassing the write barrier. Direct user ! commands remain a separate individually approved host channel.
+
+## dev.2: autonomous drawing quality tasks
+
+Drawing, redraw, diagram, layout and text-addition requests enter application-owned quality scheduling. Simple move/rotate requests retain deterministic post-write observation without mandatory visual round trips. Complex drawings route to VisionAgent automatically; users need not request review or switch agents.
+
+The CLI shows planning, drawing, geometry, topology, vision, correcting and complete/pending/blocked phases. The model submits an immutable requirement checklist and absolute component layout. Preflight rejects overlapping components, interior ports and nonexistent entity types. Actual CAD queries check supported counts, labels, segment/bounding-box intersections and two-terminal series graphs. Electrical tasks load the registered data-only `electrical-quality` skill; it contains no fixed drawing sequence or authority.
+
+Default ask approves the concrete plan and owned scratch once, covering layers, drawing, captures and safe local patches to task-created entities, with at most three cumulative corrections. The approval explicitly includes deletion of those entities. Foreign deletion, saving/overwrite, files and Shell retain existing permission checks. Grants expire at task end. `cader_apply_cad_patch` batches drawing/edit/delete operations through the original schemas, guards, serial owner and journal. It stops at the first failure; committed operations must never be replayed.
+
+Vision uses a strict report schema and one format repair on the same captured image; VisionAgent allows 6144 output tokens. Shared limits are 40 model steps, 100 tool calls and four view reviews, not mandatory spending per task. Cancellation, invalid reports, failed vision, unknown entity references, changed observations and suspected capture clipping cannot complete. Nonessential observations and geometry already proven by queries should not become visual defects. Uncertainty without a localized defect remains pending instead of triggering speculative edits.
+
+```text
+画一个带有 5V 电源和一个灯泡的串联电路图。
+/quality
+/quality resume
+```
+
+These are input examples, **not a claim that full real-CAD acceptance has passed**. `/quality` shows the latest checklist/evidence; `resume` rechecks on the same live connection and scratch, skips original drawing and preserves the three-correction limit. Reconnect, exit or ordinary session restore invalidates that ownership. Quality resume never clears a write barrier; `/mcp recover` retains its existing conditions.
+
+Private `quality.json`, `verification.json`, `events.jsonl` and execution journals retain requirements, phases, per-round checks, visual results, image hashes, observed-state digests and failures. Native `document_revision` and `pixel_to_cad` are unavailable and explicitly null. Referenced ObjectIDs must exist in queries; pixel-only edits are not authorized. The border test is conservative clipping evidence, not proof of full image coverage.
+
+Explicit paid-model/real-CAD entry, creating an isolated workspace and actual scratch:
+
+```powershell
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality
+```
+
+The real Pro model receives one original request; Harness routes Flash visual review automatically. The callback approves CAD operations only, which is separate from human terminal approval testing. This case does not save a DWG or establish arbitrary circuit, native revision or pixel-mapping acceptance. See [actual results and retained failures](../validation/2026-11-20-autonomous-quality.md).

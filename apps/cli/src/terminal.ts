@@ -35,7 +35,7 @@ export async function runTerminal(options: { workspace?: string; stdio?: boolean
     '  ╚██████╗██║  ██║██████╔╝███████╗██║  ██║',
     '   ╚═════╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝',
   ].map((line, index) => paint(index < 3 ? '1;36' : '1;34', line)).join('\n') + '\n');
-  output.write(paint('1', '  Cader 0.4.0-dev.1') + '  ·  DeepSeek Harness  ·  CAD terminal\n'
+  output.write(paint('1', '  Cader 0.4.0-dev.2') + '  ·  DeepSeek Harness  ·  CAD terminal\n'
     + paint('2;36', '─'.repeat(Math.max(20, Math.min((output.columns ?? 80) - 2, 90)))) + '\n');
   write(`  ${session.model.model} · ${session.state.permission} · ${basename(workspace)}\n  ${session.startupStatus}\n  /help 命令  ·  @图片/图纸  ·  !Shell  ·  Tab 补全  ·  Esc 中断\n\n`);
   if (tty && process.env.TERM === 'dumb') write('当前终端声明TERM=dumb，使用简化输入。支持VT的终端可设置TERM=xterm-256color以启用完整编辑/补全。\n');
@@ -84,6 +84,7 @@ export async function runTerminal(options: { workspace?: string; stdio?: boolean
         if (!line.startsWith('/') && !line.startsWith('!') && line.trim()) write('\nCader · 正在处理（Esc 中断）\n');
         const reply = await session.execute(line, { signal: active.signal, confirm, onEvent: event => {
           if (event.type === 'assistant.delta' && event.role === 'main') stream.push(String(event.text ?? ''));
+          else if(event.type==='task.phase') write(`\n  阶段：${({planning:'规划',drawing:'绘制',geometry:'几何验证',topology:'拓扑验证',vision:'视觉验证',correcting:'局部修正',complete:'验收完成',pending_verification:'待验证',blocked:'阻塞'} as Record<string,string>)[String(event.phase)]??String(event.phase)}\n`);
           else if (event.type === 'tool.result') {
             const failure = event.cadFailure as { code: string; stage: string; dispatched: boolean } | undefined;
             write(`\n  ${event.isError ? '×' : '✓'} ${String(event.tool)}${failure ? ` · ${failure.code} · ${failure.stage} · ${failure.dispatched ? '已派发' : '未派发'}` : ''}\n`);

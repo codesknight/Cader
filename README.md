@@ -325,4 +325,4 @@ private drawings, and raw live-run artifacts out of commits.
 
 Real-model CAD execution evidence: [acceptance report](docs/validation/2026-11-20-agent-execution.md).
 
-Development snapshot 0.4.0-dev.1 adds stage-specific operation evidence, bounded recovery and an actual image-feedback route. Full native reliability/visual acceptance is still open; see the [actual results and retained failures](docs/validation/2026-11-20-reliable-execution.md).
+Development snapshot 0.4.0-dev.2 adds program-owned quality phases, automatic vision, task approval and local patches. Autonomous calls work on real CAD; full circuit quality acceptance remains open. See [autonomous quality evidence](docs/validation/2026-11-20-autonomous-quality.md) and [retained reliability failures](docs/validation/2026-11-20-reliable-execution.md).

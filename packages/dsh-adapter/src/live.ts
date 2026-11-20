@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Context } from '@deepseek-ai/cordis';
 import { brandString } from '@deepseek-ai/dsh-brand';
 import LlmRuntime, { createUserMessage, LlmError } from '@deepseek-ai/dsh-llm';
-import type { ContentBlock, ReasoningEffortId } from '@deepseek-ai/dsh-llm';
+import type { ContentBlock, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm';
 import AgentRegistry from '@deepseek-ai/dsh-agent';
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent';
 import AgentLoop from '@deepseek-ai/dsh-agent-loop';
@@ -20,7 +20,7 @@ import * as mcpClient from '@deepseek-ai/dsh-mcp-client';
 import Attachments from '@deepseek-ai/dsh-attachment-local';
 import FileSystem from '@deepseek-ai/dsh-fs-local';
 import type { ModelProfile, RuntimeConfig, McpConfig } from '@cader/config';
-import { requireCredential, loadSkills, mcpEnvironment } from '@cader/config';
+import { parseVisualReport, visualReportSchema, requireCredential, loadSkills, mcpEnvironment } from '@cader/config';
 import { ChildPool } from './pool.js';
 import { prepareImageView, attachmentToSource } from './image-view.js';
 import type { ImageView } from './image-view.js';
@@ -28,7 +28,7 @@ import type { ImageView } from './image-view.js';
 export interface PublicEvent { type: string; agentId?: string; role?: string; [key: string]: unknown }
 export interface AgentResult {
   id: string; profile: string; status: 'succeeded' | 'failed' | 'cancelled';
-  text: string; errorCode?: string; modelSteps: number; tools: string[];
+  text: string; errorCode?: string; modelSteps: number; tools: string[]; recovered_by?:string;
 }
 interface LiveOptions {
   root: string; runDirectory: string; profiles: ModelProfile[]; runtime: RuntimeConfig;
@@ -125,6 +125,7 @@ export async function createLiveRuntime(options: LiveOptions) {
     }
 
     async function run(profileId: string, instruction: string, request: {
+      extraTools?: ToolDefinition[]; onlyTools?: string[]; resultText?: () => string | undefined;
       parent?: Agent; image?: string; imageView?: ImageView; skill?: string; signal?: AbortSignal;
       history?: { role: 'user' | 'assistant'; content: string; status?: string }[]; summary?: string; domain?: string;
     } = {}): Promise<AgentResult> {
@@ -139,7 +140,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       const id = brandString<SessionId>(`cader-${profile.role}-${randomUUID()}`);
       const signal = AbortSignal.any([lifetime.signal, request.signal ?? new AbortController().signal,
         AbortSignal.timeout(Math.min(profile.timeout_ms, options.runtime.timeout_ms))]);
-      let text = '', currentText = '', errorCode: string | undefined, agentSteps = 0;
+      let text = '', currentText = '', errorCode: string | undefined, agentSteps = 0, outputTruncated=false;
       const tools: string[] = [];
       let handle: AgentHandle | undefined;
       const abort = () => {
@@ -165,9 +166,32 @@ export async function createLiveRuntime(options: LiveOptions) {
               || images.get(ref) === request.image) : [];
             const allowed = options.disableTools ? [] : options.runtime.read_only_tools.filter(name => Boolean(ctx.tools.get(name)));
             if (profile.role === 'main' && !options.disableTools && options.executionTools) {
-              for (const tool of options.executionTools) { agentCtx.tools.register(tool, { when: () => options.toolAvailable?.(tool.name) ?? true }); allowed.push(tool.name); }
+              for (const tool of options.executionTools) { if (!request.onlyTools || request.onlyTools.includes(tool.name)) { agentCtx.tools.register(tool, { when: () => options.toolAvailable?.(tool.name) ?? true }); allowed.push(tool.name); } }
             }
-            if (profile.role === 'main' && !options.disableTools && options.captureCadView) {
+            if(profile.role==='main'&&!request.onlyTools&&!options.disableTools&&options.executionTools){
+              const patchNames=options.executionTools.map(t=>t.name).filter(name=>/^mcp__.+__(?:draw_\w+|create_layer|set_layer_properties|move_entity|rotate_entity|scale_entity|copy_entity|mirror_entity|delete_entity)$/.test(name));
+              if(patchNames.length){
+                const patch:ToolDefinition={name:'cader_apply_cad_patch',description:'Apply a model-generated local CAD patch in order, at most 32 operations. Each operation uses the original tool schema, permission checks and write journal. Stops at first failure; committed operations must never be replayed. New drawing, saving, file and Shell operations are excluded.',
+                  parameters:{type:'object',properties:{operations:{type:'array',minItems:1,maxItems:32,items:{type:'object',properties:{tool:{type:'string',enum:patchNames},arguments:{type:'object',additionalProperties:true}},required:['tool','arguments'],additionalProperties:false}}},required:['operations'],additionalProperties:false},
+                  output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},isConcurrencySafe:()=>false,
+                  async execute(args,exec){
+                    const operations=(args as {operations:{tool:string;arguments:Record<string,unknown>}[]}).operations;
+                    const results:unknown[]=[];
+                    for(const [index,op]of operations.entries()){
+                      exec.signal.throwIfAborted();
+                      const batch=await agentCtx.tools.execute({agent,signal:exec.signal,toolSet:exec.toolSet,maxParallelToolCalls:1,
+                        calls:[{type:'tool-call',id:brandString<ToolCallId>(`${exec.callId}:patch:${index}`),name:op.tool,arguments:JSON.stringify(op.arguments)}]});
+                      for(const context of batch.additionalContexts)exec.deferContext(context);
+                      const result=batch.results[0]?.result;
+                      results.push({index,tool:op.tool,result});
+                      if(!result||result.isError)throw new Error(JSON.stringify({code:'CAD_PATCH_STOPPED',ok:false,stopped_at:index,results,no_replay:true}));
+                    }
+                    return JSON.stringify({ok:true,results});
+                  }};
+                agentCtx.tools.register(patch,{when:()=>options.toolAvailable?.(patch.name)??true});allowed.push(patch.name);
+              }
+            }
+            if (!request.onlyTools && profile.role === 'main' && !options.disableTools && options.captureCadView) {
               const vision = options.profiles.find(value => value.role === 'vision' && value.input.includes('image'));
               if (vision) {
                 agentCtx.tools.register(defineTool({ name: 'cader_review_cad_view',
@@ -176,29 +200,13 @@ export async function createLiveRuntime(options: LiveOptions) {
                   output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
                   isConcurrencySafe: () => false,
                   async execute(args, exec) {
-                    if (++visualReviews > options.runtime.max_visual_reviews_per_turn) throw new Error('VISUAL_REVIEW_BUDGET_EXCEEDED');
-                    if (++delegations > options.runtime.max_delegations) throw new Error('DELEGATION_BUDGET_EXCEEDED');
-                    const capture = await options.captureCadView!(exec.signal);
-                    const ref = `cad-view-${randomUUID()}`; images.set(ref, capture.path);
-                    emit({ type: 'cad.view', agentId: id, evidence: capture.evidence, image_ref: ref });
-                    const review = await pool.run('main', () => run(vision.id,
-                      'Review this actual CAD render against the user requirements. Return JSON with defects (type,severity,location,evidence,suggestion), uncertainties and verdict. Do not claim geometric topology or saved-file verification from pixels. Do not use tools.\n' + args.question,
-                      { parent: agent, image: capture.path, signal: exec.signal }));
-                    let structured: unknown = null;
-                    try {
-                      const parsed = JSON.parse(review.text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
-                      if (Array.isArray(parsed.defects) && Array.isArray(parsed.uncertainties) && typeof parsed.verdict === 'string' &&
-                        parsed.defects.every((defect: Record<string, unknown>) => ['type','severity','location','evidence','suggestion'].every(key => key in defect))) structured = parsed;
-                    } catch { /* Unstructured text is evidence, never a validated pass. */ }
-                    emit({ type: 'cad.review', agentId: id, image_ref: ref, review_valid: structured !== null,
-                      structured, text: review.text, status: review.status });
-                    return JSON.stringify({ image_ref: ref, evidence: capture.evidence, review_valid: structured !== null, structured, review });
+                    return JSON.stringify(await reviewCadView(args.question, exec.signal, agent));
                   },
-                }), { when: () => options.toolAvailable?.('mcp__capture__export_current_view') ?? true });
+                }), { when: () => options.toolAvailable?.('cader_review_cad_view') ?? true });
                 allowed.push('cader_review_cad_view');
               }
             }
-            if (profile.can_delegate && !options.disableTools) {
+            if (!request.onlyTools && profile.can_delegate && !options.disableTools) {
               agentCtx.tools.register(defineTool({
                 name: 'cader_delegate', description: 'Delegate one bounded independent task; only the main agent can call this.',
                 parameters: { profile: { type: 'string', required: true,
@@ -214,10 +222,10 @@ export async function createLiveRuntime(options: LiveOptions) {
                   return pool.run('main', async () => JSON.stringify(await run(args.profile, args.instruction,
                     { parent: agent, signal: exec.signal, image })));
                 },
-              }));
+              }), { when: () => options.toolAvailable?.('cader_delegate') ?? true });
               allowed.push('cader_delegate');
             }
-            if (roleSkills.length && !options.disableTools) {
+            if (!request.onlyTools && roleSkills.length && !options.disableTools) {
               agentCtx.tools.register(defineTool({
                 name: 'cader_load_skill', description: 'Read a registered skill, or one of its listed resource IDs. This grants no execution rights.',
                 parameters: { name: { type: 'string', required: true, enum: roleSkills.map(skill => skill.name) },
@@ -232,7 +240,7 @@ export async function createLiveRuntime(options: LiveOptions) {
               }));
               allowed.push('cader_load_skill');
             }
-            if (imageRefs.length && !options.disableTools) {
+            if (!request.onlyTools && imageRefs.length && !options.disableTools) {
               agentCtx.tools.register(defineTool({ name: 'cader_view_image',
                 description: 'Inspect a crop from an authorized ORIGINAL image. Crop uses original pixel edges; optional rotation is clockwise. No CAD writes.',
                 parameters: { image_ref: { type: 'string', required: true, enum: imageRefs },
@@ -251,10 +259,11 @@ export async function createLiveRuntime(options: LiveOptions) {
               }));
               allowed.push('cader_view_image');
             }
+            for (const tool of request.extraTools ?? []) { agentCtx.tools.register(tool); allowed.push(tool.name); }
             const hidden = ctx.tools.schemas().map(tool => tool.name).filter(name => !allowed.includes(name));
             if (hidden.length) agentCtx.tools.restrict({ deny: hidden });
             agentCtx.tools.guard(exec => {
-              if (!allowed.includes(exec.name) || (exec.name === 'cader_delegate' && !profile.can_delegate))
+              if (!allowed.includes(exec.name) || options.toolAvailable?.(exec.name) === false || (exec.name === 'cader_delegate' && !profile.can_delegate))
                 return { reason: 'Tool is unavailable to this role', info: { name: 'CaderPolicyError', code: 'PERMISSION_DENIED' } };
               if (++calls > options.runtime.max_tool_calls) {
                 errorCode = 'TOOL_BUDGET_EXCEEDED';
@@ -303,7 +312,8 @@ export async function createLiveRuntime(options: LiveOptions) {
                 agentId: id, role: profile.role, code: errorCode });
             });
             agentCtx.on('agent/assistant-stream', ({ frame }) => {
-              if (frame.type === 'start') currentText = '';
+              if (frame.type === 'start') {currentText = '';outputTruncated=false;}
+              if(frame.type==='chunk'&&frame.chunk.type==='finish'&&frame.chunk.reason.kind==='max-tokens')outputTruncated=true;
               if (frame.type === 'chunk' && frame.chunk.type === 'text-delta') {
                 currentText += frame.chunk.text;
                 emit({ type: 'assistant.delta', agentId: id, role: profile.role, text: frame.chunk.text });
@@ -348,6 +358,8 @@ export async function createLiveRuntime(options: LiveOptions) {
         emit({ type: 'agent.started', agentId: id, role: profile.role, parentId: request.parent?.id });
         handle.agent.followup(createUserMessage({ content, source: { kind: 'user' } }));
         await handle.agent.whenIdle();
+        text = request.resultText?.() || text;
+        if(outputTruncated&&!request.resultText?.())errorCode??='OUTPUT_TRUNCATED';
         const status: AgentResult['status'] = signal.aborted ? 'cancelled' : errorCode || !text.trim() ? 'failed' : 'succeeded';
         emit({ type: 'agent.completed', agentId: id, role: profile.role, status });
         const result = { id, profile: profileId, status, text, ...(errorCode ? { errorCode } : {}), modelSteps: agentSteps, tools };
@@ -358,7 +370,41 @@ export async function createLiveRuntime(options: LiveOptions) {
         await handle?.dispose();
       }
     }
-    return { ctx, run, pool, completed: () => completed.slice(), toolNames: () => ctx.tools.schemas().map(tool => tool.name),
+    async function reviewCadView(question: string, signal?: AbortSignal, parent?: Agent) {
+      if (!options.captureCadView) throw new Error('CAD_VIEW_EXPORT_UNAVAILABLE');
+      if (++visualReviews > options.runtime.max_visual_reviews_per_turn) throw new Error('VISUAL_REVIEW_BUDGET_EXCEEDED');
+      const vision = options.profiles.find(profile => profile.role === 'vision' && profile.input.includes('image'));
+      if (!vision) throw new Error('VISION_PROFILE_UNAVAILABLE');
+      const capture = await options.captureCadView(signal ?? lifetime.signal);
+      const ref = `cad-view-${randomUUID()}`; images.set(ref, capture.path);
+      emit({ type: 'cad.view', evidence: capture.evidence, image_ref: ref });
+      const attempts: { id:string; status: string; text: string; valid: boolean }[] = [];
+      let structured: ReturnType<typeof parseVisualReport> | null = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        signal?.throwIfAborted();
+        if (++delegations > options.runtime.max_delegations) throw new Error('DELEGATION_BUDGET_EXCEEDED');
+        const submit: ToolDefinition = { name: 'cader_submit_visual_report', description: 'Submit the compact validated visual report. No extra fields. Mark unobservable conditions uncertain.',
+          parameters: visualReportSchema, output: { schema: { type: 'string' }, render: (_a,v) => [{type:'text',text:String(v)}] },
+          async execute(args, exec) { structured = parseVisualReport(args); exec.concludeTurn(); return JSON.stringify(structured); } };
+        const review = await pool.run('main', () => run(vision.id,
+          '用中文审查实际CAD图片与原始需求。必须调用cader_submit_visual_report提交；不要输出长篇解释。每条证据与建议保持简短，最多8个缺陷。checklist逐项核验要求的视觉条件；程序几何/拓扑事实不要求通过像素重复证实，不得仅凭图像推翻实体坐标。uncertainties仅记录影响必要视觉条件的未解决问题，不记录用户未要求的特征、无关观察或程序已证明的几何精度。' +
+          (attempt ? '\n上次未提交有效报告或输出被截断。请按工具schema简短重报，不要增加自定义字段。' : '') + '\n需求与程序证据：\n' + question,
+          { parent, image: capture.path, signal, onlyTools: [submit.name], extraTools: [submit], resultText: () => structured ? JSON.stringify(structured) : undefined }));
+        if (!structured && review.status === 'succeeded') {
+          try { structured = parseVisualReport(JSON.parse(review.text.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''))); } catch { /* Format repair is bounded and never constitutes acceptance. */ }
+        }
+        attempts.push({ id:review.id,status: review.status, text: review.text, valid: structured !== null });
+        if(structured)for(const previous of attempts.slice(0,-1)){
+          const failed=completed.find(result=>result.id===previous.id);
+          if(failed?.errorCode==='OUTPUT_TRUNCATED')failed.recovered_by=review.id;
+        }
+        if (structured || (review.status !== 'succeeded'&&review.errorCode!=='OUTPUT_TRUNCATED') || signal?.aborted) break;
+      }
+      const result = { image_ref: ref, evidence: capture.evidence, requirements: question, review_valid: structured !== null, structured, attempts };
+      emit({ type: 'cad.review', ...result }); return result;
+    }
+
+    return { ctx, run, reviewCadView, pool, completed: () => completed.slice(), toolNames: () => ctx.tools.schemas().map(tool => tool.name),
       async dispose() { clearTimeout(deadline); lifetime.abort(); await ctx.fiber.dispose(); } };
   } catch (error) { clearTimeout(deadline); await ctx.fiber.dispose(); throw error; }
 }

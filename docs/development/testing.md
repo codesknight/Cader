@@ -202,3 +202,15 @@ CI acceptance: implementation commit `7709770`, [Windows/Linux CI](https://githu
 REQ-027 远端复核：`55ad82f` 的 [CI 44667978153](https://github.com/codesknight/Cader/actions/runs/44667978153) 4/4 jobs成功：python-mcp/windows、python-mcp/ubuntu、dsh-components/windows、dsh-components/ubuntu。CI没有读取密钥、调用付费模型或真实CAD。本地53/53及上述CI不替代仍未通过的压力/生命周期和视觉纠错验收。
 
 原文校验：提交后的指导文件blob与用户提供文件SHA256一致。将原文纳入暂存区后，`git diff --check` 报告原稿第3–5行Markdown换行用的尾部空格；按保留原文要求未改写。排除该原稿后，本次变更的 `git diff 55ad82f^ 55ad82f --check -- . ':!docs/designs/Cader_v0.4.0_Development_Guide.md'` 通过。此前历史推送失败保留，本次远端同步成功已在日志补记。
+
+## 2026-11-20 / REQ-028 / #20：自主质量任务
+
+Node24.9.0 / pnpm11.28.5。`pnpm typecheck`通过，`pnpm test`63/63通过；`pnpm smoke`六项组件门槛通过，运行`.cader/runs/dsh-component-2026-11-20T04-08-50-190Z-bb3cfd9b-b009-4a00-a05f-c025d589a2c3`。区分实际DSH+确定性模型、组件fixture与真实模型/CAD；上述离线检查不访问密钥或CAD。
+
+初始视觉fixture/非纯JSON schema投影失败及后来ObjectID读回fixture失败保留为调试事实；修正后最终全测通过。新用例覆盖严格报告及截断修复、首错停止补丁、真实端口图的断路/支路/重叠/长线穿盒、任务审批范围、3轮上限、取消、陈旧连接/观察变化、恢复不重放。
+
+`pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality`五次尝试，其中四次真实模型+CAD，一次知识文件frontmatter配置预检失败；四次完整质量验收全部ok=false，含实际自动视觉和局部修改。最后Drawing5在第4次导出未知派发后冻结，保留锁，停止实机写入。真实运行时间、逐工具计数、视觉报告/图片hash、验收状态及根因边界见[报告](../validation/2026-11-20-autonomous-quality.md)和[JSON](../validation/2026-11-20-autonomous-quality.evidence.json)。
+
+最终非可定位uncertainty早停、视觉/程序清单分工及审计优化未重新进行实机写入，不能将旧运行标为这些改动已通过。保存原图的边缘检查离线检出实验C疑似裁切；不证明新导出成功。本轮没有Python改动或相邻MCP写入，Python本地检查未执行；CI按仓库原配置执行。代码提交CI另记。
+
+提交前最终复核：`pnpm typecheck`、`pnpm test`63/63及`pnpm smoke`全部通过，最终组件运行`.cader/runs/dsh-component-2026-11-20T04-20-11-767Z-f513ea5d-5fb2-4cc5-98fe-b5e95e8d5919`。44个本轮变更文件的Markdown本地链接和不回显密钥的泄漏检查通过，`git diff --check`通过。原始设计及相邻MCP没有修改。

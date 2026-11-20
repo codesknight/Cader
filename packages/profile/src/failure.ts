@@ -7,6 +7,7 @@ const hints: Record<string, string> = {
   AUTH: 'Check the configured provider credential and endpoint; do not share the key.',
   RATE_LIMIT: 'Wait for the provider rate limit to recover before retrying.',
   TIMEOUT: 'Check provider availability and configured timeouts.',
+  OUTPUT_TRUNCATED: '模型输出达到长度上限；未形成完整结论。检查输出预算，已确认的CAD操作不得重放。',
   NETWORK: 'Check provider network connectivity.',
   CONFIG_INVALID: 'Check model/MCP/Skill configuration, reference image limits and required credential environment variables.',
   CONFIG_NOT_FOUND: 'Check the configuration file path and run from the Cader repository root.',
@@ -47,7 +48,7 @@ export function failureFromError(error: unknown, source: FailureSource = 'runtim
 
 export function agentFailure(results: readonly AgentResult[], events: readonly PublicEvent[], mainId?: string) {
   const main = results.find(result => result.id === mainId);
-  const failed = main?.status !== 'succeeded' ? main : results.find(result => result.status !== 'succeeded');
+  const failed = main?.status !== 'succeeded' ? main : results.find(result => result.status !== 'succeeded'&&!result.recovered_by);
   if (!failed) return undefined;
   const provider = events.find(event => event.type === 'model.error' && event.agentId === failed.id);
   return describeFailure(failed.errorCode ?? provider?.code ?? 'AGENT_FAILED', provider ? 'provider' : 'agent');

@@ -17,3 +17,5 @@ User guides describe shipped behavior. Design proposals, fixture results, live m
 使用手册描述已实现行为；设计提案、组件测试、真实模型和真实 CAD 的验证范围分别记录，不把提案或模型回答当作 DWG 验收。
 
 [Project home / 项目首页](../README.md) · [简体中文](../README.zh-CN.md) · [Report an issue / 反馈问题](https://github.com/codesknight/Cader/issues)
+
+dev.2: [自主绘图质量实测 / autonomous quality evidence](validation/2026-11-20-autonomous-quality.md) · [Harness quality gate ADR](adr/0010-harness-owned-quality-gate.md)。完整实机案例仍未通过。

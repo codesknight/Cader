@@ -1,5 +1,10 @@
 version: 1
 skills:
+  - name: electrical-quality
+    description: Electrical schematic symbol, port and local correction knowledge; no execution authority.
+    roles: [main, vision]
+    mode: read-only
+    resources: {}
   - name: cad-inspection
     description: Inspect CAD layers through reviewed read-only MCP tools.
     roles: [main, subagent, vision]

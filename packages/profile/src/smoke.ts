@@ -70,5 +70,7 @@ export { runExecutionSmoke } from './execution-smoke.js';
 export { runReliabilitySmoke } from './reliability-smoke.js';
 export { runVisualSmoke } from './visual-smoke.js';
 export { runFaultSmoke } from './fault-smoke.js';
+export { runQualitySmoke } from './quality-smoke.js';
+export { verifyQuality, requiresQuality, runQualityTask } from './quality.js';
 export { ExecutionSession, PERMISSION_MODES } from './execution.js';
 export { validateCadArguments } from './cad-arguments.js';

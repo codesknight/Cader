@@ -10,12 +10,14 @@ import type { ChatSession } from './session-store.js';
 import { runUserShell } from './interactive-shell.js';
 import { ExecutionSession, PERMISSION_MODES } from './execution.js';
 import type { PermissionMode } from './execution.js';
+import type { QualityResume } from './quality.js';
 
 export const SLASH_COMMANDS = [
   ['/help', '命令与快捷键'], ['/open', '选择图片或DWG引用；CAD打开需后端能力'], ['/cd', '切换工作目录'],
   ['/status', '工作区与CAD状态'], ['/model', '查看或切换配置模型'], ['/mcp', 'list / use <配置> / tools / doctor / recover / off'],
   ['/skills', 'list / use <技能> / off'], ['/domain', '查看或切换专业'], ['/context', '上下文统计'],
   ['/compact', '用模型总结上下文，保留原始对话'], ['/clear', '保存并新建空白会话'], ['/resume', '列出或恢复会话ID'],
+  ['/quality','查看质量任务；resume 安全重验，不重放绘图'],
   ['/undo', '检查受控撤销能力'], ['/checkpoint', '创建会话与工程引用检查点'], ['/permissions', 'read-only | ask | workspace-write | full-access；shell ask|deny'], ['/exit', '保存并退出'],
 ] as const;
 const Domains = z.object({ version: z.literal(1), domains: z.array(z.object({ id: z.string().regex(/^[a-z][a-z0-9-]*$/),
@@ -138,6 +140,16 @@ export class InteractiveSession {
       const name = match[1]!, arg = (match[2] ?? '').trim().replace(/^"(.*)"$/, '$1');
       if (!SLASH_COMMANDS.some(([known]) => known === name)) return { text: `未知命令 ${this.clean(name)}。使用 /help。`, error: true };
       switch (name) {
+        case '/quality':{
+          if(!this.state.qualityRun)return {text:'当前没有质量任务。复杂绘图会自动建立质量清单。'};
+          const path=await workspacePath(this.state.workspace,this.state.qualityRun);
+          if((await stat(path)).size>2_000_000)throw new Error('QUALITY_MANIFEST_TOO_LARGE');
+          const saved=JSON.parse(await readFile(path,'utf8'));
+          if(!arg)return {text:this.clean(JSON.stringify({phase:saved.phase,round:saved.round,checks:saved.checks,path},null,2))};
+          if(arg!=='resume')return {text:'/quality 或 /quality resume',error:true};
+          if(saved.phase==='complete')return {text:'该任务已验收，无需重放。'};
+          return this.converse(saved.original_request,callbacks,saved as QualityResume);
+        }
         case '/help': return { text: SLASH_COMMANDS.map(([key, description]) => `${key.padEnd(15)} ${description}`).join('\n')
           + '\n\n自然语言持续对话 · @"路径含空格.png" 引用 · !dir 用户Shell\nEsc/Ctrl+C 中断当前任务 · Tab 补全 · 上下键历史 · Ctrl+D 或 /exit 退出\n/open DWG仅引用元数据，后端尚无任意DWG受控打开接口；/undo同样按能力拒绝。' };
         case '/exit': await this.store.save(this.state); await this.dispose(); return { text: `会话已保存：${this.state.id}`, exit: true };
@@ -231,7 +243,7 @@ export class InteractiveSession {
     await this.store.save(this.state);
     return { text: `上下文已生成未验证摘要，原对话完整保留。文字token估算 ${before.estimatedTextTokens} → ${this.context().estimatedTextTokens}` };
   }
-  private async converse(line: string, callbacks: ChatCallbacks): Promise<ChatReply> {
+  private async converse(line: string, callbacks: ChatCallbacks, qualityResume?:QualityResume): Promise<ChatReply> {
     if (this.state.messages.length > 1900 || Buffer.byteLength(JSON.stringify(this.state)) > 1_600_000)
       return { text: '会话存档接近上限，请 /clear 开始新会话；旧记录保留。', error: true };
     if (line.length > 24000 || this.context().estimatedTextTokens > 20000) return { text: '上下文达到本轮上限，请先 /compact 或 /clear。', error: true };
@@ -256,11 +268,14 @@ export class InteractiveSession {
       executionState: () => this.execution.facts(executionMark), toolAvailable: name => this.execution.toolAvailable(name),
       captureCadView: this.state.mcp ? signal => this.execution.captureView(signal, callbacks.confirm) : undefined,
       permissionMode: this.state.permission,
+      executionOwner:this.execution,confirmTask:callbacks.confirm,originalTask:content,
+      qualityResume,
       executionAuditDirectory: this.execution.runDirectory,
       skill: this.state.skill ?? undefined, image: image?.path, history, summary: this.state.summary,
       domain: this.domains.find(domain => domain.id === this.state.domain)!.instruction,
       signal: callbacks.signal, onEvent: event => { if (event.type === 'model.usage' && event.role === 'main') this.lastUsage = event.usage; callbacks.onEvent?.(event); } });
     this.state.messages[userIndex]!.status = report.run_status;
+    if(report.quality)this.state.qualityRun=join(report.runDirectory,'quality.json');
     this.state.messages.push({ role: 'assistant', content: this.clean(report.text || (report.run_status === 'cancelled' ? '[已取消，未形成完整结论]' : `[失败 ${report.errorCode ?? 'UNKNOWN'}]`)),
       status: report.run_status, at: new Date().toISOString() });
     await this.store.save(this.state);

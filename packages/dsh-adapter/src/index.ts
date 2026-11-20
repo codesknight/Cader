@@ -13,7 +13,7 @@ export { LlmError } from '@deepseek-ai/dsh-llm';
 export { ChildPool } from './pool.js';
 export { createManagedClient, createMcpClient, MANAGED_TOOLS } from './managed-client.js';
 export type { ToolDefinition } from '@deepseek-ai/dsh-tools';
-export { prepareImageView, attachmentToSource } from './image-view.js';
+export { prepareImageView, attachmentToSource, inspectCadImageBorder } from './image-view.js';
 export type { ImageView } from './image-view.js';
 export type { ToolExecution, ToolExecutionResult, PreToolDecision } from '@deepseek-ai/dsh-tools';
 
