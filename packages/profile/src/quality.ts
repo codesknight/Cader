@@ -21,7 +21,9 @@ export interface QualityResume {
   };
 }
 export function requiresQuality(task: string) {
-  return !/有什么功能|如何|怎么|能.*吗|已经.*验证.*吗/.test(task) && /画|绘制|重绘|布局|添加.*(?:文字|标注)|创建.*(?:电路|符号|示意)|\bdraw\b|\bdiagram\b|\bschematic\b/i.test(task) && !/^(?:请)?(?:移动|平移|旋转|move|rotate)/i.test(task);
+  if(/有什么功能|能画什么|如何|怎么|已经.*验证.*吗/.test(task))return false;
+  if(/^(?:请)?(?:移动|平移|旋转|move|rotate)/i.test(task))return false;
+  return /画|绘制|重绘|布局|添加.*(?:文字|标注)|(?:创建|设计|生成|制作|搭建|做).*(?:电路|图|符号|组件)|\bdraw\b|\bdiagram\b|\bschematic\b/i.test(task);
 }
 type Entity = Record<string, any>;
 type P = number[];

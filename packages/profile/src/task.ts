@@ -138,7 +138,7 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
     executionAuditDirectory: input.executionAuditDirectory ?? (execution ? directory : null),
     selectedSkill: input.skill ?? null, imageProvided: Boolean(input.image),
     text: qualityEnabled ? `${quality?.phase==='complete'?'任务验收通过。':'任务尚未完成，质量验证待通过。'}\n`+
-      (quality?.checks.map(check=>`${check.status==='pass'?'✓':'×'} ${quality?.plan?.requirements.find(r=>r.id===check.id)?.description??check.id}：${check.evidence}`).join('\n')??'验收计划未建立，未允许绘图。')+
+      (quality?.plan?quality.checks.map(check=>`${check.status==='pass'?'✓':'×'} ${quality?.plan?.requirements.find(r=>r.id===check.id)?.description??check.id}：${check.evidence}`).join('\n'):'验收计划未建立，未允许绘图。')+
       `\n阶段：${quality?.phase??'pending_verification'}；修正轮次：${quality?.round??0}/3。详细证据：${join(directory,'quality.json')}` : result?.text ?? '', ...failure, cleanupError, runDirectory: directory };
   const redact = (text: string) => cleanEnvironment(redactSecrets(text, config.profiles));
   BusinessOutcome.parse(report);

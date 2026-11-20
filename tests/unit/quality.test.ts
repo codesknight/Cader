@@ -46,6 +46,8 @@ test('schemas reject semantic entity types, contradictory visual pass and missin
   assert.equal(requiresQuality('画一个示意图'), true);
   assert.equal(requiresQuality('移动这条直线'), false);
   assert.equal(requiresQuality('你能画什么图吗'), false);
+  assert.equal(requiresQuality('能帮我画一个电路吗'),true);
+  assert.equal(requiresQuality('设计一个串联电路'),true);
 });
 // These are scheduling fixtures, not a model/CAD acceptance result.
 async function schedulingFixture(verdict: 'pass' | 'fail' | 'invalid' | 'cancel' | 'uncertain', repair = false,

@@ -214,3 +214,7 @@ Node24.9.0 / pnpm11.28.5。`pnpm typecheck`通过，`pnpm test`63/63通过；`pn
 最终非可定位uncertainty早停、视觉/程序清单分工及审计优化未重新进行实机写入，不能将旧运行标为这些改动已通过。保存原图的边缘检查离线检出实验C疑似裁切；不证明新导出成功。本轮没有Python改动或相邻MCP写入，Python本地检查未执行；CI按仓库原配置执行。代码提交CI另记。
 
 提交前最终复核：`pnpm typecheck`、`pnpm test`63/63及`pnpm smoke`全部通过，最终组件运行`.cader/runs/dsh-component-2026-11-20T04-20-11-767Z-f513ea5d-5fb2-4cc5-98fe-b5e95e8d5919`。44个本轮变更文件的Markdown本地链接和不回显密钥的泄漏检查通过，`git diff --check`通过。原始设计及相邻MCP没有修改。
+
+实现提交`187f658`正常推送；[CI 44673924887](https://github.com/codesknight/Cader/actions/runs/44673924887) Windows/Linux DSH组件与Python MCP四项全部成功。随后入口复核修正礼貌问句“能帮我画……吗”和“设计电路”的任务识别，补充断言及无计划时的明确阻断文案；未追加CAD调用。该补充提交CI单独跟踪，不能拿前一提交CI替代。
+
+入口补充本地复验：typecheck、测试63/63及smoke通过；组件运行`.cader/runs/dsh-component-2026-11-20T04-24-22-416Z-0c5261d7-4b16-43b5-99ca-d645423c5e29`。8个补充文件的文档链接、密钥泄漏检查及diff检查通过；补充提交CI最终状态在[#20](https://github.com/codesknight/Cader/issues/20)记录，不改变完整CAD验收未通过结论。

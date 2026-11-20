@@ -440,7 +440,7 @@ A CAD freeze also hides and blocks Agent Shell, including full-access, to preven
 
 ## dev.2: autonomous drawing quality tasks
 
-Drawing, redraw, diagram, layout and text-addition requests enter application-owned quality scheduling. Simple move/rotate requests retain deterministic post-write observation without mandatory visual round trips. Complex drawings route to VisionAgent automatically; users need not request review or switch agents.
+Drawing, design/generation, redraw, diagram, layout and text-addition requests enter application-owned quality scheduling. Chinese polite drawing questions also count as tasks; capability questions remain inquiries. Simple move/rotate requests retain deterministic post-write observation without mandatory visual round trips. Complex drawings route to VisionAgent automatically; users need not request review or switch agents.
 
 The CLI shows planning, drawing, geometry, topology, vision, correcting and complete/pending/blocked phases. The model submits an immutable requirement checklist and absolute component layout. Preflight rejects overlapping components, interior ports and nonexistent entity types. Actual CAD queries check supported counts, labels, segment/bounding-box intersections and two-terminal series graphs. Electrical tasks load the registered data-only `electrical-quality` skill; it contains no fixed drawing sequence or authority.
 
