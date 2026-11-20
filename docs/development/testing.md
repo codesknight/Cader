@@ -236,3 +236,5 @@ Node24.9.0 / pnpm11.28.5。最终`pnpm typecheck`通过；`pnpm test`69/69通过
 本轮Python/独立MCP无变更，本地Python检查未新增；CI仍运行原矩阵。`cader --version`为0.4.0-dev.3；Drawing6、旧Drawing5和原根屏障均保留，未自动迁移或重放。提交/远端CI结果另记。
 
 2026-11-21收尾：实现提交`0c5eba3`的[CI 44680055023](https://github.com/codesknight/Cader/actions/runs/44680055023) Windows/Linux DSH组件与Python MCP四项全部成功。连接关闭原因补充断言此前已全量通过69/69及smoke，运行`.cader/runs/dsh-component-2026-11-20T05-19-11-904Z-c29128a5-073f-418e-af7d-2eb7309aa57b`；此日核对源码差异与日志，未新增付费模型/真实CAD复验。完整图纸质量仍未通过，补充提交的最终CI在#20记录。
+
+补充代码`660153f`已推送，[CI 44783085937](https://github.com/codesknight/Cader/actions/runs/44783085937)成功。代码检查通过不改变完整图纸质量pending或历史unknown屏障；BUG-024修复验收与BUG-025/原生导出剩余项继续分开跟踪。
