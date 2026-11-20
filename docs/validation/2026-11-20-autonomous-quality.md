@@ -59,3 +59,5 @@ E的最终冻结：`capture_dispatch / unknown / CAD_CAPTURE_BARRIER`，工作�
 5. `/quality resume` 的安全拒绝及不重放已离线验证；跨进程原生绑定不支持，冻结实机恢复未通过。
 
 代码提交与CI状态在[测试记录](../development/testing.md)和[#20](https://github.com/codesknight/Cader/issues/20)继续跟踪。Issue保持打开。
+
+代码提交`187f658`、`2d7b818`均已正常推送，后者[Windows/Linux CI](https://github.com/codesknight/Cader/actions/runs/44674290412)四项全部通过；源码检查成功与完整实机验收失败分别保留。

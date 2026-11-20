@@ -218,3 +218,5 @@ Node24.9.0 / pnpm11.28.5。`pnpm typecheck`通过，`pnpm test`63/63通过；`pn
 实现提交`187f658`正常推送；[CI 44673924887](https://github.com/codesknight/Cader/actions/runs/44673924887) Windows/Linux DSH组件与Python MCP四项全部成功。随后入口复核修正礼貌问句“能帮我画……吗”和“设计电路”的任务识别，补充断言及无计划时的明确阻断文案；未追加CAD调用。该补充提交CI单独跟踪，不能拿前一提交CI替代。
 
 入口补充本地复验：typecheck、测试63/63及smoke通过；组件运行`.cader/runs/dsh-component-2026-11-20T04-24-22-416Z-0c5261d7-4b16-43b5-99ca-d645423c5e29`。8个补充文件的文档链接、密钥泄漏检查及diff检查通过；补充提交CI最终状态在[#20](https://github.com/codesknight/Cader/issues/20)记录，不改变完整CAD验收未通过结论。
+
+补充代码提交`2d7b818`已正常推送；[CI 44674290412](https://github.com/codesknight/Cader/actions/runs/44674290412)四项全部成功：Windows/Linux DSH组件及Python MCP。离线 `cader --version` 返回`0.4.0-dev.2`。根目录原屏障及quality-e450…的Drawing5屏障均仍存在，后者为capture_dispatch/unknown/frozen；没有通过重连或删锁绕过。源码本地及CI通过，完整CAD质量案例仍未通过。
