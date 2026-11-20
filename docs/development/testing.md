@@ -194,3 +194,7 @@ CI acceptance: implementation commit `7709770`, [Windows/Linux CI](https://githu
 #19本地最终检查：pnpm typecheck通过、pnpm test 53/53通过、pnpm smoke 6/6组件门槛通过。版本为0.4.0-dev.1，不代表完整v0.4实机门槛通过。分支codex/v0.4-reliable-execution供审阅，MCP修补授权仍待答复；CI待推送后执行。
 
 补充：full-access下Agent Shell仍受CAD冻结屏障约束，新增断言确认无Shell派发。GitHub API可访问但普通Git HTTPS push多次连接失败；当前提交保留本地，CI不得标为通过。
+
+## 2026-11-20 / REQ-027：提交前离线复核
+
+固定 Node 24.9.0 / pnpm 11.28.5：`pnpm typecheck` 通过；`pnpm test` 53/53 通过；`pnpm smoke` 六项组件门槛全部通过，记录 `.cader/runs/dsh-component-2026-11-20T03-28-09-770Z-244c21ea-2202-45b3-9013-c4ec9bbd833a`。文档新增相对链接检查、`git diff --check` 通过；指导原文 SHA256 保持不变。本轮未重新调用付费模型或真实CAD，既有实机失败不变；CI实际结果待远端运行后追加。

@@ -9,8 +9,8 @@ Start with the CLI user guide for installation and daily use. / 安装与日常�
 | Integration / 集成 | [CLI diagnostics and controlled execution / 诊断与受控执行](development/cli.md) · [CAD contract / 公共契约](contracts/managed-cad-v1.md) |
 | Contributors / 开发者 | [Development process / 开发流程](development/process.md) · [Records / 开发记录](development/README.md) · [Roadmap / 路线](development/roadmap.md) |
 | Architecture / 架构 | [Terminal architecture / 交互终端](architecture/interactive-terminal.md) · [CLI First](architecture/cli-first.md) · [ADRs](adr/) |
-| Verification / 验证 | [Terminal validation / 终端验证](validation/2026-11-19-interactive-terminal.md) · [Real CAD fixture / 真实固定几何](validation/2026-11-19-cader-cli-real-loop.md) |
-| Proposals / 设计参考 | [Technical design / 技术设计](designs/Cader_Technical_Design_v0.2.md) · [CLI design / CLI 设计](designs/Cader_CLI_Design.md) |
+| Verification / 验证 | [v0.4 actual results and retained failures / v0.4 实测与保留失败](validation/2026-11-20-reliable-execution.md) · [v0.3 model execution / v0.3 模型执行](validation/2026-11-20-agent-execution.md) · [Terminal validation / 终端验证](validation/2026-11-19-interactive-terminal.md) · [Real CAD fixture / 真实固定几何](validation/2026-11-19-cader-cli-real-loop.md) |
+| Proposals / 设计参考 | [v0.4 development guidance / v0.4 研发指导原文](designs/Cader_v0.4.0_Development_Guide.md) · [Technical design / 技术设计](designs/Cader_Technical_Design_v0.2.md) · [CLI design / CLI 设计](designs/Cader_CLI_Design.md) |
 
 User guides describe shipped behavior. Design proposals, fixture results, live models and real CAD tests have separate scopes; a proposal or model answer is not proof of a verified DWG.
 
