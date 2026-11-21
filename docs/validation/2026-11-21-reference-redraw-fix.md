@@ -36,3 +36,5 @@
 MCP 全量实际221 passed/33 skipped；isolated I/F检查改动文件通过。未启用的 CAD pytest 不计通过，真实 CAD 由上述独立入口另测。相邻 web/backend 和训练资料改动未混入提交。
 
 MCP提交`f583b70`已普通推送，CI [44899684701](https://github.com/codesknight/AutoCAD-MCP/actions/runs/44899684701) 两项检查通过。Cader最终提交/CI在#20同步。
+
+Cader实现`199f34a`已普通推送`codex/v0.4-reliable-execution`，CI [44900911369](https://github.com/codesknight/Cader/actions/runs/44900911369) 成功（Ubuntu/Windows DSH与Python）。安装的本地入口`cader -v`实际显示0.4.0-dev.6。双语手册检查17个根命令、13次离线入口、216条本地链接/22锚点通过；41个暂存文件凭据检查无泄露。CI不读取密钥、不调用付费模型/CAD，不替代上述未完成质量门槛。文档收尾提交CI在#20同步。

@@ -278,3 +278,5 @@ REQ-033手稿日志审计：读取用户原始附件及实际verification/events
 本轮实际`pnpm typecheck`、`pnpm test`88/88和`pnpm smoke`通过；有真实DSH装配，但CAD/视觉fixture明确为模拟断言。新增路径快照/续接请求、实际图片块、双图、新图/实体归属、local DWG文件核对、续验不重放和导线约束。真实模型+AutoCAD采用显式`pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task <手稿任务>`；前三轮记录真实新图/DWG与失败，完整质量没有冒充通过。MCP独立原生截图验证通过，221 passed/33 skipped；最终检查、实机结果及CI见[完整分层记录](../validation/2026-11-21-reference-redraw-fix.md)。
 
 最终第四轮服务QUOTA中断于修正阶段，39确认/unknown0、两次有效源图对照及一轮修正已发生，仍有拓扑/外观未通过。新增模型失败后待验稿保存及更换源图后阻止裸“继续”的回归；最终88/88、typecheck、smoke通过。独立三份DWG重开保持几何/文字，末份为人工保存的测试稿，不代替应用QUOTA收尾实机验收。CLI手册检查17根命令、13个离线入口通过；首次新日志相对链接层级有误，已修复后重验。付费完整质量和新增收尾分支受服务限制未重跑。
+
+实现199f34a的[Cader CI](https://github.com/codesknight/Cader/actions/runs/44900911369)及MCP f583b70的[CI](https://github.com/codesknight/AutoCAD-MCP/actions/runs/44899684701)均成功。本地最终88/88、typecheck、smoke，手册216本地链接/22锚点通过，实际cader -v为dev.6。CI与离线通过不改变完整真实质量未通过的状态，#20保持打开；后续文档CI在Issue记录。
