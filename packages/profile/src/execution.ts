@@ -261,6 +261,20 @@ export class ExecutionSession {
   private serial<T>(work: () => Promise<T>): Promise<T> {
     const next = this.tail.then(work); this.tail = next.catch(() => {}); return next;
   }
+  private async validateDependencies(name:string,payload:Record<string,unknown>,operationId:string){
+    const layer=name==='set_layer_properties'?payload.name:payload.layer;
+    if(name==='set_layer_properties'&&(typeof layer!=='string'||!layer.trim()))throw new Error('CAD_LAYER_NAME_REQUIRED: no mutation dispatched');
+    if(typeof layer!=='string'||!layer.length)return;
+    // Read on every explicit layer use. A stale cache cannot authorize a mutation.
+    const schema=this.client?.definitions().find(tool=>tool.name.endsWith('__list_layers'));
+    if(!schema)throw new Error('CAD_DEPENDENCY_CHECK_UNAVAILABLE: list_layers; no mutation dispatched');
+    assertToolArguments(schema,{});
+    const layers=await this.client!.call('list_layers',{},operationId+'-layers');
+    if(!Array.isArray(layers)||!layers.every(item=>typeof item==='string'))throw new Error('CAD_LAYER_OBSERVATION_INVALID: no mutation dispatched');
+    await this.audit({phase:'dependency_checked',operation_id:operationId,tool:name,target:this.scratch,layer,layers});
+    if(!layers.some(item=>item.toLocaleLowerCase()===layer.toLocaleLowerCase()))
+      throw new Error(`CAD_LAYER_NOT_FOUND: ${layer}; call create_layer first, then retry only the unexecuted operation. No mutation dispatched.`);
+  }
   private async authorize(description: string, destructive: boolean, confirm?: Approval, shell = false, cad?:{name:string;payload:Record<string,unknown>}) {
     if (this.mode === 'read-only') throw new Error('READ_ONLY_PERMISSION');
     if(cad?.name==='delete_entity'&&this.taskGrant?.target===this.scratch&&this.taskGrant?.created.has(Number(cad.payload.object_id)))return;
@@ -316,6 +330,7 @@ export class ExecutionSession {
             assertToolArguments(tool,args);
             validateCadArguments(name, payload);
             if (name !== 'new_drawing' && !this.scratch) throw new Error('NEW_SCRATCH_DRAWING_REQUIRED');
+            await this.validateDependencies(name,payload,operationId);
             let destructive = name === 'delete_entity' || payload.erase_source === true;
             let output: string | undefined;
             if (name === 'save_drawing') {
@@ -374,7 +389,7 @@ export class ExecutionSession {
             await this.audit({ ...record, phase: record.dispatched ? 'frozen' : 'not_dispatched', request: operationId });
             throw new Error(this.clean(JSON.stringify({ code: record.dispatched ? acknowledged ? 'CAD_COMMITTED_OBSERVATION_FAILED' : 'OUTCOME_UNKNOWN_FROZEN' : record.outcome === 'blocked_not_dispatched' ? 'CAD_WRITE_BLOCKED_FROZEN_NOT_DISPATCHED' : 'CAD_FAILED_BEFORE_DISPATCH',
               operation_id: operationId, dispatched: record.dispatched, stage: record.stage, outcome: record.outcome,
-              cause: (record.error as { message?: string })?.message, recovery: this.frozen ? this.recoveryEligibility().guidance : 'Correct arguments or obtain approval before a new request.' })));
+              cause: (record.error as { protocol_failure?:{error?:{message?:string}};message?: string })?.protocol_failure?.error?.message ?? (record.error as { message?: string })?.message, recovery: this.frozen ? this.recoveryEligibility().guidance : 'Correct arguments or dependencies, or obtain approval before a new request. Never replay committed patch operations.' })));
           }
         }) }));
   }

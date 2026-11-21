@@ -23,3 +23,5 @@ dev.2: [自主绘图质量实测 / autonomous quality evidence](validation/2026-
 dev.3: [MCP参数预检修复与实测 / input validation fix](validation/2026-11-20-schema-preflight-fix.md) · [ADR0011](adr/0011-mcp-input-validation-and-result-classification.md)。文字与自动视觉阶段已实测，完整图纸质量仍未通过。
 
 dev.4: [历史屏障诊断与用户复核 / legacy barrier review](validation/2026-11-21-legacy-barrier-review.md) · [ADR0012](adr/0012-reviewed-legacy-barrier-retirement.md)。启动警告与模型前阻断；旧缺参只能用户显式审定，原始unknown保留，真实未知不放行。
+
+dev.5: [依赖预检与部分执行 / dependency and partial effects](validation/2026-11-21-dependency-and-partial-execution.md) · [ADR0013](adr/0013-cad-dependency-preflight-and-partial-effects.md)。图层先查再写、MCP新增实体清理、规划错误直接报告；真实未知不自动解锁。

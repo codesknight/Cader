@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { InteractiveSession } from './interactive.js';
 import {createToolRuntime,invokeTool} from '@cader/dsh-adapter';
 /** One original user request, real models and real AutoCAD. No operation sequence. */
-export async function runQualitySmoke(root: string, mcpPath: string) {
+export async function runQualitySmoke(root: string, mcpPath: string, task = '画一个带有 5V 电源和一个灯泡的串联电路图。') {
   const workspace = resolve(root, '.cader/runs', `quality-${randomUUID()}`);
   await mkdir(workspace, { recursive: true });
   const session = await InteractiveSession.create(root, workspace);
@@ -28,7 +28,7 @@ export async function runQualitySmoke(root: string, mcpPath: string) {
         dispatched:facts.operations.some(op=>op.dispatched),frozen:facts.frozen,operations:facts.operations};
       if(!invalid.isError||facts.frozen||facts.operations.some(op=>op.dispatched))throw new Error('SCHEMA_PREFLIGHT_REGRESSION');
     }finally{await probe.fiber.dispose();}
-    const reply = await session.execute('画一个带有 5V 电源和一个灯泡的串联电路图。', {
+    const reply = await session.execute(task, {
       confirm: async (description) => {
         if(!description.startsWith('CAD '))
           return false; approvals++; return true;
@@ -50,7 +50,7 @@ export async function runQualitySmoke(root: string, mcpPath: string) {
       realImageRequest: reports.some(e => e.type === 'image.request'), taskApproval: approvals >= 1
     };
     const report = {
-      ok: Object.values(checks).every(Boolean), kind: 'real-model-real-CAD-autonomous-quality', request: '画一个带有 5V 电源和一个灯泡的串联电路图。', checks, reply, approvals,schemaPreflight,
+      ok: Object.values(checks).every(Boolean), kind: 'real-model-real-CAD-autonomous-quality', request: task, checks, reply, approvals,schemaPreflight,
       limits: ['Native COM revision and pixel-to-CAD transform are not available; entities are re-queried by ID, never edited from pixels alone.'], runDirectory: workspace
     };
     await writeFile(resolve(workspace, 'verification.json'), session.clean(JSON.stringify(report, null, 2)));

@@ -2,7 +2,7 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Project home](../../README.md) · [Documentation](../README.md)
 
-**Applies to Cader 0.4.0-dev.4 · Updated 2026-11-21**
+**Applies to Cader 0.4.0-dev.5 · Updated 2026-11-21**
 
 Cader CLI is a CAD agent terminal built on DeepSeek Harness. Describe tasks in a persistent conversation, select models and skills, reference images, inspect CAD status, or use a single command from a script.
 
@@ -506,3 +506,21 @@ Select the original MCP configuration first. The application correlates the orig
 After operator adjudication, the original unknown barrier, journal snapshot and hashed decision receipt remain in workspace `.cader/barriers/`. Old unknown outcomes are not rewritten, operations are not replayed and old documents are not adopted. The transport closes and document/task grants are dropped; resend the task to create a fresh scratch. `/quality resume` cannot continue the old task. Review mutex and filesystem failures block release; stale review mutexes are never removed automatically.
 
 The actual Drawing6 record was reviewed read-only against real MCP discovery and remains unchanged. Operator approval and a complete new drawing were not performed on the user's behalf. See [diagnosis and limits](../validation/2026-11-21-legacy-barrier-review.md).
+
+## dev.5: preventing avoidable write barriers
+
+Writes naming a layer query `list_layers` immediately before dispatch. Missing layers, failed reads and invalid responses reject the mutation as `failed_before_dispatch` without freezing. The Agent receives an actionable instruction to call `create_layer` and retry only the unexecuted operation. No hidden layer creation or whole-patch replay occurs. Failed patch results include `not_dispatched` indices; committed operations remain committed.
+
+Native failures may leave partial geometry. Tool and final CLI results now display the original native error. An unproven terminal outcome still retains the barrier. The corresponding AutoCAD-MCP changes validate layers before entity creation and attempt cleanup only of entities created by that call. This is not a transaction receipt: failed cleanup or lost responses remain uncertain. Upgrading does not retire the existing partial Drawing2 barrier, and `/mcp resolve` is not applicable to it.
+
+MCP export also uses foreground plotting, explicit fit-to-page and complete plot-setting restoration, and refuses existing output targets. This reduces background-job capture delays; uncertain exports are never automatically replotted or declared complete. Restart Cader to reload the updated MCP child process.
+
+Planning model failures now enter `blocked`, preserve `quality.failure` and planning `model_runs`, and display QUOTA or the actual failure before drawing. They are no longer described as pending quality verification. A missing valid plan produces `ACCEPTANCE_PLAN_MISSING`. QUOTA alone does not establish insufficient balance.
+
+Explicit real-model/CAD validation can use a custom quality task (paid API calls and real scratch drawings; the default remains the series circuit):
+
+```powershell
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task "Create a blank drawing with a house and a tree beside it."
+```
+
+`--task` is accepted only with `--quality`. The model receives the request, never a fixed operation sequence. See [actual tests, failures and limits](../validation/2026-11-21-dependency-and-partial-execution.md).

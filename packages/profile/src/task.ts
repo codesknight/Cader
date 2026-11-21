@@ -105,6 +105,7 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
       } else result = await runtime.run(config.runtime.main_profile, input.task, { skill: input.skill, image: input.image, imageView: input.imageView,
           signal: input.signal, history: input.history, summary: input.summary, domain: input.domain });
       failure = agentFailure(runtime.completed(), events, result?.id);
+      if((!failure||failure.errorCode==='AGENT_FAILED')&&quality?.failure)failure=describeFailure(quality.failure.code,quality.failure.source==='model'?'agent':'verification');
       }
     }
   } catch (error) { failure = failureFromError(error, stage); }
@@ -128,11 +129,11 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
   const qualityPending=Boolean(qualityEnabled&&quality?.phase!=='complete');
   if(quality){
     stages.planning=quality.plan?'succeeded':!runtime?'not_performed':'failed';
-    stages.execution=writeBlocked?'blocked':quality.phase==='complete'?'succeeded':'unverified';
+    stages.execution=writeBlocked||quality.phase==='blocked'?'blocked':quality.phase==='complete'?'succeeded':'unverified';
   }
   const report = { contract_version: 'cader-task/1', ok: runSucceeded && !drawingBlocked && !writeBlocked && !qualityPending, run_status: cancelled ? 'cancelled' : runSucceeded ? 'succeeded' : 'failed',
     task_status: cancelled || writeBlocked || qualityPending ? 'blocked' : !runSucceeded ? 'failed' : drawingBlocked ? 'blocked' : quality?.phase==='complete'?'succeeded':'unverified',
-    blocked_reasons: cancelled ? ['CANCELLED'] : writeBlocked ? ['CAD_WRITE_FROZEN'] : qualityPending?['QUALITY_NOT_ACCEPTED']:drawingBlocked && runSucceeded ? ['WRITE_CAPABILITY_UNAVAILABLE'] : [],
+    blocked_reasons: cancelled ? ['CANCELLED'] : writeBlocked ? ['CAD_WRITE_FROZEN'] : failure?[failure.errorCode]:qualityPending?['QUALITY_NOT_ACCEPTED']:drawingBlocked && runSucceeded ? ['WRITE_CAPABILITY_UNAVAILABLE'] : [],
     quality:quality??null,
     model_run_status:result?.status??(runtime?'no_result':'not_started'),
     execution_evidence: executionEvidence ?? null,
@@ -144,7 +145,7 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
     runId, kind: 'user-task', mode: input.permissionMode ?? 'read-only',
     executionAuditDirectory: input.executionAuditDirectory ?? (execution ? directory : null),
     selectedSkill: input.skill ?? null, imageProvided: Boolean(input.image),
-    text: qualityEnabled&&writeBlocked&&!runtime?`任务未开始：工作区写屏障已存在，未调用模型规划。\n${input.executionOwner?.diagnosticSummary()??''}\n/mcp barrier 查看旧屏障的复核资格；/mcp resolve 仅允许用户审定符合条件的旧参数拒绝。` : qualityEnabled ? `${quality?.phase==='complete'?'任务验收通过。':'任务尚未完成，质量验证待通过。'}\n`+
+    text: qualityEnabled&&writeBlocked?`${!runtime?'任务未开始：工作区写屏障已存在，未调用模型规划。':'绘图执行中断：尚未通过验收。'}\n${input.executionOwner?.diagnosticSummary()??''}\n${!runtime?'/mcp barrier 可查看旧缺参屏障复核资格。':'请保留原图和执行证据；不得重放未知写入。'}` : qualityEnabled&&quality?.failure?`任务在${quality.failure.stage==='planning'?'规划':quality.failure.stage}阶段失败，${quality.failure.stage==='planning'?'尚未允许绘图。':'未通过验收。'}\n原因：${failure?.errorCode??quality.failure.code}。详细证据：${join(directory,'quality.json')}` : qualityEnabled ? `${quality?.phase==='complete'?'任务验收通过。':'任务尚未完成，质量验证待通过。'}\n`+
       (quality?.plan?quality.checks.map(check=>`${check.status==='pass'?'✓':'×'} ${quality?.plan?.requirements.find(r=>r.id===check.id)?.description??check.id}：${check.evidence}`).join('\n'):'验收计划未建立，未允许绘图。')+
       `\n阶段：${quality?.phase??'pending_verification'}；修正轮次：${quality?.round??0}/3。详细证据：${join(directory,'quality.json')}` : result?.text ?? '', ...failure, cleanupError, runDirectory: directory };
   const redact = (text: string) => cleanEnvironment(redactSecrets(text, config.profiles));

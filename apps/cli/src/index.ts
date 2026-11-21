@@ -7,7 +7,7 @@ import { readFile } from 'node:fs/promises';
 import { runTerminal } from './terminal.js';
 
 const command = process.argv[2];
-const usage = 'Cader CLI (permission: ask by default)\nexec "<task>" [--permissions read-only|ask|workspace-write|full-access] [--intent assess|redraw] [--mcp <local.yaml>] [--skill <name>] [--image <workspace.png|jpg>] [--crop x,y,w,h] [--rotate 0|90|180|270]\nskills list | skills show <name> [--resource <id>] | doctor | models | harness-smoke\nlive-smoke --mcp <local.yaml> [--execution | --reliability | --faults | --visual | --quality | --image <file> --expected-image <json>]\ncad-contract\ncad-test --backend http --mcp <local.yaml> --plan <plan.json> --output .cader/artifacts/<name>.dwg [--authorize-write]\ncad-reconcile --run <managed-run-directory> --mcp <local.yaml>\nassessment-check --assessment <json> --expect <independent.json>';
+const usage = 'Cader CLI (permission: ask by default)\nexec "<task>" [--permissions read-only|ask|workspace-write|full-access] [--intent assess|redraw] [--mcp <local.yaml>] [--skill <name>] [--image <workspace.png|jpg>] [--crop x,y,w,h] [--rotate 0|90|180|270]\nskills list | skills show <name> [--resource <id>] | doctor | models | harness-smoke\nlive-smoke --mcp <local.yaml> [--execution | --reliability | --faults | --visual | --quality [--task <request>] | --image <file> --expected-image <json>]\ncad-contract\ncad-test --backend http --mcp <local.yaml> --plan <plan.json> --output .cader/artifacts/<name>.dwg [--authorize-write]\ncad-reconcile --run <managed-run-directory> --mcp <local.yaml>\nassessment-check --assessment <json> --expect <independent.json>';
 function flags(keys: string[], booleans: string[] = []) {
   const result = new Map<string, string>();
   const args = process.argv.slice(3);
@@ -38,7 +38,7 @@ try {
   let taskInput: { task: string; mcpPath?: string; skill?: string; image?: string; intent?: 'assess' | 'redraw';
     permissionMode?: 'read-only' | 'ask' | 'workspace-write' | 'full-access';
     imageView?: { rotation?: 0 | 90 | 180 | 270; crop?: { left: number; top: number; width: number; height: number } } } | undefined;
-  let smokeInput: { mcpPath: string; image?: string; expectedImage?: string } | undefined;
+  let smokeInput: { mcpPath: string; image?: string; expectedImage?: string; task?:string } | undefined;
   let executionSmoke = false;
   let reliabilitySmoke = false;
   let visualSmoke = false;
@@ -54,12 +54,13 @@ try {
       if (flag === '--visual' && !visualSmoke) { visualSmoke = true; index--; continue; }
       if (flag === '--faults' && !faultSmoke) { faultSmoke = true; index--; continue; }
       if (flag === '--quality' && !qualitySmoke) { qualitySmoke = true; index--; continue; }
-      if (!['--mcp', '--image', '--expected-image'].includes(flag) || flags.has(flag)
+      if (!['--mcp', '--image', '--expected-image','--task'].includes(flag) || flags.has(flag)
         || !value?.trim() || value.startsWith('--')) throw new Error('USAGE_ERROR');
       flags.set(flag, value);
     }
     if (!flags.has('--mcp') || (flags.has('--expected-image') && !flags.has('--image')) || ((executionSmoke || reliabilitySmoke || visualSmoke || faultSmoke || qualitySmoke) && flags.has('--image')) || [executionSmoke,reliabilitySmoke,visualSmoke,faultSmoke,qualitySmoke].filter(Boolean).length > 1) throw new Error('USAGE_ERROR');
-    smokeInput = { mcpPath: flags.get('--mcp')!, image: flags.get('--image'), expectedImage: flags.get('--expected-image') };
+    if(flags.has('--task')&&!qualitySmoke)throw new Error('USAGE_ERROR');
+    smokeInput = { mcpPath: flags.get('--mcp')!, image: flags.get('--image'), expectedImage: flags.get('--expected-image'),task:flags.get('--task') };
   }
   if (command === 'exec' && !process.argv.slice(3).includes('--help')) {
     const args = process.argv.slice(3);
@@ -91,7 +92,7 @@ try {
       intent: intent as 'assess' | 'redraw', imageView: { rotation: rotation as 0 | 90 | 180 | 270, crop } };
   }
   if (command === '--version' || command === '-v') {
-    console.log('Cader 0.4.0-dev.4');
+    console.log('Cader 0.4.0-dev.5');
   } else if (command === '--help' || command === 'help' || (command === 'exec' && process.argv.includes('--help'))) {
     console.log(usage);
     console.log('\nNo command: interactive Cader terminal. chat [--workspace <dir>] [--stdio]\n--version  Show version without configuration or network.');
@@ -150,7 +151,7 @@ try {
       console.log(redactSecrets(JSON.stringify({ ok: true, runtime: config.runtime, profiles: config.profiles.map(profile =>
         ({ ...profile, credentialConfigured: Boolean(process.env[profile.api_key_env]?.trim()) })) }, null, 2), config.profiles));
     } else if (command === 'live-smoke') {
-      const result = qualitySmoke ? await runQualitySmoke(process.cwd(), smokeInput!.mcpPath) : faultSmoke ? await runFaultSmoke(process.cwd(), smokeInput!.mcpPath) : visualSmoke ? await runVisualSmoke(process.cwd(), smokeInput!.mcpPath) : reliabilitySmoke ? await runReliabilitySmoke(process.cwd(), smokeInput!.mcpPath) : executionSmoke ? await runExecutionSmoke(process.cwd(), smokeInput!.mcpPath) : await runLiveSmoke(process.cwd(), smokeInput!);
+      const result = qualitySmoke ? await runQualitySmoke(process.cwd(), smokeInput!.mcpPath,smokeInput!.task) : faultSmoke ? await runFaultSmoke(process.cwd(), smokeInput!.mcpPath) : visualSmoke ? await runVisualSmoke(process.cwd(), smokeInput!.mcpPath) : reliabilitySmoke ? await runReliabilitySmoke(process.cwd(), smokeInput!.mcpPath) : executionSmoke ? await runExecutionSmoke(process.cwd(), smokeInput!.mcpPath) : await runLiveSmoke(process.cwd(), smokeInput!);
       console.log(JSON.stringify(result, null, 2));
       process.exitCode = result.ok ? 0 : 1;
     } else {

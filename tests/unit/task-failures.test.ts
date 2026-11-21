@@ -37,7 +37,7 @@ test('task and smoke propagate actual DSH QUOTA to terminal and saved verificati
         assert.equal(report.ok, false);
         assert.equal(report.errorCode, 'QUOTA');
         assert.equal(report.source, 'provider');
-        assert.match(report.hint!, /balance|quota/);
+        assert.match(report.hint!, /balance|quota|配额/);
         assert.equal(report.cleanupError, 'CLEANUP_FAILED');
         const saved = await readFile(report.runDirectory + '/verification.json', 'utf8');
         assert.equal(JSON.parse(saved).errorCode, 'QUOTA');

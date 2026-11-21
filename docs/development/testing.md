@@ -252,3 +252,15 @@ CLI实际执行`node apps/cli/dist/index.js chat --stdio --workspace C:/Users/Li
 最终复跑typecheck、76/76 tests及smoke均通过，最终组件记录`.cader/runs/dsh-component-2026-11-21T05-33-56-678Z-90fd4fc0-63b6-45b4-8dd8-0a44ef1ad08b`；`cader --version`实际返回0.4.0-dev.4。`python .cader/check-cli-manual.py --links-only`通过2语言/17根命令/193本地链接/23锚点；`git diff --check`通过。提交及远端最终CI链接记录在[#20](https://github.com/codesknight/Cader/issues/20)，本地组件通过不替代CI或完整绘图验收。
 
 代码`5638f41`已普通推送，[CI 44871945247](https://github.com/codesknight/Cader/actions/runs/44871945247)四项全部成功（Windows/Linux DSH组件及Python MCP）。工作树与远端一致，用户原锁最终hash仍与只读核对前一致。Git直连及旧端点超时后，确认当前系统代理10808正常、Git旧配置10809，单次参数10808完成fetch/push；不改全局配置或TLS校验。最终文档提交CI在#20补充。
+
+## 2026-11-21 / REQ-032 / dev.5：依赖预检与部分执行
+
+最终`pnpm typecheck`、`pnpm test`79/79、`pnpm smoke`六项通过，组件记录`.cader/runs/dsh-component-2026-11-21T09-51-50-083Z-0b727f69-f22d-43b1-8473-0e661a090f37`。依赖缺失/查询失败无写入无冻结，真实DSH组件收到错误后调用create_layer并只画一次；QUOTA/缺计划在规划阶段阻断。不是付费模型结果。
+
+Cader Python检查：`uv run --project cader-mcp ruff check cader-mcp`、`ruff format --check cader-mcp`、`pytest -q cader-mcp/tests`均通过，10项测试；未修改该Python模块。独立MCP使用自身conda Python执行`python -m pytest -q`：221 passed/33 skipped；43新增定向案例包括38创建安全、5导出恢复。MCP未配置ruff，借用uv环境isolated I/F检查3个变更Python文件并修正imports；最初误用Cader严格BLE规则报告了旧代码和刻意cleanup捕获，不伪装为相邻仓库既有lint结果。
+
+开发失败保留：最初MCP fixture缺InsertBlock、Cader无规划返回分类不匹配导致37/38与78/79，修正后全过；一次相邻环境误在Cader根跑pytest导致cader_mcp导入失败，正确目录执行后通过；不是实机产品故障。
+
+真实CAD：`.cader/live-dependency-native.py`新图缺图层后count0、建层后多段线正常、后续无效setter仅清理第二个新增实体。加入导出修复后1.110秒有效PNG且系统变量/打印设置恢复一致，定向图纸均关闭。两轮自然语言入口：`pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task "新建一张空白图纸，绘制一个房子，旁边有棵树。"`。
+
+首轮`quality-e2f051c5…`16确认，截图等待超时后文件延迟出现，capture_dispatch冻结，exit1；未篡改为成功。第二轮`quality-c7032bea…`18确认、unknown0、实际自动视觉有效并一轮修正，exit1/pending：计划类型/需求检查语义不当和截图边缘未通过。未执行固定绘图计划，未声称完整质量或保存DWG通过。完整私有工具/图像轨迹及清理证据见[报告](../validation/2026-11-21-dependency-and-partial-execution.md)。原用户Drawing2及其部分执行锁不修改。最终提交/CI另在#20记录。

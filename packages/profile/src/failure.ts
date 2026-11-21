@@ -2,7 +2,8 @@ import type { AgentResult, PublicEvent } from '@cader/dsh-adapter';
 
 export type FailureSource = 'provider' | 'agent' | 'mcp' | 'configuration' | 'runtime' | 'verification' | 'usage';
 const hints: Record<string, string> = {
-  QUOTA: 'Check provider balance, quota and model entitlement. MCP connectivity is reported separately.',
+  QUOTA: '模型服务拒绝请求（QUOTA）；请核对该API Key对应账户的余额、配额和模型访问权限。尚不能仅凭此码断言余额不足；MCP连接状态另行报告。',
+  ACCEPTANCE_PLAN_MISSING: '模型未提交有效验收计划，尚未允许绘图。检查规划工具错误和模型运行记录；不会将此状态称为已绘图待验证。',
   ACCOUNT_QUOTA: 'Check provider account quota and billing before retrying.',
   AUTH: 'Check the configured provider credential and endpoint; do not share the key.',
   RATE_LIMIT: 'Wait for the provider rate limit to recover before retrying.',
@@ -18,7 +19,7 @@ const hints: Record<string, string> = {
   RECONCILIATION_RESULT_UNVERIFIABLE: 'The response did not match the original operation, instance, documents or artifact. Keep the lock; do not replay.',
   RUNTIME_INIT_FAILED: 'Check runtime configuration and dependencies.',
   VERIFICATION_FAILED: 'Inspect individual checks and verification.json; smoke is a fixed read-only test.',
-  USAGE_ERROR: 'Check --help. exec accepts a task; live-smoke is fixed and accepts no --task. Unknown options and empty values are rejected.',
+  USAGE_ERROR: 'Check --help. exec accepts a task; live-smoke accepts --task only with --quality. Unknown options and empty values are rejected.',
   MODEL_STEP_BUDGET_EXCEEDED: 'Reduce task scope or review the configured model-step budget.',
   TOOL_BUDGET_EXCEEDED: 'Reduce task scope or review the configured tool-call budget.',
   CANCELLED_OR_TIMEOUT: 'The run was cancelled or timed out; inspect its recorded events.',

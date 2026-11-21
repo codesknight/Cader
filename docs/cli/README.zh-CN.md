@@ -2,7 +2,7 @@
 
 [English](README.md) · **简体中文** · [项目首页](../../README.zh-CN.md) · [文档导航](../README.md)
 
-**适用版本：Cader 0.4.0-dev.4 · 更新日期：2026-11-21**
+**适用版本：Cader 0.4.0-dev.5 · 更新日期：2026-11-21**
 
 Cader CLI 是基于 DeepSeek Harness 的 CAD Agent 终端：在一个持续会话中描述任务、选择模型和技能、引用图片、查看 CAD 状态，或用单次命令接入脚本。
 
@@ -506,3 +506,21 @@ pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality
 用户审定后，原始unknown屏障、日志快照及带hash的决定记录保存到工作区`.cader/barriers/`，不修改旧unknown、不重放、不接管原图。程序关闭当前连接并丢弃任务授权及文档绑定；重新发送任务时必须新建工作图。`/quality resume`不能续接旧任务。复核互斥锁或文件读写失败均阻断；不自动清理崩溃遗留的复核锁。
 
 Drawing6实际记录已用真实MCP schema完成只读复核，原屏障保持不变；真实用户批准归档及完整新绘图未代替用户执行。详见[诊断与边界](../validation/2026-11-21-legacy-barrier-review.md)。
+
+## dev.5：减少可避免的写入屏障
+
+指定图层的写入在派发前实时查询`list_layers`。图层不存在、无法查询或返回无效数据时，本次修改不发送，记为`failed_before_dispatch`，不冻结；Agent会收到先`create_layer`再提交未执行项的明确反馈。程序不会偷偷创建图层或重复已提交的批次。补丁失败结果新增`not_dispatched`索引列表，已确认项不得重放。
+
+原生执行失败仍可能留下部分实体。工具结果及最终CLI会显示首发原生错误；若没有可信的执行终态，仍保留屏障。相邻AutoCAD-MCP本轮增加创建前图层检查及仅清理本次新建实体的防护；这是尽力清理，不是事务证明，清理失败/丢回执仍须保留现场。旧Drawing2的部分执行屏障不会被升级自动清除，`/mcp resolve`也不适用于它。
+
+本轮MCP导出同时改为前台打印、显式fit-to-page及完整打印设置恢复，拒绝覆盖已有输出。减少背景任务延迟触发的截图冻结；未知导出异常仍不会自动重打或宣称完成。需重启Cader使其MCP子进程加载更新。
+
+规划模型失败现在进入`blocked`并记录`quality.failure`与规划`model_runs`，明确显示QUOTA等原因及“尚未允许绘图”；不再笼统显示质量待验证。没提交有效计划显示`ACCEPTANCE_PLAN_MISSING`。QUOTA只表示服务侧配额/访问拒绝分类，不足以单独断言余额不足。
+
+可通过显式实机入口重跑任意质量任务（付费模型、真实CAD；默认任务仍为串联电路）：
+
+```powershell
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task "新建一张空白图纸，绘制一个房子，旁边有棵树。"
+```
+
+`--task`仅随`--quality`接受；其它smoke模式仍拒绝。测试入口给模型自然语言需求，不提交固定操作序列。实测、失败及未解决边界见[依赖预检与部分执行报告](../validation/2026-11-21-dependency-and-partial-execution.md)。

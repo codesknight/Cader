@@ -169,3 +169,13 @@ dev.4补齐启动读取、绘图模型前blocked及用户`/mcp barrier`、`/mcp 
 当前真实MCP发现只读核对通过：Drawing6缺height候选，原锁hash未变，没有调用resolve/模型/CAD写入。程序/CLI合成回归通过，真实用户批准归档及新房子/树任务未执行。开发中初次测试把缺失plan误断言为null而失败，修正为实际undefined后通过；没有将旧失败抹除。完整检查/CI及层级见[报告](../validation/2026-11-21-legacy-barrier-review.md)和[测试记录](testing.md)。BUG-025和原生可靠性问题不因此关闭。
 
 BUG-026本侧代码验收：`5638f41`的[CI 44871945247](https://github.com/codesknight/Cader/actions/runs/44871945247)四项全通过，启动/模型前阻断及人工复核程序路径已修复；真实用户批准仍未执行，不能报告其工作区已解除。
+
+## 2026-11-21：BUG-027/028 依赖遗漏部分执行与失败原因被掩盖
+
+BUG-027：17:24日志及原prepared记录证明未先create_layer就用HOUSE。MCP AddPolyline后才设置Layer，native key-not-found、读回0层残留实体。Cader缺少文档依赖预检，不能只归因于模型；MCP也缺少创建前检查和属性失败清理。dev.5加入双侧预检和本次新增实体尽力清理，真实未知仍拒绝重放。用户Drawing2旧屏障不自动解除。
+
+BUG-028：17:22实际model.error=QUOTA，旧调度忽略规划返回状态、model_runs为空，误显示pending_verification和QUALITY_NOT_ACCEPTED。修复规划结果记录、失败直接blocked、首发错误码及冻结详情显示。无有效计划单独报告ACCEPTANCE_PLAN_MISSING，不误称已绘图待验。
+
+真实用户日志已证明Drawing6经用户确认归档，BUG-026上面“真实用户批准未执行”为开发时历史状态；新Drawing2是另一次部分执行。离线回归与实机测试分层记录于[报告](../validation/2026-11-21-dependency-and-partial-execution.md)。最初新fixture缺InsertBlock分支、规划无结果分类断言不匹配分别失败；修正后MCP38新增例和Cader79总例通过。MCP首次pytest误在Cader根使用相邻环境导致cader_mcp导入失败，正确目录全量216通过/33跳过；不是产品运行失败。全量/CI状态另记，BUG-025及完整质量不因此关闭。
+
+BUG-023 dev.5补充：第一轮真实房子/树已确认16写入，但export超时后PNG延迟出现；背景打印未设0、打印比例及配置恢复不完整由源码确认。新图实测原变量2，改前台打印/fit/完整快照恢复后，独立真实导出1.110秒通过且设置恢复一致。5例导出回归通过；仍不声称所有历史裁切/原生时序、像素映射或任意图纸均已解决，第二轮完整质量结果另记。

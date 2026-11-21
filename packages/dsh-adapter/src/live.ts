@@ -194,7 +194,8 @@ export async function createLiveRuntime(options: LiveOptions) {
                       for(const context of batch.additionalContexts)exec.deferContext(context);
                       const result=batch.results[0]?.result;
                       results.push({index,tool:op.tool,result});
-                      if(!result||result.isError)throw new Error(JSON.stringify({code:'CAD_PATCH_STOPPED',ok:false,stopped_at:index,results,no_replay:true}));
+                      if(!result||result.isError)throw new Error(JSON.stringify({code:'CAD_PATCH_STOPPED',ok:false,stopped_at:index,results,
+                        not_dispatched:operations.slice(index+1).map((pending,offset)=>({index:index+offset+1,tool:pending.tool})),no_replay:true}));
                     }
                     return JSON.stringify({ok:true,results});
                   }};

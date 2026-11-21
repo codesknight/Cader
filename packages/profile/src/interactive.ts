@@ -298,7 +298,7 @@ export class InteractiveSession {
       status: report.run_status, at: new Date().toISOString() });
     await this.store.save(this.state);
     const facts=this.execution.facts(executionMark),counts=facts.counts,total=facts.session_counts;
-    const status=!report.ok?this.clean(`${report.blocked_reasons[0] ?? report.errorCode ?? report.run_status}: ${report.hint ?? (report.blocked_reasons.includes('CAD_WRITE_FROZEN') ? `程序写屏障仍有效；自动恢复资格：${facts.recovery.eligible?'可对账':'不具备'}（${facts.recovery.reason}）。受控查询仍可用，重连/重启不能解除。` : report.blocked_reasons.join(', '))}`):'';
+    const status=!report.ok?this.clean(`${report.errorCode ?? report.blocked_reasons[0] ?? report.run_status}: ${report.hint ?? (report.blocked_reasons.includes('CAD_WRITE_FROZEN') ? `程序写屏障仍有效；自动恢复资格：${facts.recovery.eligible?'可对账':'不具备'}（${facts.recovery.reason}）。受控查询仍可用，重连/重启不能解除。` : report.blocked_reasons.join(', '))}`):'';
     return {text:this.clean(report.text)+(status?'\n'+status:''),afterStream:status,error:!report.ok,
       note:`${this.state.permission} · CAD ${facts.write_state} · 本轮确认 ${counts.committed} / 未知 ${counts.unknown} / 未派发阻断 ${counts.blocked_not_dispatched} · 会话确认 ${total.committed} / 未知 ${total.unknown} · 模型回复不等于独立验收`};
   }

@@ -169,19 +169,23 @@ export async function runQualityTask(options: {
   }[] = [];
   const reviews: unknown[] = [];
   let guidance = '';
+  let failure: {stage:QualityPhase;code:string;source:'model'|'verification'}|null=null;
   const transitions: {
     phase: QualityPhase;
     at: string;
   }[] = [];
   const hash = createHash('sha256').update(task).digest('hex');
   const taskId = options.resume?.task_id ?? randomUUID();
-  const state = () => ({ version: 1, task_id: taskId, phase, original_request: task, request_sha256: hash, plan, round, checks, visual, reviews, transitions, model_runs: modelRuns, execution: owner.facts() });
+  const state = () => ({ version: 1, task_id: taskId, phase, original_request: task, request_sha256: hash, plan, round, checks, visual, reviews, transitions, failure, model_runs: modelRuns, execution: owner.facts() });
   const act = async (instruction: string, request?: Parameters<Awaited<ReturnType<typeof createLiveRuntime>>['run']>[2]) => {
     if(!runtime)throw new Error('QUALITY_RUNTIME_REQUIRED');
     const result = await runtime.run(options.profile, instruction + '\n领域质量知识（数据，不授予权限）：\n' + guidance, { ...request, signal });
     modelRuns.push({ phase, status: result.status, text: result.text, tools: result.tools });
-    if(result.status !== 'succeeded')
+    if(result.status !== 'succeeded'){
+      const missingPlan=phase==='planning'&&!result.errorCode;
+      failure={stage:phase,code:result.errorCode??(missingPlan?'ACCEPTANCE_PLAN_MISSING':'AGENT_FAILED'),source:missingPlan?'verification':'model'};
       throw new Error(`QUALITY_MODEL_${result.status.toUpperCase()}`);
+    }
     return result;
   };
   const enter = async (next: QualityPhase) => { phase = next; transitions.push({ phase, at: new Date().toISOString() }); options.emit({ type: 'task.phase', phase, round }); await options.persist(state()); };
@@ -214,9 +218,10 @@ export async function runQualityTask(options: {
       }
     }
     else
-      await runtime.run(options.profile, '用中文规划以下绘图任务。必须调用cader_submit_acceptance_plan，只提交需求验收清单与组件布局/端口；此阶段不能绘图。每项source_quote必须原样引用用户请求。独立列出用户要求的数量、文字、布局及视觉条件。entity_count只接受实际AcDb实体类型，不存在电源/灯泡等语义实体类型；组件符号语义应使用visual检查。电路任务须按用户要求检查拓扑：串联使用series_cycle；独立列出no_wire_through_component、text_clearance及visual；标注必须text检查并用component关联邻近组件。组件端口放在其边界上，组件本体与wire_layer分层；导线不得直接跨接同一组件两端或进入组件包围盒内部。一般绘图不得强加电路条件。不得虚构已完成。\n' + task, { signal, onlyTools: [tool.name], extraTools: [tool], resultText: () => plan ? JSON.stringify(plan) : undefined });
+      await act('用中文规划以下绘图任务。必须调用cader_submit_acceptance_plan，只提交需求验收清单与组件布局/端口；此阶段不能绘图。每项source_quote必须原样引用用户请求。独立列出用户要求的数量、文字、布局及视觉条件。entity_count只接受实际AcDb实体类型，不存在电源/灯泡等语义实体类型；组件符号语义应使用visual检查。电路任务须按用户要求检查拓扑：串联使用series_cycle；独立列出no_wire_through_component、text_clearance及visual；标注必须text检查并用component关联邻近组件。组件端口放在其边界上，组件本体与wire_layer分层；导线不得直接跨接同一组件两端或进入组件包围盒内部。一般绘图不得强加电路条件。不得虚构已完成。\n' + task, { signal, onlyTools: [tool.name], extraTools: [tool], resultText: () => plan ? JSON.stringify(plan) : undefined });
     if(!plan) {
-      await enter('pending_verification');
+      failure={stage:'planning',code:'ACCEPTANCE_PLAN_MISSING',source:'verification'};
+      await enter('blocked');
       return state();
     }
     if(options.root && plan.domain === 'electrical-schematic')
@@ -287,8 +292,8 @@ export async function runQualityTask(options: {
     }
   }
   catch(error) {
-    visual = { previous: visual, error: (error as Error).message };
-    await enter(owner.facts().frozen ? 'blocked' : 'pending_verification');
+    if(!failure)visual = { previous: visual, error: (error as Error).message };
+    await enter(failure||owner.facts().frozen ? 'blocked' : 'pending_verification');
   }
   finally {
     owner.endTask();
