@@ -264,3 +264,7 @@ Cader Python检查：`uv run --project cader-mcp ruff check cader-mcp`、`ruff f
 真实CAD：`.cader/live-dependency-native.py`新图缺图层后count0、建层后多段线正常、后续无效setter仅清理第二个新增实体。加入导出修复后1.110秒有效PNG且系统变量/打印设置恢复一致，定向图纸均关闭。两轮自然语言入口：`pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task "新建一张空白图纸，绘制一个房子，旁边有棵树。"`。
 
 首轮`quality-e2f051c5…`16确认，截图等待超时后文件延迟出现，capture_dispatch冻结，exit1；未篡改为成功。第二轮`quality-c7032bea…`18确认、unknown0、实际自动视觉有效并一轮修正，exit1/pending：计划类型/需求检查语义不当和截图边缘未通过。未执行固定绘图计划，未声称完整质量或保存DWG通过。完整私有工具/图像轨迹及清理证据见[报告](../validation/2026-11-21-dependency-and-partial-execution.md)。原用户Drawing2及其部分执行锁不修改。最终提交/CI另在#20记录。
+
+Cader实现`89f31de`已推送，[CI 44891799500](https://github.com/codesknight/Cader/actions/runs/44891799500) Windows/Linux四项成功；MCP实现`538db9c`的[CI 44891530548](https://github.com/codesknight/AutoCAD-MCP/actions/runs/44891530548) offline/bridge-contracts成功。本地双语201链接/22锚点、staged30文件密钥扫描与diff-check通过。最终文档提交CI在#20记录。
+
+已建立私有`.cader/workspaces/dev5`供独立新任务；真实CLI --stdio --workspace启动、/status、/exit检查exit0，dev.5且不继承用户旧冻结，旧Drawing2锁hash不变，没有调用模型或新建图纸。证据`.cader/runs/dev5-workspace-check.json`；这是隔离新任务，不是清除旧图屏障或对账完成。

@@ -524,3 +524,12 @@ pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task "Create a 
 ```
 
 `--task` is accepted only with `--quality`. The model receives the request, never a fixed operation sequence. See [actual tests, failures and limits](../validation/2026-11-21-dependency-and-partial-execution.md).
+
+Do not use missing-argument adjudication to continue a partially executed frozen task. To preserve that evidence and begin an independent new task, use a new project workspace from the Cader source directory:
+
+```powershell
+New-Item -ItemType Directory -Force .cader/workspaces/new-task
+cader chat --workspace .cader/workspaces/new-task
+```
+
+The new workspace still defaults to ask, requires a fresh scratch and retains the same write guards. It does not reconcile the old operation, adopt its drawing or replay its requests.

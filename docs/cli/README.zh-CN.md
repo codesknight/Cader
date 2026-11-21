@@ -524,3 +524,12 @@ pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task "新建一
 ```
 
 `--task`仅随`--quality`接受；其它smoke模式仍拒绝。测试入口给模型自然语言需求，不提交固定操作序列。实测、失败及未解决边界见[依赖预检与部分执行报告](../validation/2026-11-21-dependency-and-partial-execution.md)。
+
+旧任务已经部分执行而被冻结时，不要使用缺参复核来强行续写旧图。需要保留现场并开始独立新任务时，可从Cader源码目录使用新的工程工作区（不复用旧图或重放旧请求）：
+
+```powershell
+New-Item -ItemType Directory -Force .cader/workspaces/new-task
+cader chat --workspace .cader/workspaces/new-task
+```
+
+此工作区仍默认ask、必须新建工作图，并受相同写屏障保护；新建工作区不代表旧操作已对账或旧图质量已通过。
