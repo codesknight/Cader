@@ -250,3 +250,5 @@ Node24.9.0 / pnpm11.28.5；`pnpm typecheck`通过，`pnpm test`76/76通过，`pn
 CLI实际执行`node apps/cli/dist/index.js chat --stdio --workspace C:/Users/LiuYanhong`，输入`/mcp barrier`、原房子/树请求和`/exit`。exit0，dev.4启动明确警告，原记录候选可见，绘图请求直接blocked，未出现planning阶段，原锁hash不变。私有stdout/stderr/check结果在`.cader/runs/barrier-readonly-preview/`。这验证真实入口和服务发现，不是用户TTY审批或真实新图验收；现有`cader.cmd`仍指向本仓库构建，不需重新安装。文档链接检查旧私有脚本尚断言16个根命令，实际已有17个（含/quality），更新检查器后另记结果。
 
 最终复跑typecheck、76/76 tests及smoke均通过，最终组件记录`.cader/runs/dsh-component-2026-11-21T05-33-56-678Z-90fd4fc0-63b6-45b4-8dd8-0a44ef1ad08b`；`cader --version`实际返回0.4.0-dev.4。`python .cader/check-cli-manual.py --links-only`通过2语言/17根命令/193本地链接/23锚点；`git diff --check`通过。提交及远端最终CI链接记录在[#20](https://github.com/codesknight/Cader/issues/20)，本地组件通过不替代CI或完整绘图验收。
+
+代码`5638f41`已普通推送，[CI 44871945247](https://github.com/codesknight/Cader/actions/runs/44871945247)四项全部成功（Windows/Linux DSH组件及Python MCP）。工作树与远端一致，用户原锁最终hash仍与只读核对前一致。Git直连及旧端点超时后，确认当前系统代理10808正常、Git旧配置10809，单次参数10808完成fetch/push；不改全局配置或TLS校验。最终文档提交CI在#20补充。
