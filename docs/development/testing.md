@@ -268,3 +268,7 @@ Cader Python检查：`uv run --project cader-mcp ruff check cader-mcp`、`ruff f
 Cader实现`89f31de`已推送，[CI 44891799500](https://github.com/codesknight/Cader/actions/runs/44891799500) Windows/Linux四项成功；MCP实现`538db9c`的[CI 44891530548](https://github.com/codesknight/AutoCAD-MCP/actions/runs/44891530548) offline/bridge-contracts成功。本地双语201链接/22锚点、staged30文件密钥扫描与diff-check通过。最终文档提交CI在#20记录。
 
 已建立私有`.cader/workspaces/dev5`供独立新任务；真实CLI --stdio --workspace启动、/status、/exit检查exit0，dev.5且不继承用户旧冻结，旧Drawing2锁hash不变，没有调用模型或新建图纸。证据`.cader/runs/dev5-workspace-check.json`；这是隔离新任务，不是清除旧图屏障或对账完成。
+
+REQ-033手稿日志审计：读取用户原始附件及实际verification/events、人工查看原始JPG，核对输入注册/任务路由/规划传参与旧图视觉评审。`node .cader/probe-redraw-image-input.mjs`应用装配复现通过：普通路径image=false，/open后同文件image=true；“复现”路由false，“绘制”路由true。runner在模型启动前立即中止，paid_model_calls=0、cad_calls=0；不是模拟工具成功或重绘验收。首次汇总PowerShell foreach直接接管道发生解析错误，改为先收集数组后读取成功，不是产品故障。只更新诊断文档，不修改运行时、权限、图纸或独立MCP，最终文档检查/CI在#20记录。
+
+本轮`pnpm typecheck`、`pnpm test`79/79通过，双语手册根命令及52个改动文档本地链接、diff-check通过。Harness/Python无代码变更，未新增smoke/付费模型/真实CAD调用；这些通过不证明图片重绘已修复。文档提交CI与BUG-029/030未解决状态在#20同步。
