@@ -8,6 +8,8 @@ import { runUserShell } from './interactive-shell.js';
 import { validateCadArguments } from './cad-arguments.js';
 import { environmentRedactor } from './session-store.js';
 import type { QualityPlan } from '@cader/config';
+import { inspectLegacyBarrier, archiveReviewedBarrier } from './legacy-barrier.js';
+import type { BarrierReview } from './legacy-barrier.js';
 
 export type PermissionMode = 'read-only' | 'ask' | 'workspace-write' | 'full-access';
 export const PERMISSION_MODES: PermissionMode[] = ['read-only', 'ask', 'workspace-write', 'full-access'];
@@ -30,6 +32,7 @@ export class ExecutionSession {
   private freeze?: { operation_id: string; stage: string; outcome: Outcome; reason: string; sameConnection: boolean };
   private operations: CadOperationRecord[] = [];
   private persistedBarrier?:{tool?:string;error?:unknown};
+  private barrierResolution:{operation_id:string;decision:string;archive:string;receipt:string}|null=null;
   private observedAt: string | null = null;
   private observedCount: number | null = null;
   private observedOperationMark = -1;
@@ -62,17 +65,23 @@ export class ExecutionSession {
   constructor(readonly workspace: string, readonly runDirectory: string,
     readonly clean: (value: string) => string = environmentRedactor().clean,
     private readonly clientFactory: typeof createMcpClient = createMcpClient) {}
-  async connect(path: string) {
-    await this.dispose();
-    this.observedAt=null;this.observedCount=null;this.observedOperationMark=this.operations.length;
-    // A transport reconnect never adopts an old scratch or clears a persisted barrier.
+  async loadPersistedBarrier(){
     try {
       const barrier = JSON.parse(await readFile(await workspacePath(this.workspace, '.cader/locks/managed-write.json'), 'utf8'));
       this.persistedBarrier={tool:typeof barrier.tool==='string'?barrier.tool:undefined,error:barrier.error};
       this.frozen = true;
       this.freeze = { operation_id: barrier.request ?? 'external-lock', stage: barrier.stage ?? 'unknown',
         outcome: barrier.outcome ?? 'unknown', reason: 'PERSISTED_OR_EXTERNAL_WRITE_BARRIER', sameConnection: false };
-    } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      this.frozen=true;this.freeze={operation_id:'unreadable-barrier',stage:'unknown',outcome:'unknown',reason:'BARRIER_STATE_UNREADABLE',sameConnection:false};
+      throw new Error('BARRIER_STATE_UNREADABLE');
+    } }
+  }
+  async connect(path: string) {
+    await this.dispose();
+    this.observedAt=null;this.observedCount=null;this.observedOperationMark=this.operations.length;
+    // A transport reconnect never adopts an old scratch or clears a persisted barrier.
+    await this.loadPersistedBarrier();
     this.client = await this.clientFactory(await loadMcp(path));
     this.localConnectionId=randomUUID();
     return { connected: true, discovered: this.client.toolNames().length, exposed: this.definitions().length,
@@ -83,6 +92,36 @@ export class ExecutionSession {
     health: this.facts(), backend: await this.client.call('get_backend_status', {}),
     backend_metadata_note:'COM not_probed and documents=[] are lifecycle metadata, not a native document query or evidence of disconnection.' } : { connected: false, frozen: this.frozen, health: this.facts(), hint: '/mcp use <configuration>; /mcp tools' }; }
   mark() { return this.operations.length; }
+  async reviewLegacyBarrier(){return (await inspectLegacyBarrier(this.workspace,(this.client?.definitions()??[]).filter(tool=>writes.has(tool.name.split('__').at(-1)!)))).review;}
+  async resolveLegacyBarrier(confirm?:Approval):Promise<{resolved:boolean;reason:string;review?:BarrierReview;archive?:string;receipt?:string}>{
+    return this.serial(async()=>{
+      const definitions=(this.client?.definitions()??[]).filter(tool=>writes.has(tool.name.split('__').at(-1)!));
+      const snapshot=await inspectLegacyBarrier(this.workspace,definitions),review=snapshot.review;
+      if(!review.eligible)return {resolved:false,reason:review.reason,review};
+      if(!confirm)return {resolved:false,reason:'OPERATOR_CONFIRMATION_REQUIRED',review};
+      const directory=await workspacePath(this.workspace,'.cader/locks'),guardPath=resolve(directory,'barrier-review.lock');
+      let guard;
+      try{guard=await open(guardPath,'wx');}catch(error){if((error as NodeJS.ErrnoException).code==='EEXIST')return {resolved:false,reason:'BARRIER_REVIEW_BUSY',review};throw error;}
+      const token=JSON.stringify({pid:process.pid,token:randomUUID()});
+      try{
+        await guard.writeFile(token);await guard.sync();
+        const approved=await confirm(this.clean(`人工审定历史参数拒绝（仅用户可操作）\n${JSON.stringify(review,null,2)}\n这不是程序证明CAD未执行。仅当你已核查原请求未执行、已结束且没有运行中或延迟的CAD操作时批准。批准将归档原屏障和审计，不改写unknown原记录、不重放请求、不接管旧图；之后只能新建工作图。不能确认请选择否。`),this.workspace);
+        if(!approved)return {resolved:false,reason:'OPERATOR_DECLINED',review};
+        const latest=await inspectLegacyBarrier(this.workspace,definitions);
+        if(!latest.review.eligible||JSON.stringify(latest.review)!==JSON.stringify(review))return {resolved:false,reason:'BARRIER_CHANGED_DURING_REVIEW',review:latest.review};
+        // End this transport before retiring the barrier; never adopt its document.
+        await this.client?.dispose();this.client=undefined;this.localConnectionId=null;this.scratch=null;
+        const archived=await archiveReviewedBarrier(this.workspace,snapshot);
+        this.lock=undefined;this.frozen=false;this.freeze=undefined;this.persistedBarrier=undefined;
+        this.taskGrant=undefined;this.taskEntities.clear();this.observedAt=null;this.observedCount=null;this.observedOperationMark=this.operations.length;
+        this.barrierResolution={operation_id:review.operation_id!,decision:'operator_confirmed_no_execution',archive:archived.archive,receipt:archived.receipt};
+        return {resolved:true,reason:'ARCHIVED_AFTER_OPERATOR_REVIEW',review,...archived};
+      }finally{
+        await guard.close().catch(()=>{});
+        try{if(await readFile(guardPath,'utf8')===token)await unlink(guardPath);}catch{/* Keep failed cleanup evidence; never delete another review's guard. */}
+      }
+    });
+  }
   toolAvailable(name: string) { return !this.frozen || (!['cader_shell','cader_apply_cad_patch','cader_review_cad_view'].includes(name) && (!name.startsWith('mcp__') || reads.has(name.split('__').at(-1)!))); }
   controlTools(): ToolDefinition[] {
     const output = { schema: { type: 'string' as const }, render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: String(value) }] };
@@ -130,7 +169,7 @@ export class ExecutionSession {
         }
         this.operations.push(record); this.frozen = true;
         this.freeze = { operation_id: operationId, stage: record.stage, outcome: record.outcome, reason: 'CAD_CAPTURE_BARRIER', sameConnection: true };
-        await writeFile(this.lock!, this.clean(JSON.stringify({ ...record, frozen: true, runDirectory: this.runDirectory, request: operationId })));
+        await writeFile(this.lock!, this.clean(JSON.stringify({ ...record, owner_pid:process.pid, frozen: true, runDirectory: this.runDirectory, request: operationId })));
         await this.audit({ ...record, phase: 'capture_failed' });
         throw new Error('CAD_CAPTURE_FAILED_FROZEN: inspect /mcp doctor and original capture audit; no export replay');
       }
@@ -150,6 +189,7 @@ export class ExecutionSession {
       counts:count(operations),counts_scope:since===0?'session':'since_operation_mark',operation_mark:since,session_counts:count(this.operations),
       freeze_operation:frozenOperation?structuredClone(frozenOperation):null,
       freeze_evidence:this.freeze?{source:frozenOperation?'current_session':'persisted_barrier',tool:frozenOperation?.tool??this.persistedBarrier?.tool,error:frozenOperation?.error??this.persistedBarrier?.error}:null,
+      barrier_resolution:this.barrierResolution,
       recovery:this.recoveryEligibility() };
   }
   private recoveryEligibility(){
@@ -327,7 +367,7 @@ export class ExecutionSession {
             if (record.dispatched) {
               record.outcome = acknowledged ? 'committed_observation_failed' : 'unknown'; this.frozen = true;
               this.freeze = { operation_id: operationId, stage: record.stage, outcome: record.outcome, reason: 'CAD_WRITE_BARRIER', sameConnection: true };
-              await writeFile(this.lock!, this.clean(JSON.stringify({ frozen: true, runDirectory: this.runDirectory,
+              await writeFile(this.lock!, this.clean(JSON.stringify({ frozen: true, owner_pid:process.pid, runDirectory: this.runDirectory,
                 request: operationId, tool: name, target: this.scratch, stage: record.stage, outcome: record.outcome, error: record.error })));
             }
             this.operations.push(record);

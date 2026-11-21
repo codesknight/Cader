@@ -14,7 +14,7 @@ import type { QualityResume } from './quality.js';
 
 export const SLASH_COMMANDS = [
   ['/help', '命令与快捷键'], ['/open', '选择图片或DWG引用；CAD打开需后端能力'], ['/cd', '切换工作目录'],
-  ['/status', '工作区与CAD状态'], ['/model', '查看或切换配置模型'], ['/mcp', 'list / use <配置> / tools / doctor / recover / off'],
+  ['/status', '工作区与CAD状态'], ['/model', '查看或切换配置模型'], ['/mcp', 'list / use <配置> / tools / doctor / recover / barrier / resolve / off'],
   ['/skills', 'list / use <技能> / off'], ['/domain', '查看或切换专业'], ['/context', '上下文统计'],
   ['/compact', '用模型总结上下文，保留原始对话'], ['/clear', '保存并新建空白会话'], ['/resume', '列出或恢复会话ID'],
   ['/quality','查看质量任务；resume 安全重验，不重放绘图'],
@@ -53,6 +53,7 @@ export class InteractiveSession {
     if (new Set(domains.map(domain => domain.id)).size !== domains.length) throw new Error('DOMAIN_DUPLICATE');
     if (!domains.some(domain => domain.id === 'general')) throw new Error('GENERAL_DOMAIN_REQUIRED');
     const session = new InteractiveSession(configRoot, workspace, config, domains, runner);
+    try{await session.execution.loadPersistedBarrier();}catch{session.startupStatus='工作区历史屏障无法读取，写入已阻断；请检查原始审计。';}
     const local = join(configRoot, 'configs/mcp/AutoCAD.local.yaml');
     try {
       await stat(local); session.state.mcp = local;
@@ -61,6 +62,7 @@ export class InteractiveSession {
       session.startupStatus = session.clean(`MCP 已连接 · 发现 ${status.discovered} 工具 · Agent CAD ${status.exposed} 工具 · ${backend.backend ?? 'unknown'} · CAD ${backend.connection_state ?? '未探测'}`);
     }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') session.startupStatus = 'MCP 连接失败；检查 /mcp tools、Python路径和依赖。'; }
+    if(session.execution.facts().frozen)session.startupStatus+='\n⚠ 工作区写入已冻结，尚不能绘图。\n'+session.execution.diagnosticSummary()+'\n/mcp barrier 查看历史屏障复核资格。';
     await session.store.save(session.state); return session;
   }
   get model() { return this.config.profiles.find(profile => profile.id === this.state.model)!; }
@@ -193,6 +195,14 @@ export class InteractiveSession {
           if (arg === 'tools') return { text: await this.mcpProbe(true) };
           if (arg === 'doctor') return { text: this.clean(JSON.stringify(await this.execution.probe(), null, 2)) };
           if (arg === 'recover') {const result=await this.execution.recover();return {text:this.clean(JSON.stringify(result,null,2)),error:!result.recovered};}
+          if(arg==='barrier'||arg==='resolve'){
+            if(!this.state.mcp)return {text:'先用 /mcp use <配置> 选择原服务，以便核对当前工具schema。',error:true};
+            if(!(await this.execution.status()).connected)await this.execution.connect(this.state.mcp);
+            if(arg==='barrier')return {text:this.clean(JSON.stringify(await this.execution.reviewLegacyBarrier(),null,2))};
+            const result=await this.execution.resolveLegacyBarrier(callbacks.confirm);
+            if(result.resolved){this.state.qualityRun=null;await this.store.save(this.state);}
+            return {text:this.clean(JSON.stringify(result,null,2))+'\n'+(result.resolved?'历史屏障经用户审定已归档；旧图未接管，请重新发送新绘图任务，新任务必须新建工作图。':'屏障保留。需要证据一致且用户明确确认；真正未知结果不能通过此入口解除。'),error:!result.resolved};
+          }
           await this.dispose();
           if (arg === 'off') this.state.mcp = null;
           else { const selected = arg.replace(/^use\s+/, ''); const path = await workspacePath(this.configRoot, /[\\/]/.test(selected) ? selected : join('configs/mcp', selected)); await loadMcp(path); this.state.mcp = path; }
@@ -266,7 +276,7 @@ export class InteractiveSession {
     const history = this.state.messages.slice(this.state.contextFrom).map(({ role, content, status }) => ({ role, content, status }));
     const content = this.clean(line), userIndex = this.state.messages.length;
     this.state.messages.push({ role: 'user', content, status: 'submitted', at: new Date().toISOString() }); await this.store.save(this.state);
-    if (this.state.mcp && !(await this.execution.status()).connected) await this.execution.connect(this.state.mcp);
+    if (this.state.mcp && !this.execution.facts().frozen && !(await this.execution.status()).connected) await this.execution.connect(this.state.mcp);
     this.execution.mode = this.state.permission;
     const executionMark = this.execution.mark();
     const report = await this.runner(this.configRoot, { task: content + '\nAuthorized reference metadata (DWG content is NOT decoded):\n'

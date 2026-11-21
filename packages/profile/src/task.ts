@@ -71,6 +71,7 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
         const redactEnvironment = environmentRedactor().clean;
         execution = new ExecutionSession(workspace, directory, text => redactEnvironment(redactSecrets(text, config.profiles)));
         execution.mode = input.permissionMode;
+        await execution.loadPersistedBarrier();
         if (mcp) { stage = 'mcp'; input.signal?.throwIfAborted(); await execution.connect(resolve(root, input.mcpPath!)); }
         input.executionTools = [...execution.definitions(), ...execution.controlTools(), ...execution.fileTools()];
         input.executionState = () => execution!.facts(); input.toolAvailable = name => execution!.toolAvailable(name);
@@ -80,6 +81,14 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
       }
       stage = mcp ? 'mcp' : 'runtime';
       input.signal?.throwIfAborted();
+      const executeQuality=(activeRuntime?:Awaited<ReturnType<typeof createLiveRuntime>>)=>runQualityTask({runtime:activeRuntime,root,profile:config.runtime.main_profile,task:input.originalTask??input.task,
+        owner:input.executionOwner!,signal:input.signal,confirm:input.confirmTask,resume:input.qualityResume,
+        emit:event=>{qualityPhase=String(event.phase);events.push(event);input.onEvent?.(event);},
+        persist:state=>writeFile(join(directory,'quality.json'),cleanEnvironment(redactSecrets(JSON.stringify(state,null,2),config.profiles))),
+        request:{skill:input.skill,image:input.image,history:input.history,summary:input.summary,domain:input.domain}});
+      if(qualityEnabled&&input.executionOwner?.facts().frozen){
+        quality=await executeQuality();
+      }else{
       runtime = await factory({ root, workspaceRoot: workspace, runDirectory: directory, ...config, mcp, disableTools: input.disableTools,
         executionTools: input.executionTools, permissionMode: input.permissionMode,
         executionState: input.executionState, toolAvailable: name => (input.toolAvailable?.(name) ?? true) && (!qualityEnabled ||
@@ -91,15 +100,12 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
         } });
       stage = 'runtime';
       if(qualityEnabled && input.executionOwner) {
-        quality = await runQualityTask({ runtime,root, profile: config.runtime.main_profile, task: input.originalTask??input.task,
-          owner:input.executionOwner,signal:input.signal,confirm:input.confirmTask,resume:input.qualityResume,
-          emit:event=>{qualityPhase=String(event.phase);events.push(event);input.onEvent?.(event);},
-          persist:state=>writeFile(join(directory,'quality.json'),cleanEnvironment(redactSecrets(JSON.stringify(state,null,2),config.profiles))),
-          request:{skill:input.skill,image:input.image,history:input.history,summary:input.summary,domain:input.domain} });
+        quality = await executeQuality(runtime);
         result=runtime.completed().filter(agent=>agent.profile===config.runtime.main_profile).at(-1);
       } else result = await runtime.run(config.runtime.main_profile, input.task, { skill: input.skill, image: input.image, imageView: input.imageView,
           signal: input.signal, history: input.history, summary: input.summary, domain: input.domain });
       failure = agentFailure(runtime.completed(), events, result?.id);
+      }
     }
   } catch (error) { failure = failureFromError(error, stage); }
   finally {
@@ -110,7 +116,7 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
   }
   const cancelled = input.signal?.aborted || result?.status === 'cancelled';
   if (cancelled) failure = describeFailure('CANCELLED_OR_TIMEOUT', 'runtime');
-  const runSucceeded = !failure && (drawingBlocked || result?.status === 'succeeded');
+  const runSucceeded = !failure && (drawingBlocked || result?.status === 'succeeded'||Boolean(quality?.phase==='blocked'&&!runtime));
   const executionEvidence = input.executionState?.();
   const writeBlocked = Boolean(executionEvidence?.frozen);
   if (writeBlocked) stages.execution = 'blocked';
@@ -121,13 +127,14 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
   }
   const qualityPending=Boolean(qualityEnabled&&quality?.phase!=='complete');
   if(quality){
-    stages.planning=quality.plan?'succeeded':'failed';
+    stages.planning=quality.plan?'succeeded':!runtime?'not_performed':'failed';
     stages.execution=writeBlocked?'blocked':quality.phase==='complete'?'succeeded':'unverified';
   }
   const report = { contract_version: 'cader-task/1', ok: runSucceeded && !drawingBlocked && !writeBlocked && !qualityPending, run_status: cancelled ? 'cancelled' : runSucceeded ? 'succeeded' : 'failed',
     task_status: cancelled || writeBlocked || qualityPending ? 'blocked' : !runSucceeded ? 'failed' : drawingBlocked ? 'blocked' : quality?.phase==='complete'?'succeeded':'unverified',
     blocked_reasons: cancelled ? ['CANCELLED'] : writeBlocked ? ['CAD_WRITE_FROZEN'] : qualityPending?['QUALITY_NOT_ACCEPTED']:drawingBlocked && runSucceeded ? ['WRITE_CAPABILITY_UNAVAILABLE'] : [],
     quality:quality??null,
+    model_run_status:result?.status??(runtime?'no_result':'not_started'),
     execution_evidence: executionEvidence ?? null,
     authorization: { user_task_authorized: true, write_authorized: Boolean(input.permissionMode && input.permissionMode !== 'read-only' && events.some(event => event.type === 'tool.result' && event.isError === false && /(?:__(?:new_drawing|draw_\w+|create_layer|set_layer_properties|move_entity|rotate_entity|copy_entity|scale_entity|mirror_entity|delete_entity|save_drawing)|cader_(?:write_file|edit_file|shell))$/.test(String(event.tool)))),
       runtime_write_available: Boolean(input.executionTools?.length && input.permissionMode !== 'read-only') },
@@ -137,7 +144,7 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
     runId, kind: 'user-task', mode: input.permissionMode ?? 'read-only',
     executionAuditDirectory: input.executionAuditDirectory ?? (execution ? directory : null),
     selectedSkill: input.skill ?? null, imageProvided: Boolean(input.image),
-    text: qualityEnabled ? `${quality?.phase==='complete'?'任务验收通过。':'任务尚未完成，质量验证待通过。'}\n`+
+    text: qualityEnabled&&writeBlocked&&!runtime?`任务未开始：工作区写屏障已存在，未调用模型规划。\n${input.executionOwner?.diagnosticSummary()??''}\n/mcp barrier 查看旧屏障的复核资格；/mcp resolve 仅允许用户审定符合条件的旧参数拒绝。` : qualityEnabled ? `${quality?.phase==='complete'?'任务验收通过。':'任务尚未完成，质量验证待通过。'}\n`+
       (quality?.plan?quality.checks.map(check=>`${check.status==='pass'?'✓':'×'} ${quality?.plan?.requirements.find(r=>r.id===check.id)?.description??check.id}：${check.evidence}`).join('\n'):'验收计划未建立，未允许绘图。')+
       `\n阶段：${quality?.phase??'pending_verification'}；修正轮次：${quality?.round??0}/3。详细证据：${join(directory,'quality.json')}` : result?.text ?? '', ...failure, cleanupError, runDirectory: directory };
   const redact = (text: string) => cleanEnvironment(redactSecrets(text, config.profiles));

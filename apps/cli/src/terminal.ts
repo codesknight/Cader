@@ -35,7 +35,7 @@ export async function runTerminal(options: { workspace?: string; stdio?: boolean
     '  ╚██████╗██║  ██║██████╔╝███████╗██║  ██║',
     '   ╚═════╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝',
   ].map((line, index) => paint(index < 3 ? '1;36' : '1;34', line)).join('\n') + '\n');
-  output.write(paint('1', '  Cader 0.4.0-dev.3') + '  ·  DeepSeek Harness  ·  CAD terminal\n'
+  output.write(paint('1', '  Cader 0.4.0-dev.4') + '  ·  DeepSeek Harness  ·  CAD terminal\n'
     + paint('2;36', '─'.repeat(Math.max(20, Math.min((output.columns ?? 80) - 2, 90)))) + '\n');
   write(`  ${session.model.model} · ${session.state.permission} · ${basename(workspace)}\n  ${session.startupStatus}\n  /help 命令  ·  @图片/图纸  ·  !Shell  ·  Tab 补全  ·  Esc 中断\n\n`);
   if (tty && process.env.TERM === 'dumb') write('当前终端声明TERM=dumb，使用简化输入。支持VT的终端可设置TERM=xterm-256color以启用完整编辑/补全。\n');
@@ -71,7 +71,9 @@ export async function runTerminal(options: { workspace?: string; stdio?: boolean
   const confirm = async (command: string, cwd: string) => {
     if (!tty || active?.signal.aborted) return false;
     queue.length = 0; // Never consume pasted/type-ahead text as a permission decision or a later model task.
-    write(`\n工具审批 · ${cwd}\n${command}\nAgent工具结果会返回模型；Shell以本机账号执行（非沙箱）。允许本次执行？[y/N] `);
+    write(command.startsWith('人工审定历史参数拒绝')
+      ? `\n历史屏障复核 · ${cwd}\n${command}\n确认以上事实并批准归档？[y/N] `
+      : `\n工具审批 · ${cwd}\n${command}\nAgent工具结果会返回模型；Shell以本机账号执行（非沙箱）。允许本次执行？[y/N] `);
     return new Promise<boolean>(resolve => { confirmation = resolve; });
   };
   async function pump() {

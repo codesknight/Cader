@@ -2,7 +2,7 @@
 
 [English](README.md) · **简体中文** · [项目首页](../../README.zh-CN.md) · [文档导航](../README.md)
 
-**适用版本：Cader 0.4.0-dev.3 · 更新日期：2026-11-20**
+**适用版本：Cader 0.4.0-dev.4 · 更新日期：2026-11-21**
 
 Cader CLI 是基于 DeepSeek Harness 的 CAD Agent 终端：在一个持续会话中描述任务、选择模型和技能、引用图片、查看 CAD 状态，或用单次命令接入脚本。
 
@@ -125,6 +125,8 @@ Slash 命令在 Cader 会话内部输入。尖括号表示需要替换的参数�
 | `/status` | 查看目录、模型、权限、MCP连接与工作图绑定；COM仅返回生命周期状态 |
 | `/model [ID]` | 列出或选择已配置模型，例如 `/model MainAgent`；只影响当前主会话模型选择 |
 | `/mcp list` | 列出配置文件 |
+| `/mcp barrier` | 只读核对旧缺参屏障、原始审计及当前工具schema，显示人工复核资格 |
+| `/mcp resolve` | 仅用户可发起的旧缺参复核；证据符合且明确确认后归档原屏障，要求新建工作图 |
 | `/mcp use <配置路径>` | 选择 MCP 配置，例如 `/mcp use configs/mcp/AutoCAD.local.yaml` |
 | `/mcp tools` / `/mcp off` | 发现服务工具或禁用后续 MCP 连接；发现工具不等于授权 Agent 使用全部工具 |
 | `/skills list` | 查看主 Agent 可见的 Skill |
@@ -487,3 +489,20 @@ pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality
 原连接已关闭或更换时，恢复原因是`ORIGINAL_CONNECTION_REQUIRED`；连接仍在但派发未获确认时是`DISPATCH_OUTCOME_UNCONFIRMED`。两者都不能通过重复恢复来放行写入。
 
 本次真实Flash/AutoCAD验证已越过文字绘制并进入自动视觉，缺参负向预检未派发、未冻结；完整电路仍因疑似导出裁切和计划约束未通过。详见[dev.3修复与实际结果](../validation/2026-11-20-schema-preflight-fix.md)。
+
+## dev.4：历史缺参屏障复核
+
+启动时即读取工作区屏障并显示冻结原因，包括没有配置MCP的情况。已知冻结的绘图质量任务直接进入`blocked`，不再先付费调用模型生成计划；报告记录`model_run_status: not_started`。`run_status: succeeded`仅表示程序处理完成，业务仍为`ok: false`、`task_status: blocked`。本轮确认0不能推翻历史屏障。
+
+旧版缺height记录不会因升级而自动消失。先退出仍在运行的旧Cader会话，在使用原工作目录的新会话中输入：
+
+```text
+/mcp barrier
+/mcp resolve
+```
+
+需先选择原MCP配置。程序把原始缺参错误、请求、目标图、日志和当前schema关联核对；已确认写入、超时、截图、原生错误、证据变化或另一原写入进程仍活跃均拒绝。`eligible: true`只表示可人工复核，**不证明CAD未执行**。即使`full-access`也必须确认：原请求未执行、已结束且无运行中或延迟操作。无法确认时回答否，保留屏障；不要手动删锁。该入口不是通用reset，Agent没有对应工具。
+
+用户审定后，原始unknown屏障、日志快照及带hash的决定记录保存到工作区`.cader/barriers/`，不修改旧unknown、不重放、不接管原图。程序关闭当前连接并丢弃任务授权及文档绑定；重新发送任务时必须新建工作图。`/quality resume`不能续接旧任务。复核互斥锁或文件读写失败均阻断；不自动清理崩溃遗留的复核锁。
+
+Drawing6实际记录已用真实MCP schema完成只读复核，原屏障保持不变；真实用户批准归档及完整新绘图未代替用户执行。详见[诊断与边界](../validation/2026-11-21-legacy-barrier-review.md)。

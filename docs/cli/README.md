@@ -2,7 +2,7 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Project home](../../README.md) · [Documentation](../README.md)
 
-**Applies to Cader 0.4.0-dev.3 · Updated 2026-11-20**
+**Applies to Cader 0.4.0-dev.4 · Updated 2026-11-21**
 
 Cader CLI is a CAD agent terminal built on DeepSeek Harness. Describe tasks in a persistent conversation, select models and skills, reference images, inspect CAD status, or use a single command from a script.
 
@@ -125,6 +125,8 @@ Enter Slash commands inside the Cader session. Angle brackets denote a value to 
 | `/status` | Show workspace, model, permissions, MCP connection and scratch binding; COM reports lifecycle metadata |
 | `/model [ID]` | List or select a configured model, e.g. `/model MainAgent`; changes the current main conversation selection |
 | `/mcp list` | List configuration files |
+| `/mcp barrier` | Read-only review of a legacy missing-argument barrier, its original journal and current tool schema |
+| `/mcp resolve` | User-only review; matching evidence and explicit confirmation archive the old barrier and require a new scratch drawing |
 | `/mcp use <config-path>` | Select MCP, e.g. `/mcp use configs/mcp/AutoCAD.local.yaml` |
 | `/mcp tools` / `/mcp off` | Discover tools or disable subsequent connections; discovery does not grant the agent every tool |
 | `/skills list` | List skills visible to the main agent |
@@ -487,3 +489,20 @@ These Chinese diagnostic/recovery shortcuts are program-owned and do not invoke 
 A closed or replaced original connection reports `ORIGINAL_CONNECTION_REQUIRED`; an unacknowledged dispatch on the live connection reports `DISPATCH_OUTCOME_UNCONFIRMED`. Repeated recovery does not authorize writes in either case.
 
 Real Flash/AutoCAD validation now reaches text creation and automatic vision; the missing-input probe was rejected without dispatch or freeze. Full circuit acceptance still fails on suspected capture clipping and plan constraints. See [dev.3 fix and actual evidence](../validation/2026-11-20-schema-preflight-fix.md).
+
+## dev.4: reviewing legacy argument barriers
+
+Startup reads workspace barriers and displays the cause even without MCP configured. A drawing quality task with a known freeze goes directly to `blocked`, before constructing or calling the model. Reports record `model_run_status: not_started`; `run_status: succeeded` means the application handled the request, while business status remains `ok: false`, `task_status: blocked`. Zero current-turn writes do not disprove an older barrier.
+
+Upgrading does not automatically remove an old missing-height barrier. Exit any old Cader sessions, then in a new session using the original workspace:
+
+```text
+/mcp barrier
+/mcp resolve
+```
+
+Select the original MCP configuration first. The application correlates the original argument error, request, target, journal and current schema. Acknowledged writes, timeouts, captures, native errors, changed evidence and another live writer process are refused. `eligible: true` means reviewable, **not proof that CAD never executed**. Every permission mode, including `full-access`, requires explicit confirmation that the original request did not execute, has ended, and no running or delayed CAD operation remains. If unsure, decline and preserve the barrier; do not delete the lock manually. This is not a general reset and is not exposed as an Agent tool.
+
+After operator adjudication, the original unknown barrier, journal snapshot and hashed decision receipt remain in workspace `.cader/barriers/`. Old unknown outcomes are not rewritten, operations are not replayed and old documents are not adopted. The transport closes and document/task grants are dropped; resend the task to create a fresh scratch. `/quality resume` cannot continue the old task. Review mutex and filesystem failures block release; stale review mutexes are never removed automatically.
+
+The actual Drawing6 record was reviewed read-only against real MCP discovery and remains unchanged. Operator approval and a complete new drawing were not performed on the user's behalf. See [diagnosis and limits](../validation/2026-11-21-legacy-barrier-review.md).

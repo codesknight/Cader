@@ -326,3 +326,5 @@ private drawings, and raw live-run artifacts out of commits.
 Real-model CAD execution evidence: [acceptance report](docs/validation/2026-11-20-agent-execution.md).
 
 Development snapshot 0.4.0-dev.3 fixes raw MCP input validation, whole-patch schema checks, scoped diagnostics and duplicated output. Real Flash/AutoCAD now reaches text creation and automatic vision; full circuit acceptance remains open. See [this fix and actual results](docs/validation/2026-11-20-schema-preflight-fix.md), [quality history](docs/validation/2026-11-20-autonomous-quality.md) and [retained reliability failures](docs/validation/2026-11-20-reliable-execution.md).
+
+Current snapshot **0.4.0-dev.4** adds startup barrier warnings, model-free blocking of frozen drawing tasks and user-only `/mcp barrier` / `/mcp resolve` review of matching legacy missing-argument evidence. Explicit operator confirmation is always required; original unknown outcomes remain archived, with no replay or old-document adoption. [Diagnosis and limits](docs/validation/2026-11-21-legacy-barrier-review.md). Full drawing quality remains open.
