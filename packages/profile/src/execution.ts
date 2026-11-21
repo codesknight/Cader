@@ -1,11 +1,11 @@
 import { mkdir, open, readFile, writeFile, unlink, lstat, readdir } from 'node:fs/promises';
 import { resolve, relative, dirname, basename, extname, matchesGlob } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { createMcpClient, defineTool, inspectCadImageBorder, assertToolArguments, ToolArgumentsError } from '@cader/dsh-adapter';
+import { createMcpClient, defineTool, inspectCadImageBorder, assertToolArguments, ToolArgumentsError, createToolRuntime, invokeTool } from '@cader/dsh-adapter';
 import type { ToolDefinition } from '@cader/dsh-adapter';
 import { loadMcp, workspacePath, readReferenceImage } from '@cader/config';
 import { runUserShell } from './interactive-shell.js';
-import { validateCadArguments } from './cad-arguments.js';
+import { validateCadArguments,validatePlannedWire } from './cad-arguments.js';
 import { environmentRedactor } from './session-store.js';
 import type { QualityPlan } from '@cader/config';
 import { inspectLegacyBarrier, archiveReviewedBarrier } from './legacy-barrier.js';
@@ -38,20 +38,50 @@ export class ExecutionSession {
   private observedOperationMark = -1;
   private lastArtifact: { path: string; bytes: number; sha256: string } | null = null;
   mode: PermissionMode = 'ask';
-  private taskGrant?: { id: string; target: string | null; newAllowed: boolean; created: Set<number> };
+  private taskGrant?: { id: string; target: string | null; newAllowed: boolean; created: Set<number>; requireNew:boolean; outputPath?:string;plan:QualityPlan };
+  private artifactOwner?:{task:string;connection:string|null;target:string|null};
   private localConnectionId: string | null = null;
-  private taskEntities = new Map<string,{connection:string|null;target:string|null;created:Set<number>}>();
-  async authorizeTask(id: string, plan: QualityPlan, confirm?: Approval) {
+  private taskEntities = new Map<string,{connection:string|null;target:string|null;created:Set<number>;startMark:number;newOperation?:string;freshRequired:boolean}>();
+  async authorizeTask(id: string, plan: QualityPlan, confirm?: Approval, controls?:{freshDrawing:boolean;outputPath:string}) {
     if(this.mode==='read-only'||this.frozen)return false;
-    if(this.mode==='ask'&&!await confirm?.(this.clean(`CAD 任务级授权\n目标：${this.scratch??'本连接新建工作图'}\n${JSON.stringify(plan)}\n允许：本任务创建图层、绘图、本任务新建实体的局部移动/缩放/删除和视图检查，含最多3轮修正。删除其他实体、覆盖、保存及Shell仍按原策略审批。`),this.workspace))return false;
+    if(this.mode==='ask'&&!await confirm?.(this.clean(`CAD 任务级授权\n目标：${controls?'本任务必须新建工作图':this.scratch??'本连接新建工作图'}\n${JSON.stringify(plan)}\n允许：本任务创建图层、绘图、本任务新建实体的局部移动/缩放/删除和视图检查，含最多3轮修正。${controls?`按请求生成DWG：${controls.outputPath}（覆盖他人/已改动文件另行审批）。`:'保存仍按原策略审批。'}删除其他实体、覆盖及Shell仍按原策略审批。`),this.workspace))return false;
     const prior=this.taskEntities.get(id);
     if(prior&&(prior.connection!==this.localConnectionId||prior.target!==this.scratch))return false;
     const created=prior?.created??new Set<number>();
-    this.taskGrant={id,target:this.scratch,newAllowed:!prior,created};
-    this.taskEntities.set(id,{connection:this.localConnectionId,target:this.scratch,created});
+    this.taskGrant={id,target:this.scratch,newAllowed:!prior,created,requireNew:Boolean(controls&&!prior?.newOperation),outputPath:controls?.outputPath?resolve(controls.outputPath):undefined,plan:structuredClone(plan)};
+    this.taskEntities.set(id,prior??{connection:this.localConnectionId,target:this.scratch,created,startMark:this.operations.length,freshRequired:Boolean(controls)});
     await this.audit({phase:'task_authorized',task_id:id,target:this.scratch,plan});return true;
   }
   endTask(){this.taskGrant=undefined;}
+  taskScope(id:string){
+    const task=this.taskEntities.get(id),owned=Boolean(task&&task.connection===this.localConnectionId&&task.target===this.scratch);
+    const operations=task?this.operations.slice(task.startMark).filter(op=>op.target===task.target):[];
+    return {owned,target:task?.target??null,connection:task?.connection??null,
+      new_drawing_confirmed:Boolean(owned&&task?.newOperation&&operations.some(op=>op.operation_id===task.newOperation&&op.outcome==='committed')),
+      geometry_confirmed:owned?operations.filter(op=>op.outcome==='committed'&&/^(?:draw_|add_dimension|copy_entity|mirror_entity)/.test(op.tool)).length:0,
+      entity_ids:owned?[...task!.created]:[]};
+  }
+  taskArtifact(id:string){
+    if(this.frozen||this.artifactOwner?.task!==id||this.artifactOwner.connection!==this.localConnectionId||this.artifactOwner.target!==this.scratch)return null;
+    const last=this.operations.filter(op=>op.dispatched).at(-1);
+    return last?.tool==='save_drawing'&&last.outcome==='committed'?this.lastArtifact:null;
+  }
+  async saveTaskArtifact(id:string,path:string,confirm?:Approval,signal?:AbortSignal){
+    const scope=this.taskScope(id);
+    if(!scope.owned||!scope.new_drawing_confirmed||!scope.geometry_confirmed||this.taskGrant?.id!==id)throw new Error('TASK_EXECUTION_REQUIRED');
+    const ctx=await createToolRuntime();
+    try{
+      const tool=this.definitions(confirm).find(tool=>tool.name.endsWith('__save_drawing'));
+      if(!tool)throw new Error('DWG_SAVE_UNAVAILABLE');
+      ctx.tools.register(tool);
+      const result=await invokeTool(ctx,tool.name,{file_path:path},signal);
+      if(result.isError)throw new Error('DWG_SAVE_FAILED: '+JSON.stringify(result.error));
+      if(!this.lastArtifact||resolve(path)!==this.lastArtifact.path)throw new Error('DWG_ARTIFACT_MISMATCH');
+      const bytes=await readFile(path);
+      if(createHash('sha256').update(bytes).digest('hex')!==this.lastArtifact.sha256)throw new Error('DWG_ARTIFACT_CHANGED');
+      return {kind:'local-dwg' as const,...this.lastArtifact,document:scope.target,task_id:id,verification:'DWG header, file hash and post-save CAD query; reopen not evaluated'};
+    }finally{await ctx.fiber.dispose();}
+  }
   async snapshot(){return this.serial(async()=>{
     if(!this.client)throw new Error('MCP_NOT_CONNECTED');
     const operationId=randomUUID();
@@ -277,6 +307,7 @@ export class ExecutionSession {
   }
   private async authorize(description: string, destructive: boolean, confirm?: Approval, shell = false, cad?:{name:string;payload:Record<string,unknown>}) {
     if (this.mode === 'read-only') throw new Error('READ_ONLY_PERMISSION');
+    if(cad?.name==='save_drawing'&&!destructive&&this.taskGrant?.outputPath===resolve(String(cad.payload.file_path)))return;
     if(cad?.name==='delete_entity'&&this.taskGrant?.target===this.scratch&&this.taskGrant?.created.has(Number(cad.payload.object_id)))return;
     if(!destructive&&!shell&&cad&&this.taskGrant&&this.taskGrant.target===this.scratch){
       const safe=new Set(['create_layer','set_layer_properties','draw_line','draw_circle','draw_arc','draw_rectangle','draw_text','draw_mtext','draw_polyline','draw_hatch','add_dimension','export_current_view']);
@@ -329,6 +360,9 @@ export class ExecutionSession {
             if (this.frozen) { record.outcome = 'blocked_not_dispatched'; throw new Error('CAD_WRITE_BLOCKED_FROZEN_NOT_DISPATCHED'); }
             assertToolArguments(tool,args);
             validateCadArguments(name, payload);
+            if(this.taskGrant)validatePlannedWire(name,payload,this.taskGrant.plan);
+            if(this.taskGrant?.requireNew&&name!=='new_drawing')throw new Error('NEW_TASK_DRAWING_REQUIRED: call new_drawing before editing; old drawing cannot satisfy this task');
+            if(name==='new_drawing'&&this.taskGrant&&this.taskEntities.get(this.taskGrant.id)?.freshRequired&&!this.taskGrant.newAllowed)throw new Error('TASK_DRAWING_ALREADY_CREATED: continue local editing; do not rebuild');
             if (name !== 'new_drawing' && !this.scratch) throw new Error('NEW_SCRATCH_DRAWING_REQUIRED');
             await this.validateDependencies(name,payload,operationId);
             let destructive = name === 'delete_entity' || payload.erase_source === true;
@@ -342,6 +376,9 @@ export class ExecutionSession {
               catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
               try { await workspacePath(this.workspace, parent); } catch { destructive = true; }
               payload.file_path = output; payload.overwrite = destructive;
+              if(destructive&&this.taskGrant?.outputPath===output&&this.artifactOwner?.task===this.taskGrant.id&&
+                this.artifactOwner.connection===this.localConnectionId&&this.artifactOwner.target===this.scratch&&this.lastArtifact?.path===output&&
+                createHash('sha256').update(await readFile(output)).digest('hex')===this.lastArtifact.sha256)destructive=false;
             }
             await this.authorize(this.clean(`CAD ${name}\n${JSON.stringify(payload)}\nTarget: ${this.scratch ?? 'new scratch drawing'}`), destructive, confirm,false,{name,payload});
             exec.signal.throwIfAborted(); await this.acquire();
@@ -352,9 +389,10 @@ export class ExecutionSession {
             acknowledged = true; record.outcome = 'committed'; record.stage = 'acknowledgement';
             if (name === 'new_drawing') this.scratch = String(result);
             if(name==='new_drawing'&&this.taskGrant){this.taskGrant.target=this.scratch;this.taskGrant.newAllowed=false;this.taskGrant.created.clear();}
-            if(this.taskGrant)this.taskEntities.get(this.taskGrant.id)!.target=this.scratch;
+            if(this.taskGrant){const task=this.taskEntities.get(this.taskGrant.id)!;task.target=this.scratch;
+              if(name==='new_drawing'){task.newOperation=operationId;this.taskGrant.requireNew=false;}}
             const createdId=Number(String(result).match(/object_id=(\d+)/)?.[1]);
-            if(this.taskGrant&&/^draw_|^copy_entity$|^mirror_entity$/.test(name)&&Number.isSafeInteger(createdId))this.taskGrant.created.add(createdId);
+            if(this.taskGrant&&/^draw_|^add_dimension$|^copy_entity$|^mirror_entity$/.test(name)&&Number.isSafeInteger(createdId))this.taskGrant.created.add(createdId);
             record.target = this.scratch;
             await this.audit({ ...record, phase: 'mutation_acknowledged', result });
             record.stage = 'postflight';
@@ -369,6 +407,7 @@ export class ExecutionSession {
               const bytes = await readFile(output);
               if (!/^AC10\d\d/.test(bytes.subarray(0, 6).toString('ascii'))) throw new Error('DWG_FILE_VERIFICATION_FAILED');
               this.lastArtifact = { path: output, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
+              this.artifactOwner=this.taskGrant?{task:this.taskGrant.id,connection:this.localConnectionId,target:this.scratch}:undefined;
             }
             record.stage = 'confirmed'; record.duration_ms = Date.now() - started;
             await this.audit({ ...record, phase: 'confirmed', request: operationId, result, observed, observation_scope, artifact: output ? this.lastArtifact : null });

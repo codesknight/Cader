@@ -1,9 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { acceptancePlanSchema, parseAcceptancePlan, loadSkills } from '@cader/config';
+import { acceptancePlanSchema, parseAcceptancePlan, loadSkills, readReferenceImage } from '@cader/config';
 import type { QualityPlan } from '@cader/config';
-import type { createLiveRuntime, ToolDefinition, PublicEvent } from '@cader/dsh-adapter';
+import type { createLiveRuntime, ToolDefinition, PublicEvent, ImageView } from '@cader/dsh-adapter';
 import type { ExecutionSession, Approval } from './execution.js';
-export type QualityPhase = 'planning' | 'drawing' | 'geometry' | 'topology' | 'vision' | 'correcting' | 'complete' | 'pending_verification' | 'blocked';
+import type { ReferenceTask } from './reference-input.js';
+import { referenceLayoutHints } from './reference-input.js';
+import {crossesInterior} from './cad-arguments.js';
+export type QualityPhase = 'reference' | 'planning' | 'drawing' | 'geometry' | 'topology' | 'vision' | 'correcting' | 'saving' | 'complete' | 'pending_verification' | 'blocked';
 export interface CheckResult {
   id: string;
   status: 'pass' | 'fail' | 'not_run';
@@ -15,6 +18,7 @@ export interface QualityResume {
   request_sha256: string;
   plan: QualityPlan;
   round: number;
+  reference_task?:ReferenceTask|null;
   execution: {
     local_connection_id: string | null;
     scratch: string | null;
@@ -23,7 +27,7 @@ export interface QualityResume {
 export function requiresQuality(task: string) {
   if(/有什么功能|能画什么|如何|怎么|已经.*验证.*吗/.test(task))return false;
   if(/^(?:请)?(?:移动|平移|旋转|move|rotate)/i.test(task))return false;
-  return /画|绘制|重绘|布局|添加.*(?:文字|标注)|(?:创建|设计|生成|制作|搭建|做).*(?:电路|图|符号|组件)|\bdraw\b|\bdiagram\b|\bschematic\b/i.test(task);
+  return /画|绘制|重绘|复现|临摹|描绘|布局|添加.*(?:文字|标注)|(?:创建|设计|生成|制作|搭建|做).*(?:电路|图|符号|组件)|\bdraw\b|\bredraw\b|\btrace\b|\breproduce\b|\brecreate\b|\bdiagram\b|\bschematic\b/i.test(task);
 }
 type Entity = Record<string, any>;
 type P = number[];
@@ -35,22 +39,6 @@ const pointOn = (p: P, a: P, b: P, tol = 1e-5) => {
   return Math.abs((b[0]! - a[0]!) * (p[1]! - a[1]!) - (b[1]! - a[1]!) * (p[0]! - a[0]!)) / length <= tol &&
     (p[0]! - a[0]!) * (p[0]! - b[0]!) + (p[1]! - a[1]!) * (p[1]! - b[1]!) <= tol;
 };
-// Exact slab clipping against an open rectangle, including very long wire segments.
-function crossesInterior(a: P, b: P, box: P[]) {
-  let lo = 0, hi = 1;
-  for(let axis = 0;axis < 2;axis++) {
-    const delta = b[axis]! - a[axis]!, min = box[0]![axis]! + 1e-5, max = box[1]![axis]! - 1e-5;
-    if(Math.abs(delta) < 1e-10) {
-      if(a[axis]! <= min || a[axis]! >= max)
-        return false;
-      continue;
-    }
-    const t1 = (min - a[axis]!) / delta, t2 = (max - a[axis]!) / delta;
-    lo = Math.max(lo, Math.min(t1, t2));
-    hi = Math.min(hi, Math.max(t1, t2));
-  }
-  return lo < hi;
-}
 function intersection(a: P, b: P, c: P, d: P): P | undefined {
   const x = b[0]! - a[0]!, y = b[1]! - a[1]!, u = d[0]! - c[0]!, v = d[1]! - c[1]!;
   const cross = x * v - y * u;
@@ -62,7 +50,7 @@ function intersection(a: P, b: P, c: P, d: P): P | undefined {
 }
 /** Domain-neutral port graph: actual CAD wires + declared component port pairs.
  * Component semantics are selected by the acceptance plan, never a fixed drawing sequence. */
-export function verifyQuality(plan: QualityPlan, entities: Entity[]): CheckResult[] {
+export function verifyQuality(plan: QualityPlan, entities: Entity[], context:{new_document?:boolean;saved_dwg?:boolean}={}): CheckResult[] {
   const wires = entities.filter(e => e.type === 'AcDbLine' && e.layer === plan.wire_layer && Array.isArray(e.start_point) && Array.isArray(e.end_point));
   const points: P[] = [];
   const key = (p: P) => {
@@ -118,6 +106,8 @@ export function verifyQuality(plan: QualityPlan, entities: Entity[]): CheckResul
   return plan.requirements.map(r => {
     let pass = false;
     let evidence = '';
+    if(r.check==='new_document')return {id:r.id,status:context.new_document?'pass':'not_run',evidence:context.new_document?'本任务new_drawing已确认':'本任务新建图纸未确认'};
+    if(r.check==='saved_dwg')return {id:r.id,status:context.saved_dwg?'pass':'not_run',evidence:context.saved_dwg?'本任务DWG保存、文件头及hash已校验':'等待程序保存/文件校验，不能从截图判断'};
     if(r.check === 'visual')
       return { id: r.id, status: 'not_run', evidence: 'Requires validated image review' };
     if(r.check === 'entity_count') {
@@ -158,6 +148,7 @@ export async function runQualityTask(options: {
   resume?: QualityResume;
   persist: (state: unknown) => Promise<void>;
   request?: Parameters<Awaited<ReturnType<typeof createLiveRuntime>>['run']>[2];
+  referenceTask?:ReferenceTask;
 }) {
   const { runtime, owner, task, signal } = options;
   let phase: QualityPhase = 'planning', plan: QualityPlan | undefined, round = 0, checks: CheckResult[] = [], visual: unknown = null;
@@ -169,6 +160,16 @@ export async function runQualityTask(options: {
   }[] = [];
   const reviews: unknown[] = [];
   let guidance = '';
+  const referenceTask=options.referenceTask??options.resume?.reference_task??undefined;
+  let artifact:Awaited<ReturnType<ExecutionSession['saveTaskArtifact']>>|null=null;
+  let accepted=false;
+  let referenceObservation:Awaited<ReturnType<NonNullable<typeof runtime>['inspectReference']>>|null=null;
+  let referenceView:ImageView|undefined;
+  const sourceUnchanged=async()=>{
+    if(!referenceTask)return;
+    const image=await readReferenceImage(owner.workspace,referenceTask.image.path);
+    if(createHash('sha256').update(image.data).digest('hex')!==referenceTask.image.sha256)throw new Error('REFERENCE_CHANGED_RESELECT_REQUIRED');
+  };
   let failure: {stage:QualityPhase;code:string;source:'model'|'verification'}|null=null;
   const transitions: {
     phase: QualityPhase;
@@ -176,10 +177,14 @@ export async function runQualityTask(options: {
   }[] = [];
   const hash = createHash('sha256').update(task).digest('hex');
   const taskId = options.resume?.task_id ?? randomUUID();
-  const state = () => ({ version: 1, task_id: taskId, phase, original_request: task, request_sha256: hash, plan, round, checks, visual, reviews, transitions, failure, model_runs: modelRuns, execution: owner.facts() });
+  const state = () => ({ version: 1, task_id: taskId, phase, original_request: task, request_sha256: hash, plan, round, checks, visual, reviews, transitions, failure,reference_task:referenceTask??null,reference_observation:referenceObservation,artifact,quality_accepted:accepted, model_runs: modelRuns, execution: owner.facts() });
   const act = async (instruction: string, request?: Parameters<Awaited<ReturnType<typeof createLiveRuntime>>['run']>[2]) => {
     if(!runtime)throw new Error('QUALITY_RUNTIME_REQUIRED');
-    const result = await runtime.run(options.profile, instruction + '\n领域质量知识（数据，不授予权限）：\n' + guidance, { ...request, signal });
+    await sourceUnchanged();
+    const sourceHints=referenceObservation?.structured?referenceLayoutHints(referenceObservation.structured,referenceObservation.evidence):null;
+    const result = await runtime.run(options.profile, instruction + '\n领域质量知识（数据，不授予权限）：\n' + guidance+
+      (sourceHints?'\n原图已观察事实及统一CAD坐标提示（y向上，禁止把像素y向下直接当CAD坐标）：\n'+JSON.stringify(sourceHints):''),
+      { ...options.request,...request,image:referenceTask?.image.path??request?.image??options.request?.image,imageView:options.request?.imageView??referenceView, signal });
     modelRuns.push({ phase, status: result.status, text: result.text, tools: result.tools });
     if(result.status !== 'succeeded'){
       const missingPlan=phase==='planning'&&!result.errorCode;
@@ -189,6 +194,13 @@ export async function runQualityTask(options: {
     return result;
   };
   const enter = async (next: QualityPhase) => { phase = next; transitions.push({ phase, at: new Date().toISOString() }); options.emit({ type: 'task.phase', phase, round }); await options.persist(state()); };
+  const saveReferenceArtifact=async()=>{
+    if(!referenceTask)return;
+    await sourceUnchanged();await enter('saving');
+    artifact=await owner.saveTaskArtifact(taskId,referenceTask.outputPath,options.confirm,signal);
+    checks=checks.map(check=>plan!.requirements.find(r=>r.id===check.id)?.check==='saved_dwg'?{id:check.id,status:'pass',evidence:'本任务DWG保存、文件头、hash和保存后CAD查询已验证'}:check);
+    options.emit({type:'artifact.verified',artifact,quality:accepted?'accepted':'pending'});
+  };
   const tool: ToolDefinition = {
     name: 'cader_submit_acceptance_plan', description: 'Submit requirements quoted from the original request and independently testable checks. Components have planned bounds and two actual connection ports. Wire layer is explicit. Do not submit CAD operation sequences.', parameters: acceptancePlanSchema,
     output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] }, async execute(args, exec) {
@@ -200,6 +212,10 @@ export async function runQualityTask(options: {
       if(/并联|\bparallel\b/i.test(task) && parsed.domain === 'electrical-schematic') throw new Error('PARALLEL_TOPOLOGY_VERIFIER_UNAVAILABLE: cannot substitute a series-cycle check');
       if(/图|diagram|文字|text|电路|circuit/i.test(task))
         parsed.visual_required = true;
+      if(referenceTask){
+        parsed.visual_required=true;
+        if(!parsed.requirements.some(r=>r.check==='visual'))throw new Error('REFERENCE_APPEARANCE_CHECK_REQUIRED');
+      }
       plan = parsed;
       exec.concludeTurn();
       return JSON.stringify(plan);
@@ -208,6 +224,18 @@ export async function runQualityTask(options: {
   try {
     if(owner.facts().frozen){await enter('blocked');return state();}
     if(!runtime)throw new Error('QUALITY_RUNTIME_REQUIRED');
+    await sourceUnchanged();
+    if(referenceTask){
+      await enter('reference');
+      referenceObservation=await runtime.inspectReference(referenceTask.image.path,task,signal);
+      if(!referenceObservation.valid||referenceObservation.evidence.sha256!==referenceTask.image.sha256||!referenceObservation.structured?.objects.length){
+        failure={stage:'reference',code:'REFERENCE_INSPECTION_FAILED',source:'verification'};await enter('blocked');return state();
+      }
+      const [a,b]=referenceObservation.structured.content_bounds,w=referenceObservation.evidence.width,h=referenceObservation.evidence.height;
+      const margin=Math.max(b[0]-a[0],b[1]-a[1])*0.03;
+      const left=Math.max(0,Math.floor((a[0]-margin)*w)),top=Math.max(0,Math.floor((a[1]-margin)*h));
+      referenceView={crop:{left,top,width:Math.min(w,Math.ceil((b[0]+margin)*w))-left,height:Math.min(h,Math.ceil((b[1]+margin)*h))-top}};
+    }
     await enter('planning');
     if(options.resume) {
       plan = parseAcceptancePlan(options.resume.plan);
@@ -218,7 +246,8 @@ export async function runQualityTask(options: {
       }
     }
     else
-      await act('用中文规划以下绘图任务。必须调用cader_submit_acceptance_plan，只提交需求验收清单与组件布局/端口；此阶段不能绘图。每项source_quote必须原样引用用户请求。独立列出用户要求的数量、文字、布局及视觉条件。entity_count只接受实际AcDb实体类型，不存在电源/灯泡等语义实体类型；组件符号语义应使用visual检查。电路任务须按用户要求检查拓扑：串联使用series_cycle；独立列出no_wire_through_component、text_clearance及visual；标注必须text检查并用component关联邻近组件。组件端口放在其边界上，组件本体与wire_layer分层；导线不得直接跨接同一组件两端或进入组件包围盒内部。一般绘图不得强加电路条件。不得虚构已完成。\n' + task, { signal, onlyTools: [tool.name], extraTools: [tool], resultText: () => plan ? JSON.stringify(plan) : undefined });
+      await act('用中文规划以下绘图任务。必须调用cader_submit_acceptance_plan，只提交需求验收清单与组件布局/端口；此阶段不能绘图。若有参考图片，必须先观察实际像素；可用cader_view_image裁看原图。识别可读符号、文字与连接，示意图使用布局坐标，不因缺少物理比例尺全局拒绝；不可读的值单独标未知。source_quote必须原样引用用户请求，图片中数值可在description/text写出并用“参考图”等请求原文作source_quote。独立列出数量、文字、布局及源图外观匹配条件。新建文档与保存由程序验证，不能用任意实体数代替。entity_count必须是可测的实际AcDb类型；COM draw_polyline/rectangle生成AcDb2dPolyline，不是AcDbPolyline。组件语义使用visual检查。电路使用真实组件边界端口和适合的拓扑检查，不强加电路条件到普通图。标注以text检查，禁止导线穿组件或短接其端口。不得把本阶段的“只做规划”误写为整任务不准绘图。\n' + task,
+        { signal, onlyTools: [tool.name,'cader_view_image'], extraTools: [tool], resultText: () => plan ? JSON.stringify(plan) : undefined });
     if(!plan) {
       failure={stage:'planning',code:'ACCEPTANCE_PLAN_MISSING',source:'verification'};
       await enter('blocked');
@@ -226,13 +255,23 @@ export async function runQualityTask(options: {
     }
     if(options.root && plan.domain === 'electrical-schematic')
       guidance = await (await loadSkills(options.root)).read('electrical-quality', 'main');
-    if(!await owner.authorizeTask(taskId, plan, options.confirm)) {
+    if(!await owner.authorizeTask(taskId, plan, options.confirm,referenceTask)) {
       await enter('blocked');
       return state();
     }
     await enter('drawing');
     if(!options.resume)
-      await act('按原始请求及已封存验收计划自主绘图，不要重建已存在的合适工作图。所有点必须XYZ；遵守wire_layer和组件端口坐标。组件本体及内部引线使用组件图层，WIRE只画组件外部连接，止于组件边界端口，不能用一条导线短接同一组件。符号方向必须对应计划端口方向，避免有符号但端口悬空。不要调用视觉工具，此任务由调度器在绘图后强制验证。不要向用户宣称完成，不要保存除非原请求要求。\n' + JSON.stringify({ task, plan }), options.request);
+      await act((referenceTask?'根据当前实际附带的原图重绘。本任务必须先调用new_drawing新建空白图，不允许复用上一任务图。图层先创建再使用；不要只写分析或要求GUI上传。程序会将结果保存到约定DWG，模型阶段不要保存。':'按原始请求及已封存验收计划自主绘图，不要重建已存在的合适工作图。')+'所有点必须XYZ，按验收计划绝对坐标与端口位置执行。WIRE只用于组件外部连接，不得跨过组件本体或短接同一组件两端。所有文本应按原图可读标注绘制，不虚构尺寸。不要调用视觉工具，不要向用户宣称完成；调度器会验证。\n' + JSON.stringify({ task, plan }), options.request);
+    if(referenceTask&&!owner.facts().frozen){
+      let scope=owner.taskScope(taskId);
+      if(!scope.new_drawing_confirmed||!scope.geometry_confirmed){
+        await act('本任务尚缺实际执行证据。只补齐未执行的步骤，不得重放已确认几何。先新建本任务图纸，再实际绘图；不要只描述计划。\n'+JSON.stringify({task,plan,scope}));
+        scope=owner.taskScope(taskId);
+      }
+      if(!scope.owned||!scope.new_drawing_confirmed||!scope.geometry_confirmed){
+        failure={stage:'drawing',code:'TASK_EXECUTION_REQUIRED',source:'verification'};await enter('blocked');return state();
+      }
+    }
     for(round = options.resume?.round ?? 0;round <= 3;round++) {
       signal?.throwIfAborted();
       if(owner.facts().frozen) {
@@ -241,7 +280,12 @@ export async function runQualityTask(options: {
       }
       await enter('geometry');
       const snapshot = await owner.snapshot();
-      checks = verifyQuality(plan, snapshot.entities);
+      await sourceUnchanged();
+      if(referenceTask&&snapshot.document!==owner.taskScope(taskId).target)throw new Error('TASK_DOCUMENT_MISMATCH');
+      if(referenceTask&&!snapshot.entities.some(e=>owner.taskScope(taskId).entity_ids.includes(e.object_id))){
+        failure={stage:'geometry',code:'TASK_EXECUTION_REQUIRED',source:'verification'};await enter('blocked');break;
+      }
+      checks = verifyQuality(plan, snapshot.entities,{new_document:owner.taskScope?.(taskId).new_drawing_confirmed,saved_dwg:Boolean(artifact??owner.taskArtifact?.(taskId))});
       await enter('topology');
       const snapshotHash = createHash('sha256').update(JSON.stringify(snapshot.entities)).digest('hex');
       if(plan.visual_required) {
@@ -249,8 +293,9 @@ export async function runQualityTask(options: {
         visual = await runtime.reviewCadView(JSON.stringify({
           original_request: task, requirements: plan.requirements.filter(r => r.check === 'visual'), geometry: checks, domain_guidance: guidance,
           entity_snapshot: snapshot.entities, observed_state_hash: snapshotHash, document_revision: null,
-          note: 'Use image for symbol/label/layout quality. Coordinates and IDs from queries are authoritative for location; mark pixel ambiguity uncertain. Do not invent requested dimensions.'
-        }), signal);
+          note: 'Use image for symbol/label/layout quality. Coordinates and IDs from queries are authoritative for location; mark pixel ambiguity uncertain. Do not invent requested dimensions.',
+          reference:referenceTask?.image??null,
+        }), signal,referenceTask?.image.path);
       }
       const review = visual as Awaited<ReturnType<typeof runtime.reviewCadView>> | null;
       const knownIds = new Set(snapshot.entities.map(e => e.object_id));
@@ -260,7 +305,9 @@ export async function runQualityTask(options: {
           possible_clipping?: boolean;
         };
       } | undefined)?.image_bounds?.possible_clipping);
-      const valid = !plan.visual_required || Boolean(review?.review_valid && referencesValid && !clipped && review.structured?.verdict === 'pass');
+      const sourceBound=!referenceTask||Boolean((review?.evidence as {reference?:{sha256?:string};document?:string}|undefined)?.reference?.sha256===referenceTask.image.sha256&&
+        (review?.evidence as {document?:string})?.document===owner.taskScope(taskId).target);
+      const valid = !plan.visual_required || Boolean(review?.review_valid && referencesValid && sourceBound && !clipped && review.structured?.verdict === 'pass');
       const visualChecks = plan.requirements.filter(r => r.check === 'visual').map(r => {
         const item = review?.structured?.checklist.find(c => c.requirement_id === r.id);
         return { id: r.id, status: item?.status === 'pass' && referencesValid ? 'pass' : item?.status === 'fail' ? 'fail' : 'not_run', evidence: item?.evidence ?? 'Missing validated visual checklist' } as CheckResult;
@@ -271,28 +318,40 @@ export async function runQualityTask(options: {
       reviews.push({
         round, original_request: task, requirements: plan.requirements, checks, observed_state_hash: snapshotHash,
         document_revision: null, image_evidence: review?.evidence ?? null, visual_report: review?.structured ?? null,
-        references_valid: referencesValid, possible_clipping: clipped, observation_unchanged: unchanged,
+        references_valid: referencesValid, source_bound:sourceBound,possible_clipping: clipped, observation_unchanged: unchanged,
         disagreements: checks.filter(c => c.status === 'pass' && review?.structured?.checklist.some(v => v.requirement_id === c.id && v.status !== 'pass')).map(c => c.id),
         entity_mapping: 'queried ObjectIDs; pixel-to-CAD transform unavailable; visual suggestions require coordinate reconciliation'
       });
-      if(valid && unchanged && checks.every(c => c.status === 'pass')) {
-        await enter('complete');
+      const beforeSave=checks.filter(c=>!referenceTask||plan!.requirements.find(r=>r.id===c.id)?.check!=='saved_dwg');
+      if(valid && unchanged && beforeSave.every(c => c.status === 'pass')) {
+        accepted=true;
+        if(!referenceTask)await enter('complete');
         break;
       }
       if(clipped)
         checks.push({ id: 'capture_bounds', status: 'not_run', evidence: '视图边缘出现图形，可能被裁切；不得依据不完整图片修改几何。检查MCP打印范围及缩放。' });
       const nonActionableUncertainty = review?.structured?.verdict === 'uncertain' && !review.structured.defects.length && !checks.some(c => c.status === 'fail' && plan!.requirements.find(r => r.id === c.id)?.check !== 'visual');
       if(nonActionableUncertainty) checks.push({ id: 'visual_uncertainty', status: 'not_run', evidence: '必要视觉结论仍不确定；没有可定位缺陷，不做推测性修改，保留证据以便安全重验。' });
-      if(nonActionableUncertainty || clipped || !unchanged || round === 3 || (plan.visual_required && (!review?.review_valid || !referencesValid))) {
+      if(nonActionableUncertainty || clipped || !sourceBound || !unchanged || round === 3 || (plan.visual_required && (!review?.review_valid || !referencesValid))) {
         await enter('pending_verification');
         break;
       }
       await enter('correcting');
       await act('使用中文。先查询实体，再调用cader_apply_cad_patch提交实际局部修改，或直接调用CAD修改工具。不要只描述计划，不要输出长篇思考或反复讨论候选方案。不要整图重建；优先move/调整局部实体，删除仅限本任务创建实体且由执行层检查授权。以查询坐标核对视觉分歧，不能凭像素直接编辑。验收计划不能更改。不要宣称完成，修正后调度器会再次核验。\n' + JSON.stringify({ original_request: task, plan, checks, visual: review?.structured }));
     }
+    if(referenceTask&&!owner.facts().frozen&&(phase as QualityPhase)!=='blocked'){
+      await saveReferenceArtifact();
+      await enter(accepted?'complete':'pending_verification');
+    }
   }
   catch(error) {
+    if((phase as QualityPhase)==='saving')failure={stage:phase,code:'DWG_SAVE_FAILED',source:'verification'};
     if(!failure)visual = { previous: visual, error: (error as Error).message };
+    if(referenceTask&&failure?.source==='model'&&!signal?.aborted&&!owner.facts().frozen&&owner.taskScope(taskId).new_drawing_confirmed&&owner.taskScope(taskId).geometry_confirmed){
+      accepted=false;
+      checks.push({id:'model_interrupted',status:'not_run',evidence:'模型中断后的当前图形尚未重新完成质量验收；仅保存待验稿'});
+      try{await saveReferenceArtifact();}catch(saveError){visual={previous:visual,save_error:(saveError as Error).message};}
+    }
     await enter(failure||owner.facts().frozen ? 'blocked' : 'pending_verification');
   }
   finally {

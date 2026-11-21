@@ -4,6 +4,11 @@ export type FailureSource = 'provider' | 'agent' | 'mcp' | 'configuration' | 'ru
 const hints: Record<string, string> = {
   QUOTA: '模型服务拒绝请求（QUOTA）；请核对该API Key对应账户的余额、配额和模型访问权限。尚不能仅凭此码断言余额不足；MCP连接状态另行报告。',
   ACCEPTANCE_PLAN_MISSING: '模型未提交有效验收计划，尚未允许绘图。检查规划工具错误和模型运行记录；不会将此状态称为已绘图待验证。',
+  TASK_EXECUTION_REQUIRED:'本任务没有新建图纸或实际绘图证据，已阻止使用旧图验收。请查看执行轨迹；未重放旧操作。',
+  REFERENCE_INSPECTION_FAILED:'参考图未形成有效且匹配原图哈希的结构观察；尚未允许绘图。检查视觉模型响应和格式修复记录。',
+  REFERENCE_CHANGED_RESELECT_REQUIRED:'已授权的参考图快照发生变化；请重新选择原图，旧任务不会自动重放。',
+  REFERENCE_TASK_MISMATCH:'恢复请求的原图或DWG目标与封存任务不一致；未重放绘图。请显式发起新的任务。',
+  DWG_SAVE_FAILED:'DWG未完成保存或文件校验；查看保存操作的原始错误。未知保存结果不得重放或宣称交付。',
   ACCOUNT_QUOTA: 'Check provider account quota and billing before retrying.',
   AUTH: 'Check the configured provider credential and endpoint; do not share the key.',
   RATE_LIMIT: 'Wait for the provider rate limit to recover before retrying.',
@@ -42,6 +47,8 @@ export function failureFromError(error: unknown, source: FailureSource = 'runtim
   if (value?.name === 'ConfigError') return describeFailure('CONFIG_INVALID', 'configuration');
   if (value?.message === 'INVALID_ENV_FILE' || value?.message === 'SMOKE_REQUIRES_ROLE_PROFILES')
     return describeFailure('CONFIG_INVALID', 'configuration');
+  if(value?.message==='REFERENCE_MCP_REQUIRED')return describeFailure('MCP_CONNECTION_FAILED','mcp');
+  if(value?.message&&['REFERENCE_CHANGED_RESELECT_REQUIRED','REFERENCE_TASK_MISMATCH'].includes(value.message))return describeFailure(value.message,'verification');
   if (value?.code === 'ENOENT') return describeFailure('CONFIG_NOT_FOUND', 'configuration');
   if (value?.message === 'USAGE_ERROR') return describeFailure('USAGE_ERROR', 'usage');
   return describeFailure(source === 'mcp' ? 'MCP_CONNECTION_FAILED' : 'RUNTIME_INIT_FAILED', source);

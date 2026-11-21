@@ -7,7 +7,7 @@ import { readFile } from 'node:fs/promises';
 import { runTerminal } from './terminal.js';
 
 const command = process.argv[2];
-const usage = 'Cader CLI (permission: ask by default)\nexec "<task>" [--permissions read-only|ask|workspace-write|full-access] [--intent assess|redraw] [--mcp <local.yaml>] [--skill <name>] [--image <workspace.png|jpg>] [--crop x,y,w,h] [--rotate 0|90|180|270]\nskills list | skills show <name> [--resource <id>] | doctor | models | harness-smoke\nlive-smoke --mcp <local.yaml> [--execution | --reliability | --faults | --visual | --quality [--task <request>] | --image <file> --expected-image <json>]\ncad-contract\ncad-test --backend http --mcp <local.yaml> --plan <plan.json> --output .cader/artifacts/<name>.dwg [--authorize-write]\ncad-reconcile --run <managed-run-directory> --mcp <local.yaml>\nassessment-check --assessment <json> --expect <independent.json>';
+const usage = 'Cader CLI (permission: ask by default)\nexec "<task>" [--permissions read-only|ask|workspace-write|full-access] [--intent assess|redraw] [--mcp <local.yaml>] [--skill <name>] [--image <local.png|jpg>] [--crop x,y,w,h] [--rotate 0|90|180|270]\nredraw requires an image, connected MCP and write permission; quality and DWG file verification are reported separately.\nskills list | skills show <name> [--resource <id>] | doctor | models | harness-smoke\nlive-smoke --mcp <local.yaml> [--execution | --reliability | --faults | --visual | --quality [--task <request>] | --image <file> --expected-image <json>]\ncad-contract\ncad-test --backend http --mcp <local.yaml> --plan <plan.json> --output .cader/artifacts/<name>.dwg [--authorize-write]\ncad-reconcile --run <managed-run-directory> --mcp <local.yaml>\nassessment-check --assessment <json> --expect <independent.json>';
 function flags(keys: string[], booleans: string[] = []) {
   const result = new Map<string, string>();
   const args = process.argv.slice(3);
@@ -92,7 +92,7 @@ try {
       intent: intent as 'assess' | 'redraw', imageView: { rotation: rotation as 0 | 90 | 180 | 270, crop } };
   }
   if (command === '--version' || command === '-v') {
-    console.log('Cader 0.4.0-dev.5');
+    console.log('Cader 0.4.0-dev.6');
   } else if (command === '--help' || command === 'help' || (command === 'exec' && process.argv.includes('--help'))) {
     console.log(usage);
     console.log('\nNo command: interactive Cader terminal. chat [--workspace <dir>] [--stdio]\n--version  Show version without configuration or network.');

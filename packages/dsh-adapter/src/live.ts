@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { resolve, relative } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { Context } from '@deepseek-ai/cordis';
 import { brandString } from '@deepseek-ai/dsh-brand';
@@ -20,7 +20,7 @@ import * as mcpClient from '@deepseek-ai/dsh-mcp-client';
 import Attachments from '@deepseek-ai/dsh-attachment-local';
 import FileSystem from '@deepseek-ai/dsh-fs-local';
 import type { ModelProfile, RuntimeConfig, McpConfig } from '@cader/config';
-import { parseVisualReport, visualReportSchema, requireCredential, loadSkills, mcpEnvironment } from '@cader/config';
+import { parseVisualReport, visualReportSchema, requireCredential, loadSkills, mcpEnvironment, workspacePath, readReferenceImage,parseReferenceObservation,referenceObservationSchema } from '@cader/config';
 import { ChildPool } from './pool.js';
 import { prepareImageView, attachmentToSource } from './image-view.js';
 import type { ImageView } from './image-view.js';
@@ -128,6 +128,7 @@ export async function createLiveRuntime(options: LiveOptions) {
     async function run(profileId: string, instruction: string, request: {
       extraTools?: ToolDefinition[]; onlyTools?: string[]; resultText?: () => string | undefined;
       parent?: Agent; image?: string; imageView?: ImageView; skill?: string; signal?: AbortSignal;
+      comparisonImage?: string;
       history?: { role: 'user' | 'assistant'; content: string; status?: string }[]; summary?: string; domain?: string;
     } = {}): Promise<AgentResult> {
       const profile = profiles.get(profileId as ModelProfile['id']);
@@ -251,7 +252,24 @@ export async function createLiveRuntime(options: LiveOptions) {
               }));
               allowed.push('cader_load_skill');
             }
-            if (!request.onlyTools && imageRefs.length && !options.disableTools) {
+            let enableImageView=()=>{};
+            if(!request.onlyTools&&profile.role==='main'&&profile.input.includes('image')&&!options.disableTools){
+              agentCtx.tools.register(defineTool({name:'cader_open_image',description:'Read a local workspace PNG/JPEG as actual image pixels and register its image_ref. This is an image tool, not UTF-8 read_file; it grants no CAD writes. Explicit external user references are imported by the CLI.',
+                parameters:{path:{type:'string',required:true}},
+                output:{schema:{type:'string'},render:(_args,value)=>{const result=JSON.parse(value);return [{type:'text',text:JSON.stringify({image_ref:result.image_ref,audit:result.audit})},{type:'image',attachment:result.attachment}];}},
+                async execute(args){
+                  const full=await workspacePath(options.workspaceRoot??options.root,args.path);
+                  if(relative(options.workspaceRoot??options.root,full).split(/[\\/]/).some(part=>['.cader','.git'].includes(part))&&![...images.values()].includes(full))throw new Error('IMAGE_REFERENCE_DENIED');
+                  await readReferenceImage(options.workspaceRoot??options.root,full);
+                  let ref=[...images].find(([,path])=>path===full)?.[0];
+                  if(!ref){ref=`image-${randomUUID()}`;images.set(ref,full);imageRefs.push(ref);}
+                  enableImageView();
+                  return JSON.stringify({image_ref:ref,...await attachView(full,{},id)});
+                }}));allowed.push('cader_open_image');
+            }
+            if ((!request.onlyTools||request.onlyTools.includes('cader_view_image')) && !options.disableTools) {
+              enableImageView=()=>{
+              if(allowed.includes('cader_view_image'))return;
               agentCtx.tools.register(defineTool({ name: 'cader_view_image',
                 description: 'Inspect a crop from an authorized ORIGINAL image. Crop uses original pixel edges; optional rotation is clockwise. No CAD writes.',
                 parameters: { image_ref: { type: 'string', required: true, enum: imageRefs },
@@ -269,6 +287,8 @@ export async function createLiveRuntime(options: LiveOptions) {
                 },
               }));
               allowed.push('cader_view_image');
+              };
+              if(imageRefs.length)enableImageView();
             }
             for (const tool of request.extraTools ?? []) { agentCtx.tools.register(tool); allowed.push(tool.name); }
             const hidden = ctx.tools.schemas().map(tool => tool.name).filter(name => !allowed.includes(name));
@@ -368,8 +388,13 @@ export async function createLiveRuntime(options: LiveOptions) {
         if (signal.aborted) abort();
         const content: ContentBlock[] = [{ type: 'text', text: instruction }];
         if (request.image) {
+          if(request.comparisonImage)content.push({type:'text',text:'Image A: ORIGINAL USER REFERENCE. Read its symbols, labels and topology; do not confuse it with the generated drawing.'});
           const { attachment: image } = await attachView(request.image, request.imageView ?? {}, id);
           content.push({ type: 'image', attachment: image });
+        }
+        if(request.comparisonImage){
+          content.push({type:'text',text:'Image B: GENERATED CAD RESULT. Compare this result with image A and the acceptance requirements.'});
+          const {attachment}=await attachView(request.comparisonImage,{},id);content.push({type:'image',attachment});
         }
         emit({ type: 'agent.started', agentId: id, role: profile.role, parentId: request.parent?.id });
         handle.agent.followup(createUserMessage({ content, source: { kind: 'user' } }));
@@ -386,7 +411,28 @@ export async function createLiveRuntime(options: LiveOptions) {
         await handle?.dispose();
       }
     }
-    async function reviewCadView(question: string, signal?: AbortSignal, parent?: Agent) {
+    async function inspectReference(path:string,task:string,signal?:AbortSignal):Promise<{valid:boolean;structured:ReturnType<typeof parseReferenceObservation>|null;attempts:{id:string;status:string;valid:boolean}[];evidence:{path:string;sha256:string;width:number;height:number}}>{
+      const vision=options.profiles.find(p=>p.role==='vision'&&p.input.includes('image'));
+      if(!vision)throw new Error('VISION_PROFILE_UNAVAILABLE');
+      const source=await readReferenceImage(options.workspaceRoot??options.root,path);
+      let structured:ReturnType<typeof parseReferenceObservation>|null=null;
+      const attempts:{id:string;status:string;valid:boolean}[]=[];
+      for(let attempt=0;attempt<2;attempt++){
+        signal?.throwIfAborted();
+        if(++delegations>options.runtime.max_delegations)throw new Error('DELEGATION_BUDGET_EXCEEDED');
+        const submit:ToolDefinition={name:'cader_submit_reference_observation',description:'Report only observed source-image facts, normalized original pixel positions and uncertainty. No CAD operations or invented measurements.',
+          parameters:referenceObservationSchema,output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},
+          async execute(args,exec){structured=parseReferenceObservation(args);exec.concludeTurn();return JSON.stringify(structured);}};
+        const result=await pool.run('main',()=>run(vision.id,'观察实际附带的用户手稿，必须调用cader_submit_reference_observation。报告图形种类、可辨符号/构件、可读标注、连接关系和不确定项。只根据像素，不用Shell统计猜类别，不要求物理比例尺。content_bounds包含整幅有效图及其标签，排除无关空白/纸张横线。所有bounds/terminals为原图归一化坐标，左上原点、y向下。terminal是符号接导线的位置，不是标注位置；无端口构件可为空。不要输出CAD计划，严禁虚构无法读出的数值。保持紧凑。'+(attempt?'上次格式无效，请仅按schema补报。':'')+'\n用户请求：'+task,
+          {image:path,signal,onlyTools:[submit.name,'cader_view_image'],extraTools:[submit],resultText:()=>structured?JSON.stringify(structured):undefined}));
+        attempts.push({id:result.id,status:result.status,valid:structured!==null});
+        if(structured){for(const prior of attempts.slice(0,-1)){const old=completed.find(r=>r.id===prior.id);if(old)old.recovered_by=result.id;}break;}
+        if(signal?.aborted||(result.status!=='succeeded'&&result.errorCode!=='OUTPUT_TRUNCATED'))break;
+      }
+      const result={valid:structured!==null,structured,attempts,evidence:{path,sha256:createHash('sha256').update(source.data).digest('hex'),width:source.width,height:source.height}};
+      emit({type:'reference.inspected',...result});return result;
+    }
+    async function reviewCadView(question: string, signal?: AbortSignal, parent?: Agent, referenceImage?:string) {
       if (!options.captureCadView) throw new Error('CAD_VIEW_EXPORT_UNAVAILABLE');
       if (++visualReviews > options.runtime.max_visual_reviews_per_turn) throw new Error('VISUAL_REVIEW_BUDGET_EXCEEDED');
       const vision = options.profiles.find(profile => profile.role === 'vision' && profile.input.includes('image'));
@@ -396,18 +442,20 @@ export async function createLiveRuntime(options: LiveOptions) {
       emit({ type: 'cad.view', evidence: capture.evidence, image_ref: ref });
       const attempts: { id:string; status: string; text: string; valid: boolean }[] = [];
       let structured: ReturnType<typeof parseVisualReport> | null = null;
+      let knownIds:Set<number>|undefined;
+      try{const evidence=JSON.parse(question);if(Array.isArray(evidence.entity_snapshot))knownIds=new Set(evidence.entity_snapshot.map((entity:{object_id:number})=>entity.object_id));}catch{/* Free-form reviews have no authoritative entity list. */}
       for (let attempt = 0; attempt < 2; attempt++) {
         signal?.throwIfAborted();
         if (++delegations > options.runtime.max_delegations) throw new Error('DELEGATION_BUDGET_EXCEEDED');
         const submit: ToolDefinition = { name: 'cader_submit_visual_report', description: 'Submit the compact validated visual report. No extra fields. Mark unobservable conditions uncertain.',
           parameters: visualReportSchema, output: { schema: { type: 'string' }, render: (_a,v) => [{type:'text',text:String(v)}] },
-          async execute(args, exec) { structured = parseVisualReport(args); exec.concludeTurn(); return JSON.stringify(structured); } };
+          async execute(args, exec) { const parsed=parseVisualReport(args);if(knownIds&&parsed.defects.some(defect=>defect.entity_ids.some(id=>!knownIds!.has(id))))throw new Error('UNKNOWN_REVIEW_ENTITY_ID: use only IDs from entity_snapshot, or [] when uncertain');structured=parsed;exec.concludeTurn();return JSON.stringify(structured); } };
         const review = await pool.run('main', () => run(vision.id,
-          '用中文审查实际CAD图片与原始需求。必须调用cader_submit_visual_report提交；不要输出长篇解释。每条证据与建议保持简短，最多8个缺陷。checklist逐项核验要求的视觉条件；程序几何/拓扑事实不要求通过像素重复证实，不得仅凭图像推翻实体坐标。uncertainties仅记录影响必要视觉条件的未解决问题，不记录用户未要求的特征、无关观察或程序已证明的几何精度。' +
+          '用中文审查实际CAD图片与原始需求。若有Image A/B，A是原始用户手稿，B是本任务CAD结果：必须比较符号、可读标注、连接和布局，不能只说结果好看或拿旧图当参考。没有真实依据的条件标uncertain。必须调用cader_submit_visual_report提交；不要输出长篇解释。每条证据与建议保持简短，最多8个缺陷。checklist逐项核验要求的视觉条件；程序几何/拓扑事实不要求通过像素重复证实，不得仅凭图像推翻实体坐标。uncertainties仅记录影响必要视觉条件的未解决问题，不记录用户未要求的特征、无关观察或程序已证明的几何精度。' +
           (attempt ? '\n上次未提交有效报告或输出被截断。请按工具schema简短重报，不要增加自定义字段。' : '') + '\n需求与程序证据：\n' + question,
-          { parent, image: capture.path, signal, onlyTools: [submit.name], extraTools: [submit], resultText: () => structured ? JSON.stringify(structured) : undefined }));
+          { parent, image: referenceImage??capture.path, comparisonImage:referenceImage?capture.path:undefined, signal, onlyTools: [submit.name], extraTools: [submit], resultText: () => structured ? JSON.stringify(structured) : undefined }));
         if (!structured && review.status === 'succeeded') {
-          try { structured = parseVisualReport(JSON.parse(review.text.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''))); } catch { /* Format repair is bounded and never constitutes acceptance. */ }
+          try { const parsed=parseVisualReport(JSON.parse(review.text.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'')));if(knownIds&&parsed.defects.some(d=>d.entity_ids.some(id=>!knownIds!.has(id))))throw new Error('UNKNOWN_REVIEW_ENTITY_ID');structured=parsed; } catch { /* Format repair is bounded and never constitutes acceptance. */ }
         }
         attempts.push({ id:review.id,status: review.status, text: review.text, valid: structured !== null });
         if(structured)for(const previous of attempts.slice(0,-1)){
@@ -416,11 +464,12 @@ export async function createLiveRuntime(options: LiveOptions) {
         }
         if (structured || (review.status !== 'succeeded'&&review.errorCode!=='OUTPUT_TRUNCATED') || signal?.aborted) break;
       }
-      const result = { image_ref: ref, evidence: capture.evidence, requirements: question, review_valid: structured !== null, structured, attempts };
+      const reference=referenceImage?await readReferenceImage(options.workspaceRoot??options.root,referenceImage):undefined;
+      const result = { image_ref: ref, evidence: {...capture.evidence as Record<string,unknown>,reference:reference?{path:referenceImage,sha256:createHash('sha256').update(reference.data).digest('hex'),width:reference.width,height:reference.height}:null}, requirements: question, review_valid: structured !== null, structured, attempts };
       emit({ type: 'cad.review', ...result }); return result;
     }
 
-    return { ctx, run, reviewCadView, pool, completed: () => completed.slice(), toolNames: () => ctx.tools.schemas().map(tool => tool.name),
+    return { ctx, run, inspectReference,reviewCadView:(question:string,signal?:AbortSignal,referenceImage?:string)=>reviewCadView(question,signal,undefined,referenceImage), pool, completed: () => completed.slice(), toolNames: () => ctx.tools.schemas().map(tool => tool.name),
       async dispose() { clearTimeout(deadline); lifetime.abort(); await ctx.fiber.dispose(); } };
   } catch (error) { clearTimeout(deadline); await ctx.fiber.dispose(); throw error; }
 }

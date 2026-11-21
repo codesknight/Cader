@@ -2,7 +2,7 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Project home](../../README.md) · [Documentation](../README.md)
 
-**Applies to Cader 0.4.0-dev.5 · Updated 2026-11-21**
+**Applies to Cader 0.4.0-dev.6 · Updated 2026-11-21**
 
 Cader CLI is a CAD agent terminal built on DeepSeek Harness. Describe tasks in a persistent conversation, select models and skills, reference images, inspect CAD status, or use a single command from a script.
 
@@ -168,10 +168,18 @@ Record the file identity of @drawing.dwg without inferring its entities.
 
 Apart from the bundled calibration image, these filenames are examples; replace them with existing files inside your workspace.
 
-- Use `@draft.png`, `@"path with spaces.jpg"` or `@drawing.dwg`. References must stay within the current workspace.
+- Use `@draft.png`, `@"path with spaces.jpg"`, a plain local PNG/JPEG path or `/open <path>`. Explicitly selected external images are copied into hash-bound workspace `.cader/references/` snapshots, without expanding Agent file/Shell access. Quote paths containing spaces. DWG references must remain inside the workspace.
 - PNG/JPEG limits are 10 MiB and 40 million pixels. One original image is active per turn; a newly selected image replaces it. The selection persists into later turns and is sent to a model configured for image input.
 - DWG is limited to 64 MiB. Only its header, size and SHA-256 are recorded; drawing content is not decoded. PDF is unsupported.
-- Hashes are checked before each turn. Reselect changed files; `/cd` clears reference grants. Images, Skills and drawing references cannot authorize writes.
+- Snapshot hashes are checked before each turn. Reselect altered snapshots; changing an external original does not silently replace the selected image. `/cd` clears references and pending redraw requests. Images, Skills and drawing references cannot authorize writes.
+
+```text
+Reproduce the symbols, readable text and connections in "D:\sketches\draft.jpg" on a new blank drawing. Save as result.dwg.
+```
+
+Alternatively use `/open "D:\sketches\draft.jpg"` before your drawing request. A missing-image request is retained; select its path and say `继续` to continue. No GUI upload is required. The Harness reads source structure, plans/draws, compares the original with a real CAD capture and reports the actual DWG path. An omitted destination gets a unique workspace filename. Task approval includes saving that new file; overwriting another or externally changed file still requires approval. Completion requires both quality and file checks. When quality remains pending but saving is safe, output is explicitly a draft.
+
+On the same connection, `继续` or `/quality resume` retains the original request, source hash, destination and repair limit without replaying confirmed geometry. Continuing a completed task does not draw it again. Reconnect/restart grants no old CAD write authority and cannot clear an unknown-write barrier.
 
 ### Keyboard shortcuts
 
@@ -302,7 +310,7 @@ cader exec "Inspect the upper-left region" --image benchmark/fixtures/vision-cal
 ```
 
 Ensure crop coordinates fit the original image. `exec` accepts `--permissions read-only|ask|workspace-write|full-access`, `--mcp`, `--skill`, `--image`, `--crop x,y,w,h`, `--rotate 0|90|180|270` and `--intent assess|redraw`. Cropping uses original pixels before clockwise rotation. Exec has no interactive approver; explicitly select workspace-write for automatic drawing and create a scratch drawing in that same task.
-`assess` is the default; `redraw` currently returns `blocked / WRITE_CAPABILITY_UNAVAILABLE` without starting a model or MCP.
+`assess` is the default. `redraw` requires `--image`, connected MCP and write permission, and uses the same source/fresh-drawing/file quality flow. Read-only or missing-image requests still return `blocked / WRITE_CAPABILITY_UNAVAILABLE`. Example: `cader exec "Redraw the reference on a new blank drawing and save as result.dwg" --intent redraw --image draft.jpg --mcp configs/mcp/AutoCAD.local.yaml --permissions workspace-write`. New workspace files can be saved automatically; exec does not auto-approve operations requiring confirmation.
 Selections made with `/model`, `/mcp` or `/skills` do not affect a separate `exec`; that command uses configuration and its own arguments.
 
 ### JSON and exit codes
@@ -448,7 +456,7 @@ The CLI shows planning, drawing, geometry, topology, vision, correcting and comp
 
 Default ask approves the concrete plan and owned scratch once, covering layers, drawing, captures and safe local patches to task-created entities, with at most three cumulative corrections. The approval explicitly includes deletion of those entities. Foreign deletion, saving/overwrite, files and Shell retain existing permission checks. Grants expire at task end. `cader_apply_cad_patch` batches drawing/edit/delete operations through the original schemas, guards, serial owner and journal. It stops at the first failure; committed operations must never be replayed.
 
-Vision uses a strict report schema and one format repair on the same captured image; VisionAgent allows 6144 output tokens. Shared limits are 40 model steps, 100 tool calls and four view reviews, not mandatory spending per task. Cancellation, invalid reports, failed vision, unknown entity references, changed observations and suspected capture clipping cannot complete. Nonessential observations and geometry already proven by queries should not become visual defects. Uncertainty without a localized defect remains pending instead of triggering speculative edits.
+Vision uses a strict report schema and one format repair on the same captured image; MainAgent and VisionAgent each allow up to 8192 output tokens by default. Shared limits are 40 model steps, 100 tool calls and four view reviews, not mandatory spending per task. Cancellation, invalid reports, failed vision, unknown entity references, changed observations and suspected capture clipping cannot complete. Nonessential observations and geometry already proven by queries should not become visual defects. Uncertainty without a localized defect remains pending instead of triggering speculative edits.
 
 ```text
 画一个带有 5V 电源和一个灯泡的串联电路图。
@@ -533,3 +541,11 @@ cader chat --workspace .cader/workspaces/new-task
 ```
 
 The new workspace still defaults to ask, requires a fresh scratch and retains the same write guards. It does not reconcile the old operation, adopt its drawing or replay its requests.
+
+## dev.6: reference image to fresh CAD and DWG
+
+Explicit image paths register real pixels without a GUI upload. Reproduce/trace/redraw requests enter quality scheduling, with source-reading and DWG-saving phases. Agent `cader_open_image` reads workspace PNG/JPEG pixels and enables crop tools; text Read is not semantic image inspection. The program binds the task's fresh drawing, confirmed geometry, source hash and destination, preventing reviews of an older drawing from becoming redraw results.
+
+MainAgent/VisionAgent each default to at most 8192 output tokens, retaining overall budgets and one format repair. Forbidden component-interior wires are rejected before dispatch; nonexistent visual entity IDs require report correction. If a model fails during drawing/repair, confirmed task geometry may be saved as a draft when the connection remains unfrozen, uncancelled and file protections allow it. The original QUOTA or other failure remains; this never completes the task. Frozen/cancelled or geometry-free tasks are not automatically saved or replayed.
+
+Real reference runs produced DWG files and independently reopened them, while full quality still has unmet conditions. [Evidence and known issues](../validation/2026-11-21-reference-redraw-fix.md). Restart the CLI and check `cader -v` for dev.6; restart its MCP child to load native capture margins too.

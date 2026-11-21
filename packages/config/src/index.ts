@@ -2,8 +2,8 @@ import { readFile, realpath, stat } from 'node:fs/promises';
 import { dirname, resolve, relative, isAbsolute } from 'node:path';
 import { parseDocument } from 'yaml';
 import { z } from 'zod';
-export { parseVisualReport, visualReportSchema, parseAcceptancePlan, acceptancePlanSchema } from './quality.js';
-export type { VisualReview, QualityPlan } from './quality.js';
+export { parseVisualReport, visualReportSchema, parseAcceptancePlan, acceptancePlanSchema,parseReferenceObservation,referenceObservationSchema } from './quality.js';
+export type { VisualReview, QualityPlan,ReferenceObservationData } from './quality.js';
 
 const Profile = z.object({
   version: z.literal(1), id: z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/),

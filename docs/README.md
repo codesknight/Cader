@@ -27,3 +27,5 @@ dev.4: [历史屏障诊断与用户复核 / legacy barrier review](validation/20
 dev.5: [依赖预检与部分执行 / dependency and partial effects](validation/2026-11-21-dependency-and-partial-execution.md) · [ADR0013](adr/0013-cad-dependency-preflight-and-partial-effects.md)。图层先查再写、MCP新增实体清理、规划错误直接报告；真实未知不自动解锁。
 
 后续审计：[手稿重绘输入与旧图验收问题 / reference redraw input audit](validation/2026-11-21-reference-redraw-audit.md)。路径未注册、规划未接源图、重绘任务/新图/产物缺绑定；当前仅诊断，未冒充图片到DWG实测通过。
+
+dev.6：[手稿输入与DWG修复 / reference redraw execution](validation/2026-11-21-reference-redraw-fix.md) · [ADR0014](adr/0014-reference-redraw-task-binding.md)。真实源图、新工作图与文件已接通，质量不通过明确待验，不把旧图或模型口述当产物。

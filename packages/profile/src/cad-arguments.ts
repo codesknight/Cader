@@ -1,3 +1,24 @@
+import type {QualityPlan} from '@cader/config';
+
+/** Exact slab clipping against an open rectangle, including very long segments. */
+export function crossesInterior(a:number[],b:number[],box:number[][]){
+  let lo=0,hi=1;
+  for(let axis=0;axis<2;axis++){
+    const delta=b[axis]!-a[axis]!,min=box[0]![axis]!+1e-5,max=box[1]![axis]!-1e-5;
+    if(Math.abs(delta)<1e-10){if(a[axis]!<=min||a[axis]!>=max)return false;continue;}
+    const t1=(min-a[axis]!)/delta,t2=(max-a[axis]!)/delta;
+    lo=Math.max(lo,Math.min(t1,t2));hi=Math.min(hi,Math.max(t1,t2));
+  }
+  return lo<hi;
+}
+/** Reject a known forbidden segment before native mutation; incomplete networks
+ * remain allowed so the Agent can construct them incrementally. */
+export function validatePlannedWire(tool:string,args:Record<string,unknown>,plan:QualityPlan){
+  if(tool!=='draw_line'||(args.layer??'0')!==plan.wire_layer||!plan.requirements.some(r=>r.check==='no_wire_through_component'))return;
+  const a=[Number(args.start_x),Number(args.start_y)],b=[Number(args.end_x),Number(args.end_y)];
+  const blocked=plan.components.find(component=>crossesInterior(a,b,component.bounds));
+  if(blocked)throw new Error(`WIRE_CROSSES_COMPONENT: ${blocked.id}; route outside frozen component bounds and end at planned ports`);
+}
 /** Check constraints absent from the discovered legacy MCP schema before dispatch.
  * Do not silently repair coordinate arity or infer a physical unit. */
 export function validateCadArguments(tool: string, args: Record<string, unknown>) {

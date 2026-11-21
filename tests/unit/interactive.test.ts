@@ -87,7 +87,7 @@ test('changed references fail before a provider and split credentials/control se
   const f = await setup(); let calls = 0;
   try {
     const chat = await InteractiveSession.create(f.root, f.root, (async () => { calls++; throw new Error('unexpected'); }) as TaskRunner);
-    await chat.execute('/open draft.png'); await writeFile(join(f.root, 'draft.png'), 'changed');
+    await chat.execute('/open draft.png'); await writeFile(chat.state.references[0]!.path, 'changed');
     await assert.rejects(chat.execute('Review the selected image'), /REFERENCE_CHANGED/); assert.equal(calls, 0);
     let output = ''; const stream = new SafeTextStream(['sk-secret-12345'], chunk => { output += chunk; });
     stream.push('你好 sk-sec'); stream.push('ret-12345 \x1b['); stream.push('2J done'); stream.finish();

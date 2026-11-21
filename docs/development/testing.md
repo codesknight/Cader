@@ -272,3 +272,9 @@ Cader实现`89f31de`已推送，[CI 44891799500](https://github.com/codesknight/
 REQ-033手稿日志审计：读取用户原始附件及实际verification/events、人工查看原始JPG，核对输入注册/任务路由/规划传参与旧图视觉评审。`node .cader/probe-redraw-image-input.mjs`应用装配复现通过：普通路径image=false，/open后同文件image=true；“复现”路由false，“绘制”路由true。runner在模型启动前立即中止，paid_model_calls=0、cad_calls=0；不是模拟工具成功或重绘验收。首次汇总PowerShell foreach直接接管道发生解析错误，改为先收集数组后读取成功，不是产品故障。只更新诊断文档，不修改运行时、权限、图纸或独立MCP，最终文档检查/CI在#20记录。
 
 本轮`pnpm typecheck`、`pnpm test`79/79通过，双语手册根命令及52个改动文档本地链接、diff-check通过。Harness/Python无代码变更，未新增smoke/付费模型/真实CAD调用；这些通过不证明图片重绘已修复。文档提交CI与BUG-029/030未解决状态在#20同步。
+
+### REQ-034，2026-11-21：手稿重绘执行修复
+
+本轮实际`pnpm typecheck`、`pnpm test`88/88和`pnpm smoke`通过；有真实DSH装配，但CAD/视觉fixture明确为模拟断言。新增路径快照/续接请求、实际图片块、双图、新图/实体归属、local DWG文件核对、续验不重放和导线约束。真实模型+AutoCAD采用显式`pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task <手稿任务>`；前三轮记录真实新图/DWG与失败，完整质量没有冒充通过。MCP独立原生截图验证通过，221 passed/33 skipped；最终检查、实机结果及CI见[完整分层记录](../validation/2026-11-21-reference-redraw-fix.md)。
+
+最终第四轮服务QUOTA中断于修正阶段，39确认/unknown0、两次有效源图对照及一轮修正已发生，仍有拓扑/外观未通过。新增模型失败后待验稿保存及更换源图后阻止裸“继续”的回归；最终88/88、typecheck、smoke通过。独立三份DWG重开保持几何/文字，末份为人工保存的测试稿，不代替应用QUOTA收尾实机验收。CLI手册检查17根命令、13个离线入口通过；首次新日志相对链接层级有误，已修复后重验。付费完整质量和新增收尾分支受服务限制未重跑。

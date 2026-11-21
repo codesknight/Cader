@@ -11,7 +11,7 @@ skills:
     mode: read-only
     resources: {}
   - name: cad-redraw-review
-    description: Assess reference evidence, scale uncertainty and acceptance gaps before a CAD redraw. Planning only; no DWG generation.
+    description: Review reference evidence, scale uncertainty and redraw acceptance. The Harness controls authorized drawing and DWG delivery; this skill grants no tools or permissions.
     roles: [main, vision]
     mode: read-only
     resources:

@@ -15,13 +15,30 @@ export const VisualReport = z.object({
 export type VisualReview = z.infer<typeof VisualReport>;
 export const visualReportSchema = JSON.parse(JSON.stringify(z.toJSONSchema(VisualReport)));
 export function parseVisualReport(value: unknown): VisualReview { return VisualReport.parse(value); }
+const NormalPoint=z.tuple([z.number().min(0).max(1),z.number().min(0).max(1)]);
+const NormalBox=z.tuple([NormalPoint,NormalPoint]).refine(([a,b])=>a[0]<b[0]&&a[1]<b[1],'Positive normalized image bounds required');
+export const ReferenceObservation=z.object({
+  version:z.literal(1),drawing_kind:z.enum(['schematic','layout','other','uncertain']),summary:Text,
+  coordinate_system:z.literal('normalized-image-top-left-y-down'),content_bounds:NormalBox,
+  objects:z.array(z.object({id:z.string().regex(/^[a-zA-Z0-9_-]{1,32}$/),kind:Text,bounds:NormalBox,
+    terminals:z.array(NormalPoint).max(8),certainty:z.enum(['clear','uncertain'])}).strict()).max(32),
+  visible_text:z.array(z.object({text:Text,bounds:NormalBox,certainty:z.enum(['clear','uncertain'])}).strict()).max(32),
+  connections:z.array(z.object({from:z.string().max(32),to:z.string().max(32),description:Text}).strict()).max(64),
+  unknowns:z.array(Text).max(12)
+}).strict().superRefine((value,ctx)=>{
+  if(new Set(value.objects.map(o=>o.id)).size!==value.objects.length)ctx.addIssue({code:'custom',message:'Duplicate observed object IDs'});
+  if(value.connections.some(c=>![c.from,c.to].every(id=>value.objects.some(o=>o.id===id))))ctx.addIssue({code:'custom',message:'Unknown observed connection endpoint'});
+});
+export type ReferenceObservationData=z.infer<typeof ReferenceObservation>;
+export const referenceObservationSchema=JSON.parse(JSON.stringify(z.toJSONSchema(ReferenceObservation)));
+export function parseReferenceObservation(value:unknown){return ReferenceObservation.parse(value);}
 const Point = z.tuple([z.number().finite(), z.number().finite()]);
 export const AcceptancePlan = z.object({
   version: z.literal(1), domain: z.enum(['generic', 'electrical-schematic']),
   wire_layer: z.string().min(1).max(80).optional(),
   requirements: z.array(z.object({
     id: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/), source_quote: Text, description: Text,
-    check: z.enum(['entity_count', 'text', 'series_cycle', 'no_wire_through_component', 'text_clearance', 'visual']),
+    check: z.enum(['entity_count', 'text', 'series_cycle', 'no_wire_through_component', 'text_clearance', 'visual','new_document','saved_dwg']),
     entity_type: z.enum(['AcDbLine', 'AcDbCircle', 'AcDbArc', 'AcDbPolyline', 'AcDb2dPolyline', 'AcDb3dPolyline', 'AcDbText', 'AcDbMText', 'AcDbHatch', 'AcDbBlockReference', 'AcDbRotatedDimension', 'AcDbAlignedDimension']).optional(), min: z.number().int().nonnegative().optional(), max: z.number().int().nonnegative().optional(),
     text: z.string().max(80).optional(), component: z.string().max(64).optional()
   }).strict()).min(1).max(24),
