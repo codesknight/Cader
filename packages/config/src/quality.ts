@@ -11,6 +11,8 @@ export const VisualReport = z.object({
 }).strict().superRefine((report, ctx) => {
   if(report.verdict === 'pass' && (report.uncertainties.length || report.defects.some(d => d.severity !== 'minor') || report.checklist.some(c => c.status !== 'pass')))
     ctx.addIssue({ code: 'custom', message: 'Pass conflicts with unresolved evidence' });
+  if(report.verdict==='uncertain'&&report.checklist.length&&report.checklist.every(c=>c.status==='pass')&&!report.defects.length)
+    ctx.addIssue({code:'custom',message:'UNCERTAINTY_MUST_AFFECT_REQUIRED_CHECK: every required checklist item passed; remove unrelated/already-proven uncertainty or mark the specific affected requirement uncertain with evidence'});
 });
 export type VisualReview = z.infer<typeof VisualReport>;
 export const visualReportSchema = JSON.parse(JSON.stringify(z.toJSONSchema(VisualReport)));
@@ -32,6 +34,9 @@ export const ReferenceObservation=z.object({
 export type ReferenceObservationData=z.infer<typeof ReferenceObservation>;
 export const referenceObservationSchema=JSON.parse(JSON.stringify(z.toJSONSchema(ReferenceObservation)));
 export function parseReferenceObservation(value:unknown){return ReferenceObservation.parse(value);}
+const ReferenceLabels=z.object({labels:z.array(z.object({index:z.number().int().nonnegative(),text:Text,certainty:z.enum(['clear','uncertain'])}).strict()).min(1).max(4)}).strict();
+export const referenceLabelsSchema=JSON.parse(JSON.stringify(z.toJSONSchema(ReferenceLabels)));
+export function parseReferenceLabels(value:unknown){return ReferenceLabels.parse(value);}
 const Point = z.tuple([z.number().finite(), z.number().finite()]);
 export const AcceptancePlan = z.object({
   version: z.literal(1), domain: z.enum(['generic', 'electrical-schematic']),

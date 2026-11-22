@@ -2,7 +2,7 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Project home](../../README.md) · [Documentation](../README.md)
 
-**Applies to Cader 0.4.0-dev.6 · Updated 2026-11-21**
+**Applies to Cader 0.4.0-dev.7 · Updated 2026-11-22**
 
 Cader CLI is a CAD agent terminal built on DeepSeek Harness. Describe tasks in a persistent conversation, select models and skills, reference images, inspect CAD status, or use a single command from a script.
 
@@ -549,3 +549,15 @@ Explicit image paths register real pixels without a GUI upload. Reproduce/trace/
 MainAgent/VisionAgent each default to at most 8192 output tokens, retaining overall budgets and one format repair. Forbidden component-interior wires are rejected before dispatch; nonexistent visual entity IDs require report correction. If a model fails during drawing/repair, confirmed task geometry may be saved as a draft when the connection remains unfrozen, uncancelled and file protections allow it. The original QUOTA or other failure remains; this never completes the task. Frozen/cancelled or geometry-free tasks are not automatically saved or replayed.
 
 Real reference runs produced DWG files and independently reopened them, while full quality still has unmet conditions. [Evidence and known issues](../validation/2026-11-21-reference-redraw-fix.md). Restart the CLI and check `cader -v` for dev.6; restart its MCP child to load native capture margins too.
+
+## dev.7: full-quality retesting and source label protection
+
+After source observation, up to four label regions are reread with actual pixel crops. Clear source labels must appear in literal plan checks without replacing values or SI prefixes. Unresolved labels allow drawing and a draft file, but prevent completion. This applies to annotated references, without adding visual calls to simple move tasks.
+
+Text checks normalize layout whitespace, compatible glyphs and mathematical minus, while matching complete labels, retaining SI case and checking quantity: `5V` differs from `15V`, and `m` from `M`. Visual reports must use each supplied acceptance ID exactly once; errors return to the model for correction.
+
+Topology failures now identify coordinates, node degrees, wire IDs, nearest endpoint gaps, component bounds and unsupported entities. The current series verifier needs `AcDbLine` wires: this MCP exposes no polyline/arc wire endpoints, so such creations on the wire layer are rejected before dispatch with a line-segment alternative. Symbol layers may still use them. Ordinary drawing requests cannot acquire an invented mandatory save condition.
+
+Component tasks also cannot acquire an unrequested line-entity ceiling. An uncertain visual verdict must identify an affected required check; all-pass checklists with unrelated global uncertainty require bounded report repair, never automatic promotion to pass. Updated 2026-11-22: the local reference and power/lamp cases passed real testing; this does not guarantee arbitrary drawing quality.
+
+MainAgent defaults to `reasoning_effort: low`, while vision remains `off`; output/step/tool/repair limits are unchanged. Adjust the MainAgent model YAML if needed. Bounded reasoning still incurs provider costs and cannot guarantee acceptance of every drawing. After restart, `cader -v` should report dev.7. [Actual retesting and limits](../validation/2026-11-21-complete-quality-retest.md).

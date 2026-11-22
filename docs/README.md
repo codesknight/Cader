@@ -29,3 +29,5 @@ dev.5: [依赖预检与部分执行 / dependency and partial effects](validation
 后续审计：[手稿重绘输入与旧图验收问题 / reference redraw input audit](validation/2026-11-21-reference-redraw-audit.md)。路径未注册、规划未接源图、重绘任务/新图/产物缺绑定；当前仅诊断，未冒充图片到DWG实测通过。
 
 dev.6：[手稿输入与DWG修复 / reference redraw execution](validation/2026-11-21-reference-redraw-fix.md) · [ADR0014](adr/0014-reference-redraw-task-binding.md)。真实源图、新工作图与文件已接通，质量不通过明确待验，不把旧图或模型口述当产物。
+
+dev.7：[完整质量复验 / full quality retesting](validation/2026-11-21-complete-quality-retest.md) · [ADR0015](adr/0015-source-labels-and-actionable-quality-feedback.md)。手稿17项和电源/灯泡11项真实通过；失败、误验收及旧unknown保留，局部标注复核/报告一致性/截图清理修复分层记录。

@@ -280,3 +280,11 @@ REQ-033手稿日志审计：读取用户原始附件及实际verification/events
 最终第四轮服务QUOTA中断于修正阶段，39确认/unknown0、两次有效源图对照及一轮修正已发生，仍有拓扑/外观未通过。新增模型失败后待验稿保存及更换源图后阻止裸“继续”的回归；最终88/88、typecheck、smoke通过。独立三份DWG重开保持几何/文字，末份为人工保存的测试稿，不代替应用QUOTA收尾实机验收。CLI手册检查17根命令、13个离线入口通过；首次新日志相对链接层级有误，已修复后重验。付费完整质量和新增收尾分支受服务限制未重跑。
 
 实现199f34a的[Cader CI](https://github.com/codesknight/Cader/actions/runs/44900911369)及MCP f583b70的[CI](https://github.com/codesknight/AutoCAD-MCP/actions/runs/44899684701)均成功。本地最终88/88、typecheck、smoke，手册216本地链接/22锚点通过，实际cader -v为dev.6。CI与离线通过不改变完整真实质量未通过的状态，#20保持打开；后续文档CI在Issue记录。
+
+### REQ-035，2026-11-21：完整绘图质量续验
+
+显式`pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task <原始手稿请求>`及无`--task`的原始灯泡案例；原图及完整轨迹私有保存。初轮36确认/4次评审/3轮修正后pending；第二轮47确认后仍有未支持导线及步骤超限；off灯泡66确认后工具预算耗尽。low手稿一轮22确认虽complete，独立源图标注期望却失败，明确不计通过。加入真实裁图读取/文字绑定后相同请求31确认、17条件全过、应用DWG17435bytes/26实体，独立只读重开与原始期望一致。均无unknown，未补画或改写失败记录。
+
+实际`pnpm typecheck`、`pnpm test`93/93、`pnpm smoke`通过；定向21项涵盖完整文字/数量/SI、定位断点、清单ID修复、原图裁图数据通路、清晰文字绑定与不确定稿仍绘制保存但不完成。这些fixture不是实际OCR或真实CAD证明；后者分层见[记录](../validation/2026-11-21-complete-quality-retest.md)。最终灯泡/手册/CI状态随后追加，不据此关闭全部v0.4验收。
+
+2026-11-22最终收尾：typecheck、94/94测试、smoke通过；定向22项。实际最终手稿17/17及灯泡11/11通过，DWG分别17435/16991bytes，独立只读重开/源期望核对通过；灯泡文件从执行审计取得，未冒充手工保存。中间一次捕获Add.Delete导致unknown，原锁保留；独立MCP80a07bd修复后5次新图截图/恢复通过，227 passed/33 skipped及CI44914265701通过。无关全局视觉uncertain现在要求有界重报而非直接pass，组件任务也不得自设总线段上限。详细失败和证据层级见同一实测记录。

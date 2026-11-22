@@ -37,12 +37,29 @@ test('exact segment clipping catches long wires, including a wire starting on a 
   assert.equal(status(verifyQuality(plan, [...entities, text]), 'label'), 'fail');
   assert.equal(status(verifyQuality(plan, entities), 'interior'), 'pass');
 });
+test('topology failure identifies actual broken ports, endpoints and wire IDs without relaxing tolerance',()=>{
+  const observed=entities.map((e,i)=>({...e,object_id:101+i}));
+  const result=verifyQuality(plan,observed.slice(1)).find(r=>r.id==='cycle')!;
+  const details=result.details as {tolerance:number;unconnected_ports:{component:string;position:number[];nearest_endpoints:{object_id:number;gap:number}[]}[];invalid_nodes:{position:number[];degree:number}[]};
+  assert.equal(result.status,'fail');assert.equal(details.tolerance,1e-5);
+  assert.deepEqual(details.unconnected_ports.map(p=>p.position),[[0,0],[20,0]]);
+  assert.equal(details.unconnected_ports[0]!.nearest_endpoints[0]!.object_id,102);
+  assert.equal(details.unconnected_ports[0]!.nearest_endpoints[0]!.gap,10);
+  assert.ok(details.invalid_nodes.every(n=>n.degree===1));
+});
+test('literal labels normalize typographic minus/micro but reject wrong values, SI case and duplicates',()=>{
+  const check=(expected:string,actual:string[],limits={})=>verifyQuality({...plan,requirements:[{id:'text',source_quote:'fixture',description:'Literal label',check:'text',text:expected,...limits}]},actual.map((text_string,i)=>({object_id:i+1,type:'AcDbText',text_string,bounding_box:{min:[0,0],max:[1,1]}})))[0]!.status;
+  assert.equal(check('−',['-']),'pass');assert.equal(check('1μF',['1 µF']),'pass');
+  assert.equal(check('5V',['15V']),'fail');assert.equal(check('1mF',['1MF']),'fail');assert.equal(check('1μF',['1MF']),'fail');
+  assert.equal(check('5V',['5V','5V'],{min:1,max:1}),'fail');
+});
 test('schemas reject semantic entity types, contradictory visual pass and missing topology checks', () => {
   assert.doesNotThrow(() => parseAcceptancePlan(plan));
   assert.throws(() => parseAcceptancePlan({ ...plan, requirements: [{ ...plan.requirements[0], check: 'entity_count', entity_type: '灯泡' }] }));
   assert.throws(() => parseAcceptancePlan({ ...plan, components: [plan.components[0], plan.components[0]] }));
   assert.throws(() => parseVisualReport({ verdict: 'pass', defects: [], checklist: [], uncertainties: ['unreadable'] }));
   assert.throws(() => parseVisualReport({ verdict: 'pass', defects: [], uncertainties: [] }));
+  assert.throws(()=>parseVisualReport({verdict:'uncertain',defects:[],checklist:[{requirement_id:'visual',status:'pass',evidence:'All required observations passed'}],uncertainties:['Unrequested reference missing']}),/UNCERTAINTY_MUST_AFFECT_REQUIRED_CHECK/);
   assert.equal(requiresQuality('画一个示意图'), true);
   assert.equal(requiresQuality('移动这条直线'), false);
   assert.equal(requiresQuality('你能画什么图吗'), false);
@@ -51,7 +68,7 @@ test('schemas reject semantic entity types, contradictory visual pass and missin
 });
 // These are scheduling fixtures, not a model/CAD acceptance result.
 async function schedulingFixture(verdict: 'pass' | 'fail' | 'invalid' | 'cancel' | 'uncertain', repair = false,
-  extra: { resume?: Parameters<typeof runQualityTask>[0]['resume']; connection?: string; clipped?: boolean; changed?: boolean } = {}) {
+  extra: { resume?: Parameters<typeof runQualityTask>[0]['resume']; connection?: string; clipped?: boolean; changed?: boolean;unrequestedSave?:boolean;unrequestedLines?:boolean } = {}) {
   const phases: string[] = [], actions: string[] = [];
   let reviews = 0, approvals = 0, ended = false;
   const runtime = {
@@ -60,6 +77,8 @@ async function schedulingFixture(verdict: 'pass' | 'fail' | 'invalid' | 'cancel'
         execute: (args: unknown, exec: unknown) => Promise<unknown>;
       }[];
     }) {
+      if(extra.unrequestedSave&&request?.extraTools)await assert.rejects(request.extraTools[0]!.execute({...plan,requirements:[...plan.requirements,{id:'unsolicited-save',check:'saved_dwg',description:'Invented file obligation',source_quote:'画图'}]}, {concludeTurn(){}}),/UNREQUESTED_FILE_ACCEPTANCE/);
+      if(extra.unrequestedLines&&request?.extraTools)await assert.rejects(request.extraTools[0]!.execute({...plan,requirements:[...plan.requirements,{id:'unsolicited-line-limit',check:'entity_count',entity_type:'AcDbLine',max:12,description:'Invented primitive ceiling',source_quote:'画图'}]}, {concludeTurn(){}}),/UNREQUESTED_PRIMITIVE_LIMIT/);
       if(request?.extraTools)
         await request.extraTools[0]!.execute(plan, { concludeTurn() { } });
       else
@@ -103,6 +122,13 @@ test('scheduler owns automatic visual acceptance and only patches up to three ti
   assert.equal(failed.actions.filter(a => a === 'correcting').length, 3);
   assert.equal(failed.reviews, 4);
   assert.equal(failed.ended, true);
+});
+test('planning rejects an unrequested file gate rather than drawing toward an unreachable completion',async()=>{
+  const run=await schedulingFixture('pass',false,{unrequestedSave:true});
+  assert.equal(run.result.phase,'complete');assert.equal(run.approvals,1);
+});
+test('component tasks cannot gain an invented line-entity ceiling during planning',async()=>{
+  const run=await schedulingFixture('pass',false,{unrequestedLines:true});assert.equal(run.result.phase,'complete');assert.equal(run.approvals,1);
 });
 
 test('clipped images or a changed observed drawing cannot pass or drive stale corrections', async () => {

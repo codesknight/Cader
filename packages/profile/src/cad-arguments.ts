@@ -14,6 +14,7 @@ export function crossesInterior(a:number[],b:number[],box:number[][]){
 /** Reject a known forbidden segment before native mutation; incomplete networks
  * remain allowed so the Agent can construct them incrementally. */
 export function validatePlannedWire(tool:string,args:Record<string,unknown>,plan:QualityPlan){
+  if((args.layer??'0')===plan.wire_layer&&tool.startsWith('draw_')&&tool!=='draw_line'&&plan.requirements.some(r=>r.check==='series_cycle'))throw new Error('TOPOLOGY_REQUIRES_LINE_SEGMENTS: this MCP query exposes endpoints only for AcDbLine; draw wire segments as lines. Other symbol/text layers may use their normal primitives');
   if(tool!=='draw_line'||(args.layer??'0')!==plan.wire_layer||!plan.requirements.some(r=>r.check==='no_wire_through_component'))return;
   const a=[Number(args.start_x),Number(args.start_y)],b=[Number(args.end_x),Number(args.end_y)];
   const blocked=plan.components.find(component=>crossesInterior(a,b,component.bounds));

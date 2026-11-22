@@ -8,6 +8,6 @@ model: deepseek-flash
 input: [text, image]
 generation:
   max_output_tokens: 8192
-  reasoning_effort: off
+  reasoning_effort: low
 timeout_ms: 120000
 can_delegate: true

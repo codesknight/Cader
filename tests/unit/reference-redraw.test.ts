@@ -61,8 +61,12 @@ test('a successful model answer with no new drawing or geometry cannot inspect o
   const owner=new ExecutionSession(f.root,join(f.root,'.cader/runs/noop'),undefined,client);owner.mode='full-access';
   await owner.connect(resolve('configs/mcp/AutoCAD.example.yaml'));
   const image=await readFile(join(f.root,'reference.png'));
-  const runtime={async inspectReference(path:string){const pixels=await readReferenceImage(f.root,path);return {valid:true,structured:observation,evidence:{path,sha256:createHash('sha256').update(pixels.data).digest('hex'),width:pixels.width,height:pixels.height}};},async run(_profile:string,_instruction:string,request?:{extraTools?:ToolDefinition[]}){
-    if(request?.extraTools)await request.extraTools[0]!.execute({version:1,domain:'generic',requirements:[{id:'v',source_quote:'复现',description:'source appearance',check:'visual'}],components:[],visual_required:true},{concludeTurn(){}} as never);
+  const runtime={async inspectReference(path:string){const pixels=await readReferenceImage(f.root,path);return {valid:true,structured:{...observation,visible_text:[{text:'2μF',certainty:'clear',bounds:[[0.2,0.2],[0.8,0.4]]}]},evidence:{path,sha256:createHash('sha256').update(pixels.data).digest('hex'),width:pixels.width,height:pixels.height}};},async run(_profile:string,_instruction:string,request?:{extraTools?:ToolDefinition[]}){
+    if(request?.extraTools){
+      const proposed={version:1,domain:'generic',requirements:[{id:'v',source_quote:'复现',description:'source appearance',check:'visual'},{id:'unit',source_quote:'复现',description:'Source unit',check:'text',text:'2MF'}],components:[],visual_required:true};
+      await assert.rejects(request.extraTools[0]!.execute(proposed,{concludeTurn(){}} as never),/SOURCE_LABEL_ACCEPTANCE_REQUIRED/);
+      proposed.requirements[1]!.text='2μF';await request.extraTools[0]!.execute(proposed,{concludeTurn(){}} as never);
+    }
     else drawingAttempts++;
     return {status:'succeeded',text:'Model claims it drew; fixture has no operations',tools:[]};
   },async reviewCadView(){throw new Error('MUST_NOT_REVIEW_OLD_DRAWING');}};
@@ -99,7 +103,22 @@ function* call(name:string,args:unknown,id:string):Generator<StreamChunk>{
   yield {type:'finish',reason:{kind:'tool-calls'}};
 }
 
-for(const kind of ['complete','pending','quota'])test(`actual DSH reference task binds fresh CAD and verified DWG: ${kind}`,async()=>{
+test('source label reread gets original pixels plus a real crop and replaces the earlier unverified unit',async()=>{
+  const f=await setup();process.env.CADER_LABEL_FIXTURE='offline-label-only';
+  const config=await import('@cader/config').then(m=>m.loadConfig(f.root));
+  const runtime=await createLiveRuntime({root:f.root,workspaceRoot:f.root,runDirectory:join(f.root,'.cader/runs/labels'),...config,profiles:config.profiles.map(p=>({...p,api_key_env:'CADER_LABEL_FIXTURE'}))});
+  runtime.ctx.on('llm/stream',async function*(request):AsyncGenerator<StreamChunk>{
+    if(request.tools?.some(t=>t.name==='cader_submit_reference_observation')){yield* call('cader_submit_reference_observation',{...observation,visible_text:[{text:'2MF',certainty:'clear',bounds:[[0.2,0.2],[0.8,0.4]]}]},'initial-label');return;}
+    assert.ok(request.tools?.some(t=>t.name==='cader_submit_reference_labels'));
+    const images=JSON.parse(JSON.stringify(request.messages)).flatMap((m:{content:unknown[]})=>m.content).filter((b:{type:string})=>b.type==='image');
+    assert.equal(images.length,2);assert.match(JSON.stringify(request.messages),/label crop index=0/);
+    yield* call('cader_submit_reference_labels',{labels:[{index:0,text:'2μF',certainty:'clear'}]},'refined-label');
+  });
+  try{const result=await runtime.inspectReference('reference.png','Read synthetic label');assert.equal(result.valid,true);assert.equal(result.structured!.visible_text[0]!.text,'2μF');assert.equal(result.attempts.length,2);}
+  finally{await runtime.dispose();delete process.env.CADER_LABEL_FIXTURE;await f.cleanup();}
+});
+
+for(const kind of ['complete','pending','quota','source-uncertain'])test(`actual DSH reference task binds fresh CAD and verified DWG: ${kind}`,async()=>{
   const initiallyPending=kind==='pending';
   const f=await setup(); const previous=process.env.CADER_REDRAW_FIXTURE;process.env.CADER_REDRAW_FIXTURE='offline-redraw-only';
   const events:PublicEvent[]=[],calls:string[]=[];let target='Old.dwg',steps=0,planningImages=0,reviewImages=0,reviewCalls=0,reportAttempts=0;
@@ -125,8 +144,9 @@ for(const kind of ['complete','pending','quota'])test(`actual DSH reference task
     runtime.ctx.on('llm/stream',async function*(request):AsyncGenerator<StreamChunk>{
       const images=JSON.parse(JSON.stringify(request.messages)).flatMap((m:{content:unknown[]})=>m.content).filter((b:{type:string})=>b.type==='image');
       if(request.tools?.some(t=>t.name==='cader_submit_reference_observation')){
-        assert.ok(images.length);yield* call('cader_submit_reference_observation',observation,'observation');return;
+        assert.ok(images.length);yield* call('cader_submit_reference_observation',kind==='source-uncertain'?{...observation,visible_text:[{text:'2mF',bounds:[[0.2,0.2],[0.8,0.4]],certainty:'uncertain'}]}:observation,'observation');return;
       }
+      if(request.tools?.some(t=>t.name==='cader_submit_reference_labels')){assert.equal(images.length,2);yield* call('cader_submit_reference_labels',{labels:[{index:0,text:'2mF',certainty:'uncertain'}]},'labels');return;}
       if(request.tools?.some(t=>t.name==='cader_submit_acceptance_plan')){
         planningImages=images.length;assert.ok(planningImages>=1);
         yield* call('cader_submit_acceptance_plan',{version:1,domain:'generic',requirements:[{id:'appearance',source_quote:'复现',description:'Match the supplied synthetic source',check:'visual'},{id:'new',source_quote:'新建空白图纸',description:'New task drawing',check:'new_document'},{id:'saved',source_quote:'result.dwg',description:'Requested file',check:'saved_dwg'}],components:[],visual_required:true},'plan');return;
@@ -134,7 +154,9 @@ for(const kind of ['complete','pending','quota'])test(`actual DSH reference task
       if(request.tools?.some(t=>t.name==='cader_submit_visual_report')){
         reviewImages=images.length;assert.equal(reviewImages,2);assert.match(JSON.stringify(request.messages),/ORIGINAL USER REFERENCE/);
         if(reportAttempts++===0){yield* call('cader_submit_visual_report',{verdict:'fail',defects:[{type:'fixture',severity:'major',location:'unknown',evidence:'Synthetic nonexistent ID',suggestion:'Query actual IDs',entity_ids:[9999]}],uncertainties:[],checklist:[]},'bad-id');return;}
-        if(reportAttempts===2)assert.match(JSON.stringify(request.messages),/UNKNOWN_REVIEW_ENTITY_ID/);
+        if(reportAttempts===2){assert.match(JSON.stringify(request.messages),/UNKNOWN_REVIEW_ENTITY_ID/);yield* call('cader_submit_visual_report',{verdict:'pass',defects:[],uncertainties:[],checklist:[{requirement_id:'invented-condition',status:'pass',evidence:'Must be rejected'}]},'bad-checklist');return;}
+        if(reportAttempts===3){assert.match(JSON.stringify(request.messages),/REVIEW_CHECKLIST_MISMATCH/);yield* call('cader_submit_visual_report',{verdict:'uncertain',defects:[],uncertainties:['Unrequested reference missing'],checklist:[{requirement_id:'appearance',status:'pass',evidence:'All required observations passed'}]},'global-uncertainty');return;}
+        if(reportAttempts===4)assert.match(JSON.stringify(request.messages),/UNCERTAINTY_MUST_AFFECT_REQUIRED_CHECK/);
         const pending=initiallyPending&&reviewCalls++===0;
         yield* call('cader_submit_visual_report',{verdict:pending?'uncertain':'pass',defects:[],uncertainties:pending?['Synthetic unresolved appearance']:[],checklist:[{requirement_id:'appearance',status:pending?'uncertain':'pass',evidence:'Synthetic report only, not a real visual judgement'}]},'review');return;
       }
@@ -160,6 +182,10 @@ for(const kind of ['complete','pending','quota'])test(`actual DSH reference task
   try{
     const callbacks={confirm:async()=>{approvals++;return true;},onEvent:(e:PublicEvent)=>events.push(e)};
     let result=await chat.execute('根据 reference.png 复现图形，新建空白图纸并保存为 result.dwg',callbacks);
+    if(kind==='source-uncertain'){
+      const uncertain=JSON.parse(await readFile(chat.state.qualityRun!,'utf8'));
+      assert.equal(result.error,true);assert.equal(uncertain.phase,'pending_verification');assert.ok(uncertain.artifact);assert.equal(uncertain.quality_accepted,false);assert.ok(uncertain.checks.some((c:{id:string;status:string})=>c.id==='source_labels_uncertain'&&c.status==='not_run'));assert.equal(calls.filter(n=>n==='new_drawing').length,1);return;
+    }
     if(kind==='quota'){
       const interrupted=JSON.parse(await readFile(chat.state.qualityRun!,'utf8'));
       assert.equal(result.error,true);assert.match(result.text,/QUOTA/);assert.match(result.text,/待验稿/);
@@ -187,16 +213,17 @@ for(const kind of ['complete','pending','quota'])test(`actual DSH reference task
 
 test('frozen-plan wire intersections are rejected before native dispatch without a write barrier',async()=>{
   const f=await setup();let lines=0;
-  const names=['new_drawing','draw_line','list_layers'];
+  const names=['new_drawing','draw_line','draw_polyline','list_layers'];
   const client:typeof createMcpClient=async()=>({definitions:()=>names.map(name=>({name:`mcp__autocad__${name}`,description:'Synthetic only',parameters:{type:'object'},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},execute:async()=>''})),toolNames:()=>names,async dispose(){},async call(name){if(name==='new_drawing')return 'Fresh.dwg';if(name==='draw_line'){lines++;return 'object_id=42';}if(name==='list_layers')return ['0','WIRE'];return [];}});
   const owner=new ExecutionSession(f.root,join(f.root,'.cader/runs/wire'),undefined,client);owner.mode='full-access';
   const ctx=await createToolRuntime();
   try{
     await owner.connect(resolve('configs/mcp/AutoCAD.example.yaml'));
-    await owner.authorizeTask('wire-test',{version:1,domain:'generic',wire_layer:'WIRE',requirements:[{id:'through',source_quote:'wires',description:'No crossing',check:'no_wire_through_component'}],components:[{id:'component',kind:'generic',ports:[[0,1],[2,1]],bounds:[[0,0],[2,2]]}],visual_required:false});
+    await owner.authorizeTask('wire-test',{version:1,domain:'generic',wire_layer:'WIRE',requirements:[{id:'through',source_quote:'wires',description:'No crossing',check:'no_wire_through_component'},{id:'cycle',source_quote:'wires',description:'Closed cycle',check:'series_cycle'}],components:[{id:'component',kind:'generic',ports:[[0,1],[2,1]],bounds:[[0,0],[2,2]]}],visual_required:false});
     for(const tool of owner.definitions())ctx.tools.register(tool);
     assert.equal((await invokeTool(ctx,'mcp__autocad__new_drawing',{})).isError,false);
     const mark=owner.mark();
+    assert.equal((await invokeTool(ctx,'mcp__autocad__draw_polyline',{layer:'WIRE',points:[[-1,1,0],[-1,4,0],[3,4,0]],closed:false})).isError,true);
     assert.equal((await invokeTool(ctx,'mcp__autocad__draw_line',{layer:'WIRE',start_x:-1,start_y:1,start_z:0,end_x:3,end_y:1,end_z:0})).isError,true);
     assert.equal(lines,0);assert.equal(owner.facts().frozen,false);assert.equal(owner.facts(mark).operations[0]?.dispatched,false);
     assert.equal((await invokeTool(ctx,'mcp__autocad__draw_line',{layer:'WIRE',start_x:-1,start_y:1,start_z:0,end_x:0,end_y:1,end_z:0})).isError,false);assert.equal(lines,1);

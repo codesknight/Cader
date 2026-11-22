@@ -20,7 +20,7 @@ import * as mcpClient from '@deepseek-ai/dsh-mcp-client';
 import Attachments from '@deepseek-ai/dsh-attachment-local';
 import FileSystem from '@deepseek-ai/dsh-fs-local';
 import type { ModelProfile, RuntimeConfig, McpConfig } from '@cader/config';
-import { parseVisualReport, visualReportSchema, requireCredential, loadSkills, mcpEnvironment, workspacePath, readReferenceImage,parseReferenceObservation,referenceObservationSchema } from '@cader/config';
+import { parseVisualReport, visualReportSchema, requireCredential, loadSkills, mcpEnvironment, workspacePath, readReferenceImage,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema } from '@cader/config';
 import { ChildPool } from './pool.js';
 import { prepareImageView, attachmentToSource } from './image-view.js';
 import type { ImageView } from './image-view.js';
@@ -129,6 +129,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       extraTools?: ToolDefinition[]; onlyTools?: string[]; resultText?: () => string | undefined;
       parent?: Agent; image?: string; imageView?: ImageView; skill?: string; signal?: AbortSignal;
       comparisonImage?: string;
+      sourceDetails?:{path:string;view:ImageView;label:string}[];
       history?: { role: 'user' | 'assistant'; content: string; status?: string }[]; summary?: string; domain?: string;
     } = {}): Promise<AgentResult> {
       const profile = profiles.get(profileId as ModelProfile['id']);
@@ -396,6 +397,7 @@ export async function createLiveRuntime(options: LiveOptions) {
           content.push({type:'text',text:'Image B: GENERATED CAD RESULT. Compare this result with image A and the acceptance requirements.'});
           const {attachment}=await attachView(request.comparisonImage,{},id);content.push({type:'image',attachment});
         }
+        for(const detail of request.sourceDetails?.slice(0,4)??[]){content.push({type:'text',text:detail.label});const {attachment}=await attachView(detail.path,detail.view,id);content.push({type:'image',attachment});}
         emit({ type: 'agent.started', agentId: id, role: profile.role, parentId: request.parent?.id });
         handle.agent.followup(createUserMessage({ content, source: { kind: 'user' } }));
         await handle.agent.whenIdle();
@@ -429,6 +431,22 @@ export async function createLiveRuntime(options: LiveOptions) {
         if(structured){for(const prior of attempts.slice(0,-1)){const old=completed.find(r=>r.id===prior.id);if(old)old.recovered_by=result.id;}break;}
         if(signal?.aborted||(result.status!=='succeeded'&&result.errorCode!=='OUTPUT_TRUNCATED'))break;
       }
+      const observation=structured as ReturnType<typeof parseReferenceObservation>|null;
+      if(observation?.visible_text.length){
+        signal?.throwIfAborted();if(++delegations>options.runtime.max_delegations)throw new Error('DELEGATION_BUDGET_EXCEEDED');
+        const selected=observation.visible_text.slice(0,4),details=selected.map((text,index)=>{
+          const [a,b]=text.bounds,mx=(b[0]-a[0])*0.3,my=(b[1]-a[1])*0.5;
+          const left=Math.max(0,Math.floor((a[0]-mx)*source.width)),top=Math.max(0,Math.floor((a[1]-my)*source.height));
+          return {path,view:{crop:{left,top,width:Math.min(source.width,Math.ceil((b[0]+mx)*source.width))-left,height:Math.min(source.height,Math.ceil((b[1]+my)*source.height))-top}},label:`Original source label crop index=${index}. Read the actual glyphs; earlier recognition is unverified.`};
+        });
+        let labels:ReturnType<typeof parseReferenceLabels>|null=null;
+        const submit:ToolDefinition={name:'cader_submit_reference_labels',description:'Reread each original image label crop exactly once, preserving numerical values and SI prefix case; uncertainty is not permission to guess.',parameters:referenceLabelsSchema,output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args,exec){const parsed=parseReferenceLabels(args);if(parsed.labels.length!==selected.length||new Set(parsed.labels.map(l=>l.index)).size!==selected.length||parsed.labels.some(l=>l.index>=selected.length))throw new Error('SOURCE_LABEL_CROP_INDEX_MISMATCH');labels=parsed;exec.concludeTurn();return JSON.stringify(parsed);}};
+        const review=await pool.run('main',()=>run(vision.id,'只根据实际附带的原图及标注局部图逐项读取文字，调用cader_submit_reference_labels。仔细区分SI前缀大小写、微符号与字母、数字与字母。不要照抄之前识别结果，不从电路常见值猜测。确实无法区分则标uncertain。用户任务：'+task,{image:path,sourceDetails:details,signal,onlyTools:[submit.name],extraTools:[submit],resultText:()=>labels?JSON.stringify(labels):undefined}));
+        const refined=labels as ReturnType<typeof parseReferenceLabels>|null;
+        attempts.push({id:review.id,status:review.status,valid:refined!==null});
+        selected.forEach((text,index)=>{const label=refined?.labels.find(l=>l.index===index);if(label){text.text=label.text;text.certainty=label.certainty;}else text.certainty='uncertain';});
+        if(!refined)structured=null;
+      }
       const result={valid:structured!==null,structured,attempts,evidence:{path,sha256:createHash('sha256').update(source.data).digest('hex'),width:source.width,height:source.height}};
       emit({type:'reference.inspected',...result});return result;
     }
@@ -443,19 +461,26 @@ export async function createLiveRuntime(options: LiveOptions) {
       const attempts: { id:string; status: string; text: string; valid: boolean }[] = [];
       let structured: ReturnType<typeof parseVisualReport> | null = null;
       let knownIds:Set<number>|undefined;
-      try{const evidence=JSON.parse(question);if(Array.isArray(evidence.entity_snapshot))knownIds=new Set(evidence.entity_snapshot.map((entity:{object_id:number})=>entity.object_id));}catch{/* Free-form reviews have no authoritative entity list. */}
+      let requirementIds:Set<string>|undefined;
+      try{const evidence=JSON.parse(question);if(Array.isArray(evidence.entity_snapshot))knownIds=new Set(evidence.entity_snapshot.map((entity:{object_id:number})=>entity.object_id));if(Array.isArray(evidence.requirements))requirementIds=new Set(evidence.requirements.map((r:{id:string})=>r.id));}catch{/* Free-form reviews have no authoritative entity list. */}
+      const validateReport=(value:unknown)=>{
+        const parsed=parseVisualReport(value);
+        if(knownIds&&parsed.defects.some(d=>d.entity_ids.some(id=>!knownIds!.has(id))))throw new Error('UNKNOWN_REVIEW_ENTITY_ID: use only IDs from entity_snapshot, or [] when uncertain');
+        if(requirementIds&&(parsed.checklist.length!==requirementIds.size||new Set(parsed.checklist.map(c=>c.requirement_id)).size!==requirementIds.size||parsed.checklist.some(c=>!requirementIds!.has(c.requirement_id))))throw new Error('REVIEW_CHECKLIST_MISMATCH: report each supplied visual requirement ID exactly once; do not invent IDs or report geometry-only conditions');
+        return parsed;
+      };
       for (let attempt = 0; attempt < 2; attempt++) {
         signal?.throwIfAborted();
         if (++delegations > options.runtime.max_delegations) throw new Error('DELEGATION_BUDGET_EXCEEDED');
         const submit: ToolDefinition = { name: 'cader_submit_visual_report', description: 'Submit the compact validated visual report. No extra fields. Mark unobservable conditions uncertain.',
           parameters: visualReportSchema, output: { schema: { type: 'string' }, render: (_a,v) => [{type:'text',text:String(v)}] },
-          async execute(args, exec) { const parsed=parseVisualReport(args);if(knownIds&&parsed.defects.some(defect=>defect.entity_ids.some(id=>!knownIds!.has(id))))throw new Error('UNKNOWN_REVIEW_ENTITY_ID: use only IDs from entity_snapshot, or [] when uncertain');structured=parsed;exec.concludeTurn();return JSON.stringify(structured); } };
+          async execute(args, exec) { structured=validateReport(args);exec.concludeTurn();return JSON.stringify(structured); } };
         const review = await pool.run('main', () => run(vision.id,
           '用中文审查实际CAD图片与原始需求。若有Image A/B，A是原始用户手稿，B是本任务CAD结果：必须比较符号、可读标注、连接和布局，不能只说结果好看或拿旧图当参考。没有真实依据的条件标uncertain。必须调用cader_submit_visual_report提交；不要输出长篇解释。每条证据与建议保持简短，最多8个缺陷。checklist逐项核验要求的视觉条件；程序几何/拓扑事实不要求通过像素重复证实，不得仅凭图像推翻实体坐标。uncertainties仅记录影响必要视觉条件的未解决问题，不记录用户未要求的特征、无关观察或程序已证明的几何精度。' +
           (attempt ? '\n上次未提交有效报告或输出被截断。请按工具schema简短重报，不要增加自定义字段。' : '') + '\n需求与程序证据：\n' + question,
           { parent, image: referenceImage??capture.path, comparisonImage:referenceImage?capture.path:undefined, signal, onlyTools: [submit.name], extraTools: [submit], resultText: () => structured ? JSON.stringify(structured) : undefined }));
         if (!structured && review.status === 'succeeded') {
-          try { const parsed=parseVisualReport(JSON.parse(review.text.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'')));if(knownIds&&parsed.defects.some(d=>d.entity_ids.some(id=>!knownIds!.has(id))))throw new Error('UNKNOWN_REVIEW_ENTITY_ID');structured=parsed; } catch { /* Format repair is bounded and never constitutes acceptance. */ }
+          try { structured=validateReport(JSON.parse(review.text.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''))); } catch { /* Format repair is bounded and never constitutes acceptance. */ }
         }
         attempts.push({ id:review.id,status: review.status, text: review.text, valid: structured !== null });
         if(structured)for(const previous of attempts.slice(0,-1)){

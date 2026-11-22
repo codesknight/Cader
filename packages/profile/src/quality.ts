@@ -11,6 +11,7 @@ export interface CheckResult {
   id: string;
   status: 'pass' | 'fail' | 'not_run';
   evidence: string;
+  details?:unknown;
 }
 export interface QualityResume {
   task_id: string;
@@ -32,6 +33,8 @@ export function requiresQuality(task: string) {
 type Entity = Record<string, any>;
 type P = number[];
 const distance = (a: P, b: P) => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!);
+// Normalize typographic variants, retaining case-sensitive SI prefixes and values.
+const labelText=(text:string)=>text.normalize('NFKC').replaceAll('\u2212','-').replace(/\s+/g,'');
 const pointOn = (p: P, a: P, b: P, tol = 1e-5) => {
   const length = distance(a, b);
   if(length < tol)
@@ -93,9 +96,10 @@ export function verifyQuality(plan: QualityPlan, entities: Entity[], context:{ne
   };
   if(points.length)
     walk(0);
-  const componentEvidence = plan.components.every(c => entities.some(e => !['AcDbText', 'AcDbMText'].includes(e.type) && e.layer !== plan.wire_layer && e.bounding_box &&
+  const missingComponents = plan.components.filter(c => !entities.some(e => !['AcDbText', 'AcDbMText'].includes(e.type) && e.layer !== plan.wire_layer && e.bounding_box &&
     e.bounding_box.min[0] >= c.bounds[0][0] - 1e-5 && e.bounding_box.max[0] <= c.bounds[1][0] + 1e-5 &&
     e.bounding_box.min[1] >= c.bounds[0][1] - 1e-5 && e.bounding_box.max[1] <= c.bounds[1][1] + 1e-5));
+  const componentEvidence=missingComponents.length===0;
   const plane = wires[0]?.start_point[2] ?? 0;
   const planar = wires.every(w => Math.abs((w.start_point[2] ?? 0) - plane) < 1e-5 && Math.abs((w.end_point[2] ?? 0) - plane) < 1e-5);
   const supported = entities.filter(e => e.layer === plan.wire_layer).every(e => e.type === 'AcDbLine');
@@ -116,14 +120,23 @@ export function verifyQuality(plan: QualityPlan, entities: Entity[], context:{ne
       evidence = `actual=${actual}, expected=${r.min ?? 1}..${r.max ?? 'unbounded'}`;
     }
     if(r.check === 'text') {
-      const found = labels.filter(e => r.text && e.text_string.toLowerCase().includes(r.text.toLowerCase()));
+      const found = labels.filter(e => r.text && labelText(e.text_string)===labelText(r.text));
       const c = plan.components.find(c => c.id === r.component);
-      pass = found.some(e => !c || distance([(e.bounding_box.min[0] + e.bounding_box.max[0]) / 2, (e.bounding_box.min[1] + e.bounding_box.max[1]) / 2], [(c.bounds[0][0] + c.bounds[1][0]) / 2, (c.bounds[0][1] + c.bounds[1][1]) / 2]) <= 3 * Math.max(c.bounds[1][0] - c.bounds[0][0], c.bounds[1][1] - c.bounds[0][1]));
-      evidence = `matching text entities=${found.map(e => e.object_id).join(',') || 'none'}; proximity=${r.component ?? 'not requested'}`;
+      const nearby=found.filter(e => !c || distance([(e.bounding_box.min[0] + e.bounding_box.max[0]) / 2, (e.bounding_box.min[1] + e.bounding_box.max[1]) / 2], [(c.bounds[0][0] + c.bounds[1][0]) / 2, (c.bounds[0][1] + c.bounds[1][1]) / 2]) <= 3 * Math.max(c.bounds[1][0] - c.bounds[0][0], c.bounds[1][1] - c.bounds[0][1]));
+      pass=nearby.length>=(r.min??1)&&nearby.length<=(r.max??Number.MAX_SAFE_INTEGER);
+      evidence = `matching text entities=${nearby.map(e => e.object_id).join(',') || 'none'}; proximity=${r.component ?? 'not requested'}; literal=${r.text}; SI case preserved`;
     }
     if(r.check === 'series_cycle') {
       pass = cycle;
       evidence = `connected=${seen.size === points.length}, degrees=${degrees.join(',')}, component evidence=${componentEvidence}, planar=${planar}, supported wire types=${supported}`;
+      if(!cycle)return {id:r.id,status:'fail',evidence,details:{
+        tolerance:1e-5,
+        invalid_nodes:points.map((position,i)=>({position,degree:degrees[i],wire_ids:wires.filter(w=>pointOn(position,w.start_point,w.end_point)).map(w=>w.object_id)})).filter(n=>n.degree!==2).slice(0,24),
+        unconnected_ports:plan.components.flatMap(c=>c.ports.map(position=>({component:c.id,position}))).filter(p=>!wires.some(w=>pointOn(p.position,w.start_point,w.end_point))).map(p=>({...p,nearest_endpoints:wires.flatMap(w=>[w.start_point,w.end_point].map(position=>({object_id:w.object_id,position,gap:distance(p.position,position)}))).sort((a,b)=>a.gap-b.gap).slice(0,2)})),
+        missing_component_evidence:missingComponents.map(c=>({component:c.id,bounds:c.bounds,nearby_entities:entities.filter(e=>e.layer!==plan.wire_layer&&e.bounding_box&&e.bounding_box.max[0]>=c.bounds[0][0]&&e.bounding_box.min[0]<=c.bounds[1][0]&&e.bounding_box.max[1]>=c.bounds[0][1]&&e.bounding_box.min[1]<=c.bounds[1][1]).slice(0,4).map(e=>({object_id:e.object_id,type:e.type,bounding_box:e.bounding_box}))})),
+        unsupported_wire_entities:entities.filter(e=>e.layer===plan.wire_layer&&e.type!=='AcDbLine').map(e=>({object_id:e.object_id,type:e.type,layer:e.layer})),
+        rule:'Use observed CAD coordinates. Restore geometry/lead endpoints to frozen ports and bounds; do not change the plan or add overlapping shortcut wires.'
+      }};
     }
     if(r.check === 'no_wire_through_component') {
       pass = !through;
@@ -207,6 +220,8 @@ export async function runQualityTask(options: {
       const parsed = parseAcceptancePlan(args);
       if(parsed.requirements.some(r => !task.toLowerCase().includes(r.source_quote.toLowerCase())))
         throw new Error('SOURCE_QUOTE_MUST_BE_FROM_ORIGINAL_REQUEST');
+      if(!referenceTask&&parsed.requirements.some(r=>r.check==='saved_dwg')&&!/保存|另存|导出|\bsave\b|\bexport\b|\.dwg\b/i.test(task))throw new Error('UNREQUESTED_FILE_ACCEPTANCE: no DWG save was requested; remove saved_dwg rather than inventing a delivery condition');
+      if(!referenceTask&&parsed.domain==='electrical-schematic'&&parsed.requirements.some(r=>r.check==='entity_count'&&r.entity_type==='AcDbLine'&&r.max!==undefined)&&!/线段|直线|最多.*线|\blines?\b/i.test(task))throw new Error('UNREQUESTED_PRIMITIVE_LIMIT: the user specified components, not a maximum number of AcDbLine entities; use symbol/topology checks, without an invented line-count ceiling');
       if(/电路|circuit/i.test(task) && parsed.domain !== 'electrical-schematic')
         throw new Error('SCHEMATIC_TOPOLOGY_REQUIRED');
       if(/并联|\bparallel\b/i.test(task) && parsed.domain === 'electrical-schematic') throw new Error('PARALLEL_TOPOLOGY_VERIFIER_UNAVAILABLE: cannot substitute a series-cycle check');
@@ -215,6 +230,9 @@ export async function runQualityTask(options: {
       if(referenceTask){
         parsed.visual_required=true;
         if(!parsed.requirements.some(r=>r.check==='visual'))throw new Error('REFERENCE_APPEARANCE_CHECK_REQUIRED');
+        const labels=referenceObservation?.structured?.visible_text.filter(t=>t.certainty==='clear'&&/[\p{L}\p{N}]/u.test(t.text))??[];
+        const missing=labels.filter(t=>!parsed.requirements.some(r=>r.check==='text'&&r.text&&labelText(r.text)===labelText(t.text)));
+        if(missing.length)throw new Error('SOURCE_LABEL_ACCEPTANCE_REQUIRED: preserve exact verified source labels and SI case in text checks: '+JSON.stringify(missing.map(t=>t.text)));
       }
       plan = parsed;
       exec.concludeTurn();
@@ -308,6 +326,7 @@ export async function runQualityTask(options: {
       const sourceBound=!referenceTask||Boolean((review?.evidence as {reference?:{sha256?:string};document?:string}|undefined)?.reference?.sha256===referenceTask.image.sha256&&
         (review?.evidence as {document?:string})?.document===owner.taskScope(taskId).target);
       const valid = !plan.visual_required || Boolean(review?.review_valid && referencesValid && sourceBound && !clipped && review.structured?.verdict === 'pass');
+      const sourceLabelsUncertain=referenceObservation?.structured?.visible_text.some(t=>t.certainty==='uncertain'&&/[\p{L}\p{N}]/u.test(t.text))??false;
       const visualChecks = plan.requirements.filter(r => r.check === 'visual').map(r => {
         const item = review?.structured?.checklist.find(c => c.requirement_id === r.id);
         return { id: r.id, status: item?.status === 'pass' && referencesValid ? 'pass' : item?.status === 'fail' ? 'fail' : 'not_run', evidence: item?.evidence ?? 'Missing validated visual checklist' } as CheckResult;
@@ -323,7 +342,7 @@ export async function runQualityTask(options: {
         entity_mapping: 'queried ObjectIDs; pixel-to-CAD transform unavailable; visual suggestions require coordinate reconciliation'
       });
       const beforeSave=checks.filter(c=>!referenceTask||plan!.requirements.find(r=>r.id===c.id)?.check!=='saved_dwg');
-      if(valid && unchanged && beforeSave.every(c => c.status === 'pass')) {
+      if(valid && unchanged && !sourceLabelsUncertain && beforeSave.every(c => c.status === 'pass')) {
         accepted=true;
         if(!referenceTask)await enter('complete');
         break;
@@ -332,12 +351,13 @@ export async function runQualityTask(options: {
         checks.push({ id: 'capture_bounds', status: 'not_run', evidence: '视图边缘出现图形，可能被裁切；不得依据不完整图片修改几何。检查MCP打印范围及缩放。' });
       const nonActionableUncertainty = review?.structured?.verdict === 'uncertain' && !review.structured.defects.length && !checks.some(c => c.status === 'fail' && plan!.requirements.find(r => r.id === c.id)?.check !== 'visual');
       if(nonActionableUncertainty) checks.push({ id: 'visual_uncertainty', status: 'not_run', evidence: '必要视觉结论仍不确定；没有可定位缺陷，不做推测性修改，保留证据以便安全重验。' });
-      if(nonActionableUncertainty || clipped || !sourceBound || !unchanged || round === 3 || (plan.visual_required && (!review?.review_valid || !referencesValid))) {
+      if(sourceLabelsUncertain)checks.push({id:'source_labels_uncertain',status:'not_run',evidence:'原图局部复核后仍有必要文字不确定；已绘制结果只能保存为待验稿，不猜测SI单位或标注'});
+      if(sourceLabelsUncertain || nonActionableUncertainty || clipped || !sourceBound || !unchanged || round === 3 || (plan.visual_required && (!review?.review_valid || !referencesValid))) {
         await enter('pending_verification');
         break;
       }
       await enter('correcting');
-      await act('使用中文。先查询实体，再调用cader_apply_cad_patch提交实际局部修改，或直接调用CAD修改工具。不要只描述计划，不要输出长篇思考或反复讨论候选方案。不要整图重建；优先move/调整局部实体，删除仅限本任务创建实体且由执行层检查授权。以查询坐标核对视觉分歧，不能凭像素直接编辑。验收计划不能更改。不要宣称完成，修正后调度器会再次核验。\n' + JSON.stringify({ original_request: task, plan, checks, visual: review?.structured }));
+      await act('使用中文。程序已附实际读回实体和定位到坐标/ID的拓扑缺陷，修改前核对目标实体，再调用cader_apply_cad_patch或CAD修改工具提交实际局部修改。优先修复程序明确指出的断点、分支、组件越界与文字，不重复增加已存在的线段；错误导线应替换，不能叠加捷径。组件必须容纳于封存bounds且符号引线到达封存ports，物理圆不能画成超出盒的椭圆近似。不要只描述计划，不输出长篇思考，不整图重建；删除仅限本任务实体，由执行层检查。以坐标核对视觉分歧，不能凭像素编辑。验收计划不能更改。不要宣称完成，修正后程序重新核验。\n' + JSON.stringify({ original_request: task, plan, checks, entity_snapshot:after.entities,visual: review?.structured }));
     }
     if(referenceTask&&!owner.facts().frozen&&(phase as QualityPhase)!=='blocked'){
       await saveReferenceArtifact();
