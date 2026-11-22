@@ -2,7 +2,7 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Project home](../../README.md) · [Documentation](../README.md)
 
-**Applies to Cader 0.3.0 · Updated 2026-11-20**
+**Applies to Cader 0.4.0-dev.7 · Updated 2026-11-22**
 
 Cader CLI is a CAD agent terminal built on DeepSeek Harness. Describe tasks in a persistent conversation, select models and skills, reference images, inspect CAD status, or use a single command from a script.
 
@@ -125,6 +125,8 @@ Enter Slash commands inside the Cader session. Angle brackets denote a value to 
 | `/status` | Show workspace, model, permissions, MCP connection and scratch binding; COM reports lifecycle metadata |
 | `/model [ID]` | List or select a configured model, e.g. `/model MainAgent`; changes the current main conversation selection |
 | `/mcp list` | List configuration files |
+| `/mcp barrier` | Read-only review of a legacy missing-argument barrier, its original journal and current tool schema |
+| `/mcp resolve` | User-only review; matching evidence and explicit confirmation archive the old barrier and require a new scratch drawing |
 | `/mcp use <config-path>` | Select MCP, e.g. `/mcp use configs/mcp/AutoCAD.local.yaml` |
 | `/mcp tools` / `/mcp off` | Discover tools or disable subsequent connections; discovery does not grant the agent every tool |
 | `/skills list` | List skills visible to the main agent |
@@ -137,9 +139,10 @@ Enter Slash commands inside the Cader session. Angle brackets denote a value to 
 | `/undo` | Report `CAD_UNDO_UNAVAILABLE`; there is no controlled CAD undo interface yet |
 | `/checkpoint` | Save the conversation and project-reference hashes; not a DWG backup or CAD database restore point |
 | `/permissions [mode]` | read-only / ask (default) / workspace-write / full-access; also supports shell ask / shell deny |
+| `/quality` / `/quality resume` | Inspect quality state or recheck on the same connection without drawing replay; at most three cumulative repairs |
 | `/exit` | Save and exit |
 
-Subcommands are expanded above; there are 16 Slash root commands. MCP connections persist across turns. Switching configuration/workspace, clearing/resuming a session, disabling MCP or exiting releases the connection. Resume resets permission to ask and grants no prior CAD write binding; a fresh connection requires a fresh scratch drawing.
+Subcommands are expanded above; there are 17 Slash root commands. MCP connections persist across turns. Switching configuration/workspace, clearing/resuming a session, disabling MCP or exiting releases the connection. Resume resets permission to ask and grants no prior CAD write binding; a fresh connection requires a fresh scratch drawing.
 
 | Mode | Queries | Scratch drawing/editing | Delete/overwrite |
 |---|---|---|---|
@@ -165,10 +168,18 @@ Record the file identity of @drawing.dwg without inferring its entities.
 
 Apart from the bundled calibration image, these filenames are examples; replace them with existing files inside your workspace.
 
-- Use `@draft.png`, `@"path with spaces.jpg"` or `@drawing.dwg`. References must stay within the current workspace.
+- Use `@draft.png`, `@"path with spaces.jpg"`, a plain local PNG/JPEG path or `/open <path>`. Explicitly selected external images are copied into hash-bound workspace `.cader/references/` snapshots, without expanding Agent file/Shell access. Quote paths containing spaces. DWG references must remain inside the workspace.
 - PNG/JPEG limits are 10 MiB and 40 million pixels. One original image is active per turn; a newly selected image replaces it. The selection persists into later turns and is sent to a model configured for image input.
 - DWG is limited to 64 MiB. Only its header, size and SHA-256 are recorded; drawing content is not decoded. PDF is unsupported.
-- Hashes are checked before each turn. Reselect changed files; `/cd` clears reference grants. Images, Skills and drawing references cannot authorize writes.
+- Snapshot hashes are checked before each turn. Reselect altered snapshots; changing an external original does not silently replace the selected image. `/cd` clears references and pending redraw requests. Images, Skills and drawing references cannot authorize writes.
+
+```text
+Reproduce the symbols, readable text and connections in "D:\sketches\draft.jpg" on a new blank drawing. Save as result.dwg.
+```
+
+Alternatively use `/open "D:\sketches\draft.jpg"` before your drawing request. A missing-image request is retained; select its path and say `继续` to continue. No GUI upload is required. The Harness reads source structure, plans/draws, compares the original with a real CAD capture and reports the actual DWG path. An omitted destination gets a unique workspace filename. Task approval includes saving that new file; overwriting another or externally changed file still requires approval. Completion requires both quality and file checks. When quality remains pending but saving is safe, output is explicitly a draft.
+
+On the same connection, `继续` or `/quality resume` retains the original request, source hash, destination and repair limit without replaying confirmed geometry. Continuing a completed task does not draw it again. Reconnect/restart grants no old CAD write authority and cannot clear an unknown-write barrier.
 
 ### Keyboard shortcuts
 
@@ -299,7 +310,7 @@ cader exec "Inspect the upper-left region" --image benchmark/fixtures/vision-cal
 ```
 
 Ensure crop coordinates fit the original image. `exec` accepts `--permissions read-only|ask|workspace-write|full-access`, `--mcp`, `--skill`, `--image`, `--crop x,y,w,h`, `--rotate 0|90|180|270` and `--intent assess|redraw`. Cropping uses original pixels before clockwise rotation. Exec has no interactive approver; explicitly select workspace-write for automatic drawing and create a scratch drawing in that same task.
-`assess` is the default; `redraw` currently returns `blocked / WRITE_CAPABILITY_UNAVAILABLE` without starting a model or MCP.
+`assess` is the default. `redraw` requires `--image`, connected MCP and write permission, and uses the same source/fresh-drawing/file quality flow. Read-only or missing-image requests still return `blocked / WRITE_CAPABILITY_UNAVAILABLE`. Example: `cader exec "Redraw the reference on a new blank drawing and save as result.dwg" --intent redraw --image draft.jpg --mcp configs/mcp/AutoCAD.local.yaml --permissions workspace-write`. New workspace files can be saved automatically; exec does not auto-approve operations requiring confirmation.
 Selections made with `/model`, `/mcp` or `/skills` do not affect a separate `exec`; that command uses configuration and its own arguments.
 
 ### JSON and exit codes
@@ -406,3 +417,147 @@ On Linux/macOS use `pnpm` instead of `pnpm.cmd`. Preserve `.env`, `*.local.yaml`
 When reporting an issue on [GitHub](https://github.com/codesknight/Cader/issues), include Cader/Node versions, OS and terminal, the command, a sanitized `errorCode`, and expected/actual behavior. Upload images only if they are explicitly cleared for publication.
 
 CLI changes must update both language guides, help and examples in the same commit. Resolve documentation/implementation differences before acceptance. The [development process](../development/process.md) describes the checks; unavailable features retain an explicit status.
+
+
+## v0.4 development snapshot: evidence, recovery and view feedback
+
+`0.4.0-dev.1` introduced the reliability behavior below. Current dev.2 quality scheduling is described next; full v0.4 acceptance remains open.
+
+- `/mcp doctor` queries the backend and separates transport, cached observations, scratch ownership and freeze state. The current COM backend may lazily launch CAD/create a default document when none exists; this is not an independent native side-effect-free health API.
+- `/mcp recover` only reconciles an acknowledged mutation followed by a postflight read failure on the same original connection. It repeats the read, never the mutation. Unknown dispatch, timeouts, reconnects, legacy locks and capture uncertainty remain frozen; no lock deletion, CAD restart or implicit rebinding.
+- Model tools `cader_cad_health` and `cader_cad_recover` expose those operations. Frozen mutation tools disappear from subsequent model steps. Already queued sibling requests return blocked_not_dispatched, distinct from an unknown dispatched operation.
+- Private JSONL records preflight/dispatch/acknowledgement/postflight/artifact verification, original MCP failures, extractable HRESULT, call/operation IDs and stacks. Unavailable native thread/revision/MCP wire IDs are not invented.
+- Entity-specific postflight uses get_entity with the returned ObjectID and labels observation_scope=affected_entity. It is not a full drawing listing. Document operations and explicit final queries still inspect the full drawing. Health counts are timestamped cached full observations.
+- Polyline/hatch points must explicitly contain finite [x,y,z] values. Invalid arguments are rejected before dispatch without freezing.
+- Reports include execution_evidence; a freeze forces ok=false and task_status=blocked even when the model finished normally. Terminal counts refer to operations, not entities.
+- `cader_review_cad_view` captures the owned scratch view and automatically sends a real image attachment to the vision worker; no user reference or prior DWG save is required. Export changes viewport/plot settings and writes a private PNG under existing approval/serialization. max_visual_reviews_per_turn defaults to 4 (range 1–5). No authoritative pixel-to-CAD mapping is available; edits still require entity coordinates. Actual export timeout evidence means the complete visual correction gate has not passed.
+
+Explicit mutually exclusive live entries, all using isolated new scratch targets:
+
+```powershell
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --reliability
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --faults
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --visual
+```
+
+Reliability is deterministic real-CAD A/B/E reproduction, with no model calls. Faults inject client-boundary response suppression/read failure/cancellation around real CAD writes; they do not claim native COM crashes or real packet loss. Visual uses paid real models to autonomously draw a seeded defect and request correction; implementation alone does not establish acceptance.
+
+See [actual results and failures](../validation/2026-11-20-reliable-execution.md). The original Drawing8 barrier remains intact. Full-access and model changes cannot clear it. Adjacent MCP changes require separate authorization and have not been applied.
+
+CAD failure lines display the code, stage and dispatched/not-dispatched status; full errors stay in private JSONL.
+
+A CAD freeze also hides and blocks Agent Shell, including full-access, to prevent bypassing the write barrier. Direct user ! commands remain a separate individually approved host channel.
+
+## dev.2: autonomous drawing quality tasks
+
+Drawing, design/generation, redraw, diagram, layout and text-addition requests enter application-owned quality scheduling. Chinese polite drawing questions also count as tasks; capability questions remain inquiries. Simple move/rotate requests retain deterministic post-write observation without mandatory visual round trips. Complex drawings route to VisionAgent automatically; users need not request review or switch agents.
+
+The CLI shows planning, drawing, geometry, topology, vision, correcting and complete/pending/blocked phases. The model submits an immutable requirement checklist and absolute component layout. Preflight rejects overlapping components, interior ports and nonexistent entity types. Actual CAD queries check supported counts, labels, segment/bounding-box intersections and two-terminal series graphs. Electrical tasks load the registered data-only `electrical-quality` skill; it contains no fixed drawing sequence or authority.
+
+Default ask approves the concrete plan and owned scratch once, covering layers, drawing, captures and safe local patches to task-created entities, with at most three cumulative corrections. The approval explicitly includes deletion of those entities. Foreign deletion, saving/overwrite, files and Shell retain existing permission checks. Grants expire at task end. `cader_apply_cad_patch` batches drawing/edit/delete operations through the original schemas, guards, serial owner and journal. It stops at the first failure; committed operations must never be replayed.
+
+Vision uses a strict report schema and one format repair on the same captured image; MainAgent and VisionAgent each allow up to 8192 output tokens by default. Shared limits are 40 model steps, 100 tool calls and four view reviews, not mandatory spending per task. Cancellation, invalid reports, failed vision, unknown entity references, changed observations and suspected capture clipping cannot complete. Nonessential observations and geometry already proven by queries should not become visual defects. Uncertainty without a localized defect remains pending instead of triggering speculative edits.
+
+```text
+画一个带有 5V 电源和一个灯泡的串联电路图。
+/quality
+/quality resume
+```
+
+These are input examples, **not a claim that full real-CAD acceptance has passed**. `/quality` shows the latest checklist/evidence; `resume` rechecks on the same live connection and scratch, skips original drawing and preserves the three-correction limit. Reconnect, exit or ordinary session restore invalidates that ownership. Quality resume never clears a write barrier; `/mcp recover` retains its existing conditions.
+
+Private `quality.json`, `verification.json`, `events.jsonl` and execution journals retain requirements, phases, per-round checks, visual results, image hashes, observed-state digests and failures. Native `document_revision` and `pixel_to_cad` are unavailable and explicitly null. Referenced ObjectIDs must exist in queries; pixel-only edits are not authorized. The border test is conservative clipping evidence, not proof of full image coverage.
+
+Explicit paid-model/real-CAD entry, creating an isolated workspace and actual scratch:
+
+```powershell
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality
+```
+
+The configured default MainAgent (currently Flash) receives one original request; Harness routes Flash visual review automatically and first checks a deterministic missing-argument input against the real discovered schema. The callback approves CAD operations only, which is separate from human terminal approval testing. This case does not save a DWG or establish arbitrary circuit, native revision or pixel-mapping acceptance. See [actual results and retained failures](../validation/2026-11-20-autonomous-quality.md).
+
+## dev.3: input rejection, diagnostics and recovery display
+
+Direct CAD calls and the program MCP client validate schemas before sending. Composite patches prevalidate every operation's schema before any operation runs. Missing required fields such as height, wrong types/enums and nested constraints report `TOOL_ARGUMENTS_INVALID` or `CAD_FAILED_BEFORE_DISPATCH`, preflight, not dispatched, without freezing. No defaults are inserted and no types are coerced. The agent may correct unexecuted requests. Patches are not rollback transactions: subsequent permission/native failures can retain prior committed operations; never blindly replay the whole batch.
+
+Remote isError, timeout or a lost response does not prove absence of side effects, even if its message contains “validation.” Unacknowledged writes still freeze; recovery remains limited to acknowledged writes with failed postflight observation on the original connection. Old Drawing6 or other persisted unknown locks are never automatically removed.
+
+Facts add `counts_scope`, `operation_mark`, `session_counts`, `freeze_operation`/`freeze_evidence`, `recovery.eligible/reason` and `cad_observation.stale_due_to_mutations`. The terminal separates turn and cumulative session counts. Historical barriers are not counted as operations in a restarted session, but retain their source/error. Stale counts and empty filtered results do not establish an empty drawing; empty COM lifecycle metadata does not establish disconnection.
+
+```text
+为什么阻塞了
+为何冻结
+查看冻结原因
+恢复
+/mcp recover
+```
+
+These Chinese diagnostic/recovery shortcuts are program-owned and do not invoke a model. Refused recovery is displayed explicitly; model-tool `recovered:false` no longer receives a success checkmark. Controlled reads remain available during a freeze; reconnect/restart grants no inherited ownership. Once streamed, answers receive only application status afterward rather than being printed twice on failure.
+
+A closed or replaced original connection reports `ORIGINAL_CONNECTION_REQUIRED`; an unacknowledged dispatch on the live connection reports `DISPATCH_OUTCOME_UNCONFIRMED`. Repeated recovery does not authorize writes in either case.
+
+Real Flash/AutoCAD validation now reaches text creation and automatic vision; the missing-input probe was rejected without dispatch or freeze. Full circuit acceptance still fails on suspected capture clipping and plan constraints. See [dev.3 fix and actual evidence](../validation/2026-11-20-schema-preflight-fix.md).
+
+## dev.4: reviewing legacy argument barriers
+
+Startup reads workspace barriers and displays the cause even without MCP configured. A drawing quality task with a known freeze goes directly to `blocked`, before constructing or calling the model. Reports record `model_run_status: not_started`; `run_status: succeeded` means the application handled the request, while business status remains `ok: false`, `task_status: blocked`. Zero current-turn writes do not disprove an older barrier.
+
+Upgrading does not automatically remove an old missing-height barrier. Exit any old Cader sessions, then in a new session using the original workspace:
+
+```text
+/mcp barrier
+/mcp resolve
+```
+
+Select the original MCP configuration first. The application correlates the original argument error, request, target, journal and current schema. Acknowledged writes, timeouts, captures, native errors, changed evidence and another live writer process are refused. `eligible: true` means reviewable, **not proof that CAD never executed**. Every permission mode, including `full-access`, requires explicit confirmation that the original request did not execute, has ended, and no running or delayed CAD operation remains. If unsure, decline and preserve the barrier; do not delete the lock manually. This is not a general reset and is not exposed as an Agent tool.
+
+After operator adjudication, the original unknown barrier, journal snapshot and hashed decision receipt remain in workspace `.cader/barriers/`. Old unknown outcomes are not rewritten, operations are not replayed and old documents are not adopted. The transport closes and document/task grants are dropped; resend the task to create a fresh scratch. `/quality resume` cannot continue the old task. Review mutex and filesystem failures block release; stale review mutexes are never removed automatically.
+
+The actual Drawing6 record was reviewed read-only against real MCP discovery and remains unchanged. Operator approval and a complete new drawing were not performed on the user's behalf. See [diagnosis and limits](../validation/2026-11-21-legacy-barrier-review.md).
+
+## dev.5: preventing avoidable write barriers
+
+Writes naming a layer query `list_layers` immediately before dispatch. Missing layers, failed reads and invalid responses reject the mutation as `failed_before_dispatch` without freezing. The Agent receives an actionable instruction to call `create_layer` and retry only the unexecuted operation. No hidden layer creation or whole-patch replay occurs. Failed patch results include `not_dispatched` indices; committed operations remain committed.
+
+Native failures may leave partial geometry. Tool and final CLI results now display the original native error. An unproven terminal outcome still retains the barrier. The corresponding AutoCAD-MCP changes validate layers before entity creation and attempt cleanup only of entities created by that call. This is not a transaction receipt: failed cleanup or lost responses remain uncertain. Upgrading does not retire the existing partial Drawing2 barrier, and `/mcp resolve` is not applicable to it.
+
+MCP export also uses foreground plotting, explicit fit-to-page and complete plot-setting restoration, and refuses existing output targets. This reduces background-job capture delays; uncertain exports are never automatically replotted or declared complete. Restart Cader to reload the updated MCP child process.
+
+Planning model failures now enter `blocked`, preserve `quality.failure` and planning `model_runs`, and display QUOTA or the actual failure before drawing. They are no longer described as pending quality verification. A missing valid plan produces `ACCEPTANCE_PLAN_MISSING`. QUOTA alone does not establish insufficient balance.
+
+Explicit real-model/CAD validation can use a custom quality task (paid API calls and real scratch drawings; the default remains the series circuit):
+
+```powershell
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task "Create a blank drawing with a house and a tree beside it."
+```
+
+`--task` is accepted only with `--quality`. The model receives the request, never a fixed operation sequence. See [actual tests, failures and limits](../validation/2026-11-21-dependency-and-partial-execution.md).
+
+Do not use missing-argument adjudication to continue a partially executed frozen task. To preserve that evidence and begin an independent new task, use a new project workspace from the Cader source directory:
+
+```powershell
+New-Item -ItemType Directory -Force .cader/workspaces/new-task
+cader chat --workspace .cader/workspaces/new-task
+```
+
+The new workspace still defaults to ask, requires a fresh scratch and retains the same write guards. It does not reconcile the old operation, adopt its drawing or replay its requests.
+
+## dev.6: reference image to fresh CAD and DWG
+
+Explicit image paths register real pixels without a GUI upload. Reproduce/trace/redraw requests enter quality scheduling, with source-reading and DWG-saving phases. Agent `cader_open_image` reads workspace PNG/JPEG pixels and enables crop tools; text Read is not semantic image inspection. The program binds the task's fresh drawing, confirmed geometry, source hash and destination, preventing reviews of an older drawing from becoming redraw results.
+
+MainAgent/VisionAgent each default to at most 8192 output tokens, retaining overall budgets and one format repair. Forbidden component-interior wires are rejected before dispatch; nonexistent visual entity IDs require report correction. If a model fails during drawing/repair, confirmed task geometry may be saved as a draft when the connection remains unfrozen, uncancelled and file protections allow it. The original QUOTA or other failure remains; this never completes the task. Frozen/cancelled or geometry-free tasks are not automatically saved or replayed.
+
+Real reference runs produced DWG files and independently reopened them, while full quality still has unmet conditions. [Evidence and known issues](../validation/2026-11-21-reference-redraw-fix.md). Restart the CLI and check `cader -v` for dev.6; restart its MCP child to load native capture margins too.
+
+## dev.7: full-quality retesting and source label protection
+
+After source observation, up to four label regions are reread with actual pixel crops. Clear source labels must appear in literal plan checks without replacing values or SI prefixes. Unresolved labels allow drawing and a draft file, but prevent completion. This applies to annotated references, without adding visual calls to simple move tasks.
+
+Text checks normalize layout whitespace, compatible glyphs and mathematical minus, while matching complete labels, retaining SI case and checking quantity: `5V` differs from `15V`, and `m` from `M`. Visual reports must use each supplied acceptance ID exactly once; errors return to the model for correction.
+
+Topology failures now identify coordinates, node degrees, wire IDs, nearest endpoint gaps, component bounds and unsupported entities. The current series verifier needs `AcDbLine` wires: this MCP exposes no polyline/arc wire endpoints, so such creations on the wire layer are rejected before dispatch with a line-segment alternative. Symbol layers may still use them. Ordinary drawing requests cannot acquire an invented mandatory save condition.
+
+Component tasks also cannot acquire an unrequested line-entity ceiling. An uncertain visual verdict must identify an affected required check; all-pass checklists with unrelated global uncertainty require bounded report repair, never automatic promotion to pass. Updated 2026-11-22: the local reference and power/lamp cases passed real testing; this does not guarantee arbitrary drawing quality.
+
+MainAgent defaults to `reasoning_effort: low`, while vision remains `off`; output/step/tool/repair limits are unchanged. Adjust the MainAgent model YAML if needed. Bounded reasoning still incurs provider costs and cannot guarantee acceptance of every drawing. After restart, `cader -v` should report dev.7. [Actual retesting and limits](../validation/2026-11-21-complete-quality-retest.md).

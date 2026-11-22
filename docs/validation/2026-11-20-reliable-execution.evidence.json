@@ -1,0 +1,114 @@
+{
+  "kind": "sanitized v0.4 iteration evidence",
+  "real_model_visual_passed": false,
+  "original_trigger": "not recoverable from v0.3 discarded errors",
+  "runs": [
+    {
+      "run_id": "reliability-cee37711-a329-4890-b50c-d3af9067ba62",
+      "kind": "real-CAD-deterministic-reproduction",
+      "ok": false,
+      "checks": null,
+      "experiments": [
+        {
+          "experiment": "A",
+          "round": 1,
+          "writes": 100,
+          "passed": true,
+          "duration_ms": 9372
+        },
+        {
+          "experiment": "A",
+          "round": 2,
+          "writes": 100,
+          "passed": true,
+          "duration_ms": 7849
+        },
+        {
+          "experiment": "A",
+          "round": 3,
+          "writes": 100,
+          "passed": true,
+          "duration_ms": 7631
+        },
+        {
+          "experiment": "B",
+          "round": 1,
+          "writes": 100,
+          "passed": true,
+          "duration_ms": 279159
+        }
+      ]
+    },
+    {
+      "run_id": "reliability-9d15c2bb-6537-4ee8-b91d-90d28ccb81e2",
+      "kind": "real-CAD-deterministic-reproduction",
+      "ok": false,
+      "checks": null,
+      "experiments": [
+        {
+          "experiment": "A",
+          "round": 1,
+          "writes": 100,
+          "passed": true,
+          "duration_ms": 9921
+        },
+        {
+          "experiment": "A",
+          "round": 2,
+          "writes": 100,
+          "passed": true,
+          "duration_ms": 12381
+        },
+        {
+          "experiment": "A",
+          "round": 3,
+          "writes": 100,
+          "passed": true,
+          "duration_ms": 11094
+        },
+        {
+          "experiment": "B",
+          "round": 1,
+          "writes": 100,
+          "passed": true,
+          "duration_ms": 18991
+        }
+      ]
+    },
+    {
+      "run_id": "faults-daedbb57-b2e1-46e2-8cc6-4fd2f0867121",
+      "kind": "real-CAD-client-boundary-fault-injection",
+      "ok": true,
+      "checks": {
+        "postflight_actual_one_entity": true,
+        "postflight_single_dispatch": true,
+        "acknowledgement_distinguished": true,
+        "acknowledged_recovered_without_replay": true,
+        "lost-response_actual_one_entity": true,
+        "lost-response_single_dispatch": true,
+        "unknown_blocks_followup": true,
+        "unknown_does_not_recover": true,
+        "cancel_actual_one_entity": true,
+        "cancel_single_dispatch": true,
+        "cancel_settled_committed": true
+      },
+      "experiments": null
+    },
+    {
+      "run_id": "visual-ff20e68d-a2aa-453d-8881-87f026e3e173",
+      "kind": "real-model-real-CAD-visual-correction",
+      "ok": false,
+      "checks": {
+        "realViewCaptured": false,
+        "visionImageRequest": false,
+        "visionWorkerExecuted": false,
+        "visionWorkerSucceeded": false,
+        "twoObservations": false,
+        "circleInsideRoof": false,
+        "exactlyOneCircle": true,
+        "modelTurnsSucceeded": false
+      },
+      "experiments": null
+    }
+  ]
+}

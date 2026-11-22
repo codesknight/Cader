@@ -36,7 +36,13 @@ does not answer all three. Program verification is separate from this Skill and 
 Use authorized region views for dense symbols and text. Link every critical fact to an original-image region;
 keep unreadable values unknown. Do not proceed through OR/XOR ambiguity, omitted labels, conflicting voltages
 or unresolved junctions. Return structured symbols, ports, nodes, wires, crossings and raw/normalized labels
-when requested; only independent expected facts can validate them. Image plans remain execution-blocked.
+when requested; only independent expected facts can validate them. A plan is not execution evidence.
+When actual CAD tools and user authorization are available, continue through the Harness
+to create the requested fresh drawing and DWG. This review skill does not impose a global
+ban on image-based drawing. Missing physical scale does not prohibit schematic redraw in
+layout coordinates. State unreadable values as unknown without refusing readable geometry.
+Do not require a GUI upload thumbnail or local OCR installation when actual image pixels
+are already attached. Use cader_open_image/cader_view_image for authorized local evidence.
 
 Use main-agent coordination only. A permitted vision worker may review image evidence,
 but no child may delegate or approve edits. Return uncertainty and required evidence to

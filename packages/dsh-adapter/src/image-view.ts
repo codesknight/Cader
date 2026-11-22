@@ -3,6 +3,22 @@ import { createHash } from 'node:crypto';
 import { readReferenceImage, ConfigError } from '@cader/config';
 
 export interface ImageView { rotation?: 0 | 90 | 180 | 270; crop?: { left: number; top: number; width: number; height: number } }
+/** Conservative clipping evidence for plotted CAD PNGs. A border hit is uncertainty,
+ * never a claimed CAD coordinate transform or permission to repair geometry. */
+export async function inspectCadImageBorder(path:string){
+  const {data,info}=await sharp(path,{limitInputPixels:40_000_000}).flatten({background:'#ffffff'}).removeAlpha().raw().toBuffer({resolveWithObject:true});
+  const at=(x:number,y:number)=>Array.from(data.subarray((y*info.width+x)*info.channels,(y*info.width+x)*info.channels+3));
+  const corners=[at(0,0),at(info.width-1,0),at(0,info.height-1),at(info.width-1,info.height-1)];
+  const background=[0,1,2].map(c=>corners.map(p=>p[c]!).sort((a,b)=>a-b)[1]!);
+  const ink=(x:number,y:number)=>at(x,y).some((v,c)=>Math.abs(v-background[c]!)>64);
+  let hits=0;
+  const band=Math.min(4,Math.floor(Math.min(info.width,info.height)/2));
+  for(let offset=0;offset<band;offset++){
+    for(let x=0;x<info.width;x++)for(const y of [offset,info.height-1-offset])if(ink(x,y))hits++;
+    for(let y=band;y<info.height-band;y++)for(const x of [offset,info.width-1-offset])if(ink(x,y))hits++;
+  }
+  return {foreground_border_pixels:hits,possible_clipping:hits>0,method:'corner-background contrast; conservative uncertainty, not geometric mapping'};
+}
 export async function prepareImageView(root: string, path: string, view: ImageView = {}) {
   const source = await readReferenceImage(root, path);
   const crop = view.crop ?? { left: 0, top: 0, width: source.width, height: source.height };

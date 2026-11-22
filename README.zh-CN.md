@@ -303,3 +303,11 @@ DSH YAML 与 Python 诊断 JSON 使用不同 schema，不能互换。
 [MIT](LICENSE) · Copyright © 2026 codesknight
 
 真实模型自主CAD执行证据：[验收报告](docs/validation/2026-11-20-agent-execution.md)。
+
+研发快照0.4.0-dev.3修复原始MCP参数预检、整批schema校验、状态诊断与重复输出；真实Flash/AutoCAD已完成文字并进入自动视觉，但完整电路质量仍未通过，见[本轮修复与实测](docs/validation/2026-11-20-schema-preflight-fix.md)、[自主质量历史](docs/validation/2026-11-20-autonomous-quality.md)及[原可靠性记录](docs/validation/2026-11-20-reliable-execution.md)。
+
+当前快照 **0.4.0-dev.4** 补齐启动屏障提示、冻结绘图的模型前阻断及仅用户可用的`/mcp barrier`、`/mcp resolve`旧缺参复核。须明确人工确认，保留原始unknown，不重放或接管旧图。详见[诊断与边界](docs/validation/2026-11-21-legacy-barrier-review.md)。完整图纸质量仍未通过。
+
+最新 **0.4.0-dev.5** 增加写前图层依赖校验、部分执行首发错误与规划失败直报；相邻MCP修复创建前检查、新实体清理及前台打印/完整恢复。真实房子/树18次确认、unknown0、自动视觉及一轮修正已执行，完整质量仍因计划语义与截图边缘未通过。见[实际证据及边界](docs/validation/2026-11-21-dependency-and-partial-execution.md)。
+
+**0.4.0-dev.6** 修复手稿路径未传像素、复现未执行和旧图验收问题：原图快照、结构观察、新图/目标文件绑定、双图验证及程序保存DWG。真实模型已新建绘图并输出DWG，独立重开保留几何/文字；质量仍有拓扑/外观未完成，最后一轮遇服务QUOTA。失败和待验稿明确保留，不声称任意手稿已合格重绘。见[修复与真实验证](docs/validation/2026-11-21-reference-redraw-fix.md)。

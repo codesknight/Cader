@@ -1,12 +1,17 @@
 version: 1
 skills:
+  - name: electrical-quality
+    description: Electrical schematic symbol, port and local correction knowledge; no execution authority.
+    roles: [main, vision]
+    mode: read-only
+    resources: {}
   - name: cad-inspection
     description: Inspect CAD layers through reviewed read-only MCP tools.
     roles: [main, subagent, vision]
     mode: read-only
     resources: {}
   - name: cad-redraw-review
-    description: Assess reference evidence, scale uncertainty and acceptance gaps before a CAD redraw. Planning only; no DWG generation.
+    description: Review reference evidence, scale uncertainty and redraw acceptance. The Harness controls authorized drawing and DWG delivery; this skill grants no tools or permissions.
     roles: [main, vision]
     mode: read-only
     resources:

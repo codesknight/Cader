@@ -25,7 +25,7 @@ test('catalog registers role-scoped data and resources without discovering arbit
     await mkdir(resolve(f.root, 'configs/skills/unregistered'));
     await writeFile(resolve(f.root, 'configs/skills/unregistered/SKILL.md'), 'not registered');
     const skills = await loadSkills(f.root);
-    assert.equal(skills.list('main').length, 2);
+    assert.equal(skills.list('main').length, 3);
     assert.deepEqual(skills.list('subagent').map(skill => skill.name), ['cad-inspection']);
     await assert.rejects(skills.read('cad-redraw-review', 'subagent'));
     await assert.rejects(skills.read('unregistered', 'main'));
@@ -101,7 +101,7 @@ test('actual DSH loop uses selected Skill, on-demand reference and real PNG atta
       profiles: options.profiles.map(profile => ({ ...profile, api_key_env: 'CADER_SKILL_FIXTURE' })) });
     runtime.ctx.on('llm/stream', async function* (request): AsyncGenerator<StreamChunk> {
       messages.push(JSON.stringify(request.messages));
-      assert.ok(request.tools?.every(tool => ['cader_load_skill', 'cader_delegate', 'cader_view_image'].includes(tool.name)));
+      assert.ok(request.tools?.every(tool => ['cader_load_skill', 'cader_delegate', 'cader_view_image','cader_open_image'].includes(tool.name)));
       if (messages.length === 1) {
         const id = 'review-reference' as Extract<StreamChunk, { type: 'tool-call-delta' }>['id'];
         const args = JSON.stringify({ name: 'cad-redraw-review', resource: 'assessment-format' });

@@ -185,3 +185,106 @@ DSH 原始组件 smoke 日志作为各平台 CI artifact 上传；该 CI 不执�
 最终固定Node24.9.0：pnpm typecheck通过，pnpm test 47/47通过，pnpm smoke 6/6组件门槛通过；真实live-smoke第三轮15/15通过（含真实模型断线引导），无固定操作计划。CI等待提交后执行。
 
 Windows真实PTY补测：直接启动 cader.cmd（0.3.0），自动发现44/暴露27项CAD工具；选择真实Pro模型，用自然语言新建空图并绘制半径2圆。分别在new_drawing和draw_circle审批框输入y，真实执行后query_entities回读一个AcDbCircle（中心0,0,0，半径2）。未保存，未执行Shell；/exit正常保存会话并释放MCP。此为真实终端审批，区别于自动验收回调。
+
+CI acceptance: implementation commit `7709770`, [Windows/Linux CI](https://github.com/codesknight/Cader/actions/runs/44575837079) completed successfully, 4/4 jobs (DSH components and Python MCP on both OSes). No credentials, paid model or real CAD were used in CI. #18 core execution acceptance passed; #3 retains controlled reopen/reconciliation/fault-followup scope.
+
+
+2026-11-20 / #19：Node24.9.0、pnpm11.28.5。初始46/47因新健康工具未纳入旧测试期望；随后新测试相对源码导入路径导致50/51，改从包导出后53/53通过。真实A每次3x100两轮套件均通过，B首轮各100通过（279159ms全图读回 vs 18991ms目标实体读回），后续new_drawing分别出现dispatch Name异常和ack后query RPC拒绝，两个套件均ok=false；E未完成不得标通过。真实CAD客户端边界故障注入11/11通过；不等同原生COM崩溃/网络丢包。真实Pro视觉纠错因export超时失败，未执行VisionAgent，晚到PNG仅作失败证据。根目录Drawing8屏障保留，MCP用户改动未修改。最终检查与CI另记。
+
+#19本地最终检查：pnpm typecheck通过、pnpm test 53/53通过、pnpm smoke 6/6组件门槛通过。版本为0.4.0-dev.1，不代表完整v0.4实机门槛通过。分支codex/v0.4-reliable-execution供审阅，MCP修补授权仍待答复；CI待推送后执行。
+
+补充：full-access下Agent Shell仍受CAD冻结屏障约束，新增断言确认无Shell派发。GitHub API可访问但普通Git HTTPS push多次连接失败；当前提交保留本地，CI不得标为通过。
+
+## 2026-11-20 / REQ-027：提交前离线复核
+
+固定 Node 24.9.0 / pnpm 11.28.5：`pnpm typecheck` 通过；`pnpm test` 53/53 通过；`pnpm smoke` 六项组件门槛全部通过，记录 `.cader/runs/dsh-component-2026-11-20T03-28-09-770Z-244c21ea-2202-45b3-9013-c4ec9bbd833a`。文档新增相对链接检查、`git diff --check` 通过；指导原文 SHA256 保持不变。本轮未重新调用付费模型或真实CAD，既有实机失败不变；CI实际结果待远端运行后追加。
+
+REQ-027 远端复核：`55ad82f` 的 [CI 44667978153](https://github.com/codesknight/Cader/actions/runs/44667978153) 4/4 jobs成功：python-mcp/windows、python-mcp/ubuntu、dsh-components/windows、dsh-components/ubuntu。CI没有读取密钥、调用付费模型或真实CAD。本地53/53及上述CI不替代仍未通过的压力/生命周期和视觉纠错验收。
+
+原文校验：提交后的指导文件blob与用户提供文件SHA256一致。将原文纳入暂存区后，`git diff --check` 报告原稿第3–5行Markdown换行用的尾部空格；按保留原文要求未改写。排除该原稿后，本次变更的 `git diff 55ad82f^ 55ad82f --check -- . ':!docs/designs/Cader_v0.4.0_Development_Guide.md'` 通过。此前历史推送失败保留，本次远端同步成功已在日志补记。
+
+## 2026-11-20 / REQ-028 / #20：自主质量任务
+
+Node24.9.0 / pnpm11.28.5。`pnpm typecheck`通过，`pnpm test`63/63通过；`pnpm smoke`六项组件门槛通过，运行`.cader/runs/dsh-component-2026-11-20T04-08-50-190Z-bb3cfd9b-b009-4a00-a05f-c025d589a2c3`。区分实际DSH+确定性模型、组件fixture与真实模型/CAD；上述离线检查不访问密钥或CAD。
+
+初始视觉fixture/非纯JSON schema投影失败及后来ObjectID读回fixture失败保留为调试事实；修正后最终全测通过。新用例覆盖严格报告及截断修复、首错停止补丁、真实端口图的断路/支路/重叠/长线穿盒、任务审批范围、3轮上限、取消、陈旧连接/观察变化、恢复不重放。
+
+`pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality`五次尝试，其中四次真实模型+CAD，一次知识文件frontmatter配置预检失败；四次完整质量验收全部ok=false，含实际自动视觉和局部修改。最后Drawing5在第4次导出未知派发后冻结，保留锁，停止实机写入。真实运行时间、逐工具计数、视觉报告/图片hash、验收状态及根因边界见[报告](../validation/2026-11-20-autonomous-quality.md)和[JSON](../validation/2026-11-20-autonomous-quality.evidence.json)。
+
+最终非可定位uncertainty早停、视觉/程序清单分工及审计优化未重新进行实机写入，不能将旧运行标为这些改动已通过。保存原图的边缘检查离线检出实验C疑似裁切；不证明新导出成功。本轮没有Python改动或相邻MCP写入，Python本地检查未执行；CI按仓库原配置执行。代码提交CI另记。
+
+提交前最终复核：`pnpm typecheck`、`pnpm test`63/63及`pnpm smoke`全部通过，最终组件运行`.cader/runs/dsh-component-2026-11-20T04-20-11-767Z-f513ea5d-5fb2-4cc5-98fe-b5e95e8d5919`。44个本轮变更文件的Markdown本地链接和不回显密钥的泄漏检查通过，`git diff --check`通过。原始设计及相邻MCP没有修改。
+
+实现提交`187f658`正常推送；[CI 44673924887](https://github.com/codesknight/Cader/actions/runs/44673924887) Windows/Linux DSH组件与Python MCP四项全部成功。随后入口复核修正礼貌问句“能帮我画……吗”和“设计电路”的任务识别，补充断言及无计划时的明确阻断文案；未追加CAD调用。该补充提交CI单独跟踪，不能拿前一提交CI替代。
+
+入口补充本地复验：typecheck、测试63/63及smoke通过；组件运行`.cader/runs/dsh-component-2026-11-20T04-24-22-416Z-0c5261d7-4b16-43b5-99ca-d645423c5e29`。8个补充文件的文档链接、密钥泄漏检查及diff检查通过；补充提交CI最终状态在[#20](https://github.com/codesknight/Cader/issues/20)记录，不改变完整CAD验收未通过结论。
+
+补充代码提交`2d7b818`已正常推送；[CI 44674290412](https://github.com/codesknight/Cader/actions/runs/44674290412)四项全部成功：Windows/Linux DSH组件及Python MCP。离线 `cader --version` 返回`0.4.0-dev.2`。根目录原屏障及quality-e450…的Drawing5屏障均仍存在，后者为capture_dispatch/unknown/frozen；没有通过重连或删锁绕过。源码本地及CI通过，完整CAD质量案例仍未通过。
+
+12:32用户日志排障：`.cader/probe-raw-schema.mjs`使用实际DSH+无副作用原始定义，缺必填height时body=1、isError=false，缺陷复现成功；server_called=false、cad_called=false。这不是预期行为通过，也不是修复回归通过。阅读用户原始审计确认参数拒绝及14确认/1未知，未执行真实CAD/模型复验，BUG-024未修复。报告见[排障](../validation/2026-11-20-user-log-1232.md)。
+
+该文档审计本地复核：`pnpm typecheck`、`pnpm test`63/63、Markdown链接、密钥泄漏及`git diff --check`通过。未修改Harness/Python，无新增smoke或真实API/CAD执行。通过的旧测试不会覆盖本次已复现的参数预检缺陷。
+
+## REQ-030 / dev.3：BUG-024代码修复
+
+Node24.9.0 / pnpm11.28.5。最终`pnpm typecheck`通过；`pnpm test`69/69通过；`pnpm smoke`六项组件门槛通过，运行`.cader/runs/dsh-component-2026-11-20T05-13-44-396Z-53a701c0-1ec3-4616-89b7-5175b18949d8`。新负向回归使用raw ToolDefinition，含本地拒绝与伪造/远端类似validation错误的区分、合法纠参、整批预检、计数/缓存、持久屏障、捕获拒绝、恢复事件和实际流式去重；均不调用真实服务或付费模型。
+
+修复过程中typecheck曾因validator异步类型及旧facts fixture新增字段失败，随后诊断结果union和测试fixture字面量类型失败，修正后上述检查通过。首次依赖查询因系统npm缓存不可写失败，使用本工作区私有cache和官方registry完成固定Ajv8.20.0安装，不改全局权限或配置。
+
+真实集成显式执行`pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality`。首次测试入口负向预检在延迟连接前读取定义失败，未绘图；连接准备修正后，quality-77de84c9…通过真实schema缺height拒绝（未派发、未冻结），真实Flash确认17次CAD写入含文字2、unknown=0、审批1、自动视觉valid=true。完整图纸质量ok=false/pending，疑似裁切和计划计数范围仍未通过；原始日志、初次失败及[实际证据](../validation/2026-11-20-schema-preflight-fix.md)保留，不当作完整质量通过。
+
+本轮Python/独立MCP无变更，本地Python检查未新增；CI仍运行原矩阵。`cader --version`为0.4.0-dev.3；Drawing6、旧Drawing5和原根屏障均保留，未自动迁移或重放。提交/远端CI结果另记。
+
+2026-11-21收尾：实现提交`0c5eba3`的[CI 44680055023](https://github.com/codesknight/Cader/actions/runs/44680055023) Windows/Linux DSH组件与Python MCP四项全部成功。连接关闭原因补充断言此前已全量通过69/69及smoke，运行`.cader/runs/dsh-component-2026-11-20T05-19-11-904Z-c29128a5-073f-418e-af7d-2eb7309aa57b`；此日核对源码差异与日志，未新增付费模型/真实CAD复验。完整图纸质量仍未通过，补充提交的最终CI在#20记录。
+
+补充代码`660153f`已推送，[CI 44783085937](https://github.com/codesknight/Cader/actions/runs/44783085937)成功。代码检查通过不改变完整图纸质量pending或历史unknown屏障；BUG-024修复验收与BUG-025/原生导出剩余项继续分开跟踪。
+
+## 2026-11-21 / REQ-031 / dev.4：历史缺参屏障复核
+
+Node24.9.0 / pnpm11.28.5；`pnpm typecheck`通过，`pnpm test`76/76通过，`pnpm smoke`六项通过，组件记录`.cader/runs/dsh-component-2026-11-21T05-30-53-295Z-16f5465e-4f06-4b7a-9137-ab1fff513ca0`。7项新增顶层回归涵盖四权限人工确认、原始证据归档/不重放/丢弃文档权限、未知结果拒绝、证据变化与互斥、模型前阻断/无MCP启动警告、CLI程序路由和损坏状态阻断。fixture不调用真实CAD/付费模型。最初fixture用defineTool传原始schema导致typecheck失败，改为真实形状的ToolDefinition；首次plan断言null而实际undefined，修正后74/74，补充CLI及损坏锁后76/76。
+
+`node .cader/review-user-barrier.mjs`实际连接独立MCP发现schema并读取原用户Drawing6锁/日志，仅list_tools和get_backend_status。缺height候选核对通过；原锁前后hash相同，model_called/cad_write_called/resolution_called均false。私有结果`.cader/runs/barrier-readonly-preview/preview.json`；未调用draw/new/recover/resolve，未创建CAD工作图，不是原生无副作用证明。
+
+本轮Python/独立MCP未修改；没有新增本地Python检查、付费模型或新图完整质量验收。用户真实归档确认未执行，屏障保留。CLI版本/实际启动验证及最终提交CI另记；BUG-025及原生导出/像素映射仍未解决。
+
+CLI实际执行`node apps/cli/dist/index.js chat --stdio --workspace C:/Users/LiuYanhong`，输入`/mcp barrier`、原房子/树请求和`/exit`。exit0，dev.4启动明确警告，原记录候选可见，绘图请求直接blocked，未出现planning阶段，原锁hash不变。私有stdout/stderr/check结果在`.cader/runs/barrier-readonly-preview/`。这验证真实入口和服务发现，不是用户TTY审批或真实新图验收；现有`cader.cmd`仍指向本仓库构建，不需重新安装。文档链接检查旧私有脚本尚断言16个根命令，实际已有17个（含/quality），更新检查器后另记结果。
+
+最终复跑typecheck、76/76 tests及smoke均通过，最终组件记录`.cader/runs/dsh-component-2026-11-21T05-33-56-678Z-90fd4fc0-63b6-45b4-8dd8-0a44ef1ad08b`；`cader --version`实际返回0.4.0-dev.4。`python .cader/check-cli-manual.py --links-only`通过2语言/17根命令/193本地链接/23锚点；`git diff --check`通过。提交及远端最终CI链接记录在[#20](https://github.com/codesknight/Cader/issues/20)，本地组件通过不替代CI或完整绘图验收。
+
+代码`5638f41`已普通推送，[CI 44871945247](https://github.com/codesknight/Cader/actions/runs/44871945247)四项全部成功（Windows/Linux DSH组件及Python MCP）。工作树与远端一致，用户原锁最终hash仍与只读核对前一致。Git直连及旧端点超时后，确认当前系统代理10808正常、Git旧配置10809，单次参数10808完成fetch/push；不改全局配置或TLS校验。最终文档提交CI在#20补充。
+
+## 2026-11-21 / REQ-032 / dev.5：依赖预检与部分执行
+
+最终`pnpm typecheck`、`pnpm test`79/79、`pnpm smoke`六项通过，组件记录`.cader/runs/dsh-component-2026-11-21T09-51-50-083Z-0b727f69-f22d-43b1-8473-0e661a090f37`。依赖缺失/查询失败无写入无冻结，真实DSH组件收到错误后调用create_layer并只画一次；QUOTA/缺计划在规划阶段阻断。不是付费模型结果。
+
+Cader Python检查：`uv run --project cader-mcp ruff check cader-mcp`、`ruff format --check cader-mcp`、`pytest -q cader-mcp/tests`均通过，10项测试；未修改该Python模块。独立MCP使用自身conda Python执行`python -m pytest -q`：221 passed/33 skipped；43新增定向案例包括38创建安全、5导出恢复。MCP未配置ruff，借用uv环境isolated I/F检查3个变更Python文件并修正imports；最初误用Cader严格BLE规则报告了旧代码和刻意cleanup捕获，不伪装为相邻仓库既有lint结果。
+
+开发失败保留：最初MCP fixture缺InsertBlock、Cader无规划返回分类不匹配导致37/38与78/79，修正后全过；一次相邻环境误在Cader根跑pytest导致cader_mcp导入失败，正确目录执行后通过；不是实机产品故障。
+
+真实CAD：`.cader/live-dependency-native.py`新图缺图层后count0、建层后多段线正常、后续无效setter仅清理第二个新增实体。加入导出修复后1.110秒有效PNG且系统变量/打印设置恢复一致，定向图纸均关闭。两轮自然语言入口：`pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task "新建一张空白图纸，绘制一个房子，旁边有棵树。"`。
+
+首轮`quality-e2f051c5…`16确认，截图等待超时后文件延迟出现，capture_dispatch冻结，exit1；未篡改为成功。第二轮`quality-c7032bea…`18确认、unknown0、实际自动视觉有效并一轮修正，exit1/pending：计划类型/需求检查语义不当和截图边缘未通过。未执行固定绘图计划，未声称完整质量或保存DWG通过。完整私有工具/图像轨迹及清理证据见[报告](../validation/2026-11-21-dependency-and-partial-execution.md)。原用户Drawing2及其部分执行锁不修改。最终提交/CI另在#20记录。
+
+Cader实现`89f31de`已推送，[CI 44891799500](https://github.com/codesknight/Cader/actions/runs/44891799500) Windows/Linux四项成功；MCP实现`538db9c`的[CI 44891530548](https://github.com/codesknight/AutoCAD-MCP/actions/runs/44891530548) offline/bridge-contracts成功。本地双语201链接/22锚点、staged30文件密钥扫描与diff-check通过。最终文档提交CI在#20记录。
+
+已建立私有`.cader/workspaces/dev5`供独立新任务；真实CLI --stdio --workspace启动、/status、/exit检查exit0，dev.5且不继承用户旧冻结，旧Drawing2锁hash不变，没有调用模型或新建图纸。证据`.cader/runs/dev5-workspace-check.json`；这是隔离新任务，不是清除旧图屏障或对账完成。
+
+REQ-033手稿日志审计：读取用户原始附件及实际verification/events、人工查看原始JPG，核对输入注册/任务路由/规划传参与旧图视觉评审。`node .cader/probe-redraw-image-input.mjs`应用装配复现通过：普通路径image=false，/open后同文件image=true；“复现”路由false，“绘制”路由true。runner在模型启动前立即中止，paid_model_calls=0、cad_calls=0；不是模拟工具成功或重绘验收。首次汇总PowerShell foreach直接接管道发生解析错误，改为先收集数组后读取成功，不是产品故障。只更新诊断文档，不修改运行时、权限、图纸或独立MCP，最终文档检查/CI在#20记录。
+
+本轮`pnpm typecheck`、`pnpm test`79/79通过，双语手册根命令及52个改动文档本地链接、diff-check通过。Harness/Python无代码变更，未新增smoke/付费模型/真实CAD调用；这些通过不证明图片重绘已修复。文档提交CI与BUG-029/030未解决状态在#20同步。
+
+### REQ-034，2026-11-21：手稿重绘执行修复
+
+本轮实际`pnpm typecheck`、`pnpm test`88/88和`pnpm smoke`通过；有真实DSH装配，但CAD/视觉fixture明确为模拟断言。新增路径快照/续接请求、实际图片块、双图、新图/实体归属、local DWG文件核对、续验不重放和导线约束。真实模型+AutoCAD采用显式`pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task <手稿任务>`；前三轮记录真实新图/DWG与失败，完整质量没有冒充通过。MCP独立原生截图验证通过，221 passed/33 skipped；最终检查、实机结果及CI见[完整分层记录](../validation/2026-11-21-reference-redraw-fix.md)。
+
+最终第四轮服务QUOTA中断于修正阶段，39确认/unknown0、两次有效源图对照及一轮修正已发生，仍有拓扑/外观未通过。新增模型失败后待验稿保存及更换源图后阻止裸“继续”的回归；最终88/88、typecheck、smoke通过。独立三份DWG重开保持几何/文字，末份为人工保存的测试稿，不代替应用QUOTA收尾实机验收。CLI手册检查17根命令、13个离线入口通过；首次新日志相对链接层级有误，已修复后重验。付费完整质量和新增收尾分支受服务限制未重跑。
+
+实现199f34a的[Cader CI](https://github.com/codesknight/Cader/actions/runs/44900911369)及MCP f583b70的[CI](https://github.com/codesknight/AutoCAD-MCP/actions/runs/44899684701)均成功。本地最终88/88、typecheck、smoke，手册216本地链接/22锚点通过，实际cader -v为dev.6。CI与离线通过不改变完整真实质量未通过的状态，#20保持打开；后续文档CI在Issue记录。
+
+### REQ-035，2026-11-21：完整绘图质量续验
+
+显式`pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task <原始手稿请求>`及无`--task`的原始灯泡案例；原图及完整轨迹私有保存。初轮36确认/4次评审/3轮修正后pending；第二轮47确认后仍有未支持导线及步骤超限；off灯泡66确认后工具预算耗尽。low手稿一轮22确认虽complete，独立源图标注期望却失败，明确不计通过。加入真实裁图读取/文字绑定后相同请求31确认、17条件全过、应用DWG17435bytes/26实体，独立只读重开与原始期望一致。均无unknown，未补画或改写失败记录。
+
+实际`pnpm typecheck`、`pnpm test`93/93、`pnpm smoke`通过；定向21项涵盖完整文字/数量/SI、定位断点、清单ID修复、原图裁图数据通路、清晰文字绑定与不确定稿仍绘制保存但不完成。这些fixture不是实际OCR或真实CAD证明；后者分层见[记录](../validation/2026-11-21-complete-quality-retest.md)。最终灯泡/手册/CI状态随后追加，不据此关闭全部v0.4验收。
+
+2026-11-22最终收尾：typecheck、94/94测试、smoke通过；定向22项。实际最终手稿17/17及灯泡11/11通过，DWG分别17435/16991bytes，独立只读重开/源期望核对通过；灯泡文件从执行审计取得，未冒充手工保存。中间一次捕获Add.Delete导致unknown，原锁保留；独立MCP80a07bd修复后5次新图截图/恢复通过，227 passed/33 skipped及CI44914265701通过。无关全局视觉uncertain现在要求有界重报而非直接pass，组件任务也不得自设总线段上限。详细失败和证据层级见同一实测记录。

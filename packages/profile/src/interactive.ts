@@ -1,5 +1,5 @@
 import { readFile, stat, realpath, readdir, writeFile } from 'node:fs/promises';
-import { resolve, relative, extname, join } from 'node:path';
+import { resolve, relative, extname, join, basename } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { z } from 'zod';
 import { loadConfig, loadMcp, loadSkills, readReferenceImage, workspacePath, parseYaml } from '@cader/config';
@@ -10,18 +10,21 @@ import type { ChatSession } from './session-store.js';
 import { runUserShell } from './interactive-shell.js';
 import { ExecutionSession, PERMISSION_MODES } from './execution.js';
 import type { PermissionMode } from './execution.js';
+import type { QualityResume } from './quality.js';
+import { importReferenceImage, referencedPaths, referenceOutput, wantsRedraw } from './reference-input.js';
 
 export const SLASH_COMMANDS = [
   ['/help', '命令与快捷键'], ['/open', '选择图片或DWG引用；CAD打开需后端能力'], ['/cd', '切换工作目录'],
-  ['/status', '工作区与CAD状态'], ['/model', '查看或切换配置模型'], ['/mcp', 'list / use <配置> / tools / off'],
+  ['/status', '工作区与CAD状态'], ['/model', '查看或切换配置模型'], ['/mcp', 'list / use <配置> / tools / doctor / recover / barrier / resolve / off'],
   ['/skills', 'list / use <技能> / off'], ['/domain', '查看或切换专业'], ['/context', '上下文统计'],
   ['/compact', '用模型总结上下文，保留原始对话'], ['/clear', '保存并新建空白会话'], ['/resume', '列出或恢复会话ID'],
+  ['/quality','查看质量任务；resume 安全重验，不重放绘图'],
   ['/undo', '检查受控撤销能力'], ['/checkpoint', '创建会话与工程引用检查点'], ['/permissions', 'read-only | ask | workspace-write | full-access；shell ask|deny'], ['/exit', '保存并退出'],
 ] as const;
 const Domains = z.object({ version: z.literal(1), domains: z.array(z.object({ id: z.string().regex(/^[a-z][a-z0-9-]*$/),
   label: z.string(), instruction: z.string().max(4000) }).strict()).min(1) }).strict();
 const hash = (value: Buffer) => createHash('sha256').update(value).digest('hex');
-export interface ChatReply { text: string; error?: boolean; exit?: boolean; note?: string }
+export interface ChatReply { text: string; afterStream?:string; error?: boolean; exit?: boolean; note?: string }
 export interface ChatCallbacks { signal?: AbortSignal; onEvent?: (event: PublicEvent) => void;
   confirm?: (command: string, cwd: string) => Promise<boolean> }
 export type TaskRunner = typeof runTask;
@@ -51,6 +54,7 @@ export class InteractiveSession {
     if (new Set(domains.map(domain => domain.id)).size !== domains.length) throw new Error('DOMAIN_DUPLICATE');
     if (!domains.some(domain => domain.id === 'general')) throw new Error('GENERAL_DOMAIN_REQUIRED');
     const session = new InteractiveSession(configRoot, workspace, config, domains, runner);
+    try{await session.execution.loadPersistedBarrier();}catch{session.startupStatus='工作区历史屏障无法读取，写入已阻断；请检查原始审计。';}
     const local = join(configRoot, 'configs/mcp/AutoCAD.local.yaml');
     try {
       await stat(local); session.state.mcp = local;
@@ -59,6 +63,7 @@ export class InteractiveSession {
       session.startupStatus = session.clean(`MCP 已连接 · 发现 ${status.discovered} 工具 · Agent CAD ${status.exposed} 工具 · ${backend.backend ?? 'unknown'} · CAD ${backend.connection_state ?? '未探测'}`);
     }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') session.startupStatus = 'MCP 连接失败；检查 /mcp tools、Python路径和依赖。'; }
+    if(session.execution.facts().frozen)session.startupStatus+='\n⚠ 工作区写入已冻结，尚不能绘图。\n'+session.execution.diagnosticSummary()+'\n/mcp barrier 查看历史屏障复核资格。';
     await session.store.save(session.state); return session;
   }
   get model() { return this.config.profiles.find(profile => profile.id === this.state.model)!; }
@@ -70,16 +75,16 @@ export class InteractiveSession {
       excludesImageAndToolTokens: true, lastProviderUsage: this.lastUsage, references: this.state.references.length };
   }
   async reference(path: string) {
+    const extension = extname(path).toLowerCase();
+    if(['.png','.jpg','.jpeg'].includes(extension)){
+      const ref=await importReferenceImage(this.state.workspace,path);
+      this.state.references=this.state.references.filter(value=>value.kind!=='image');
+      this.state.references.push(ref);await this.store.save(this.state);return ref;
+    }
     const full = await workspacePath(this.state.workspace, path);
     const info = await stat(full); if (!info.isFile() || info.size > 64 * 1024 * 1024 || info.size === 0) throw new Error('REFERENCE_SIZE_OR_TYPE');
-    const extension = extname(full).toLowerCase();
     let ref: ChatSession['references'][number];
-    if (['.png', '.jpg', '.jpeg'].includes(extension)) {
-      const image = await readReferenceImage(this.state.workspace, full);
-      ref = { path: full, kind: 'image', sha256: hash(image.data), bytes: image.data.length, width: image.width, height: image.height };
-      // One explicitly selected original image per turn; earlier references remain auditable in archived messages.
-      this.state.references = this.state.references.filter(value => value.kind !== 'image');
-    } else if (extension === '.dwg') {
+    if (extension === '.dwg') {
       const data = await readFile(full); if (!/^AC10\d\d/.test(data.subarray(0, 6).toString('ascii'))) throw new Error('DWG_HEADER_INVALID');
       ref = { path: full, kind: 'drawing', sha256: hash(data), bytes: data.length };
     } else throw new Error('REFERENCE_FORMAT_UNSUPPORTED');
@@ -118,6 +123,14 @@ export class InteractiveSession {
   }
   private async dispatch(line: string, callbacks: ChatCallbacks): Promise<ChatReply> {
     if (!line) return { text: '' };
+    if(/^(?:为什么(?:会)?(?:阻塞|冻结)(?:了)?|为何(?:阻塞|冻结)|查看冻结原因)[？?。！!]*$/.test(line)){
+      await this.store.event(this.state,{kind:'cad-diagnostic',frozen:this.execution.facts().frozen});
+      return {text:this.execution.diagnosticSummary()};
+    }
+    if(/^(?:恢复|恢复核对)[？?。！!]*$/.test(line)){
+      const result=await this.execution.recover();
+      return {text:`${result.recovered?'已完成原连接只读对账，未重放。':'未恢复：'+('reason' in result?result.reason:result.recovery.reason)+'。'}\n${this.execution.diagnosticSummary()}`,error:!result.recovered};
+    }
     if (line.startsWith('!')) {
       const command = line.slice(1).trim();
       const command_sha256 = hash(Buffer.from(command, 'utf8'));
@@ -138,6 +151,16 @@ export class InteractiveSession {
       const name = match[1]!, arg = (match[2] ?? '').trim().replace(/^"(.*)"$/, '$1');
       if (!SLASH_COMMANDS.some(([known]) => known === name)) return { text: `未知命令 ${this.clean(name)}。使用 /help。`, error: true };
       switch (name) {
+        case '/quality':{
+          if(!this.state.qualityRun)return {text:'当前没有质量任务。复杂绘图会自动建立质量清单。'};
+          const path=await workspacePath(this.state.workspace,this.state.qualityRun);
+          if((await stat(path)).size>2_000_000)throw new Error('QUALITY_MANIFEST_TOO_LARGE');
+          const saved=JSON.parse(await readFile(path,'utf8'));
+          if(!arg)return {text:this.clean(JSON.stringify({phase:saved.phase,round:saved.round,checks:saved.checks,path},null,2))};
+          if(arg!=='resume')return {text:'/quality 或 /quality resume',error:true};
+          if(saved.phase==='complete')return {text:'该任务已验收，无需重放。'};
+          return this.converse(saved.original_request,callbacks,saved as QualityResume);
+        }
         case '/help': return { text: SLASH_COMMANDS.map(([key, description]) => `${key.padEnd(15)} ${description}`).join('\n')
           + '\n\n自然语言持续对话 · @"路径含空格.png" 引用 · !dir 用户Shell\nEsc/Ctrl+C 中断当前任务 · Tab 补全 · 上下键历史 · Ctrl+D 或 /exit 退出\n/open DWG仅引用元数据，后端尚无任意DWG受控打开接口；/undo同样按能力拒绝。' };
         case '/exit': await this.store.save(this.state); await this.dispose(); return { text: `会话已保存：${this.state.id}`, exit: true };
@@ -147,7 +170,7 @@ export class InteractiveSession {
           if (!arg) return { text: this.state.workspace };
           const next = await realpath(resolve(this.state.workspace, arg)); if (!(await stat(next)).isDirectory()) throw new Error('NOT_A_DIRECTORY');
           await this.dispose(); this.execution = new ExecutionSession(next, join(next, '.cader/runs', `execution-${randomUUID()}`), this.clean);
-          this.state.workspace = next; this.state.references = []; await this.store.save(this.state);
+          this.state.workspace = next; this.state.references = []; this.state.redrawTask=null; this.state.pendingRedrawRequest=null; await this.store.save(this.state);
           return { text: `工作目录 ${next}\n附件授权已清空；父Shell目录不变。` };
         }
         case '/model': {
@@ -171,6 +194,16 @@ export class InteractiveSession {
         case '/mcp': {
           if (!arg || arg === 'list') return { text: (await readdir(join(this.configRoot, 'configs/mcp'))).filter(file => /\.(yaml|json)$/.test(file)).join('\n') + `\n当前 ${this.state.mcp ?? '未选择'}\n/mcp use <配置路径> 选择；/mcp tools 发现；/mcp off 禁用连接。` };
           if (arg === 'tools') return { text: await this.mcpProbe(true) };
+          if (arg === 'doctor') return { text: this.clean(JSON.stringify(await this.execution.probe(), null, 2)) };
+          if (arg === 'recover') {const result=await this.execution.recover();return {text:this.clean(JSON.stringify(result,null,2)),error:!result.recovered};}
+          if(arg==='barrier'||arg==='resolve'){
+            if(!this.state.mcp)return {text:'先用 /mcp use <配置> 选择原服务，以便核对当前工具schema。',error:true};
+            if(!(await this.execution.status()).connected)await this.execution.connect(this.state.mcp);
+            if(arg==='barrier')return {text:this.clean(JSON.stringify(await this.execution.reviewLegacyBarrier(),null,2))};
+            const result=await this.execution.resolveLegacyBarrier(callbacks.confirm);
+            if(result.resolved){this.state.qualityRun=null;await this.store.save(this.state);}
+            return {text:this.clean(JSON.stringify(result,null,2))+'\n'+(result.resolved?'历史屏障经用户审定已归档；旧图未接管，请重新发送新绘图任务，新任务必须新建工作图。':'屏障保留。需要证据一致且用户明确确认；真正未知结果不能通过此入口解除。'),error:!result.resolved};
+          }
           await this.dispose();
           if (arg === 'off') this.state.mcp = null;
           else { const selected = arg.replace(/^use\s+/, ''); const path = await workspacePath(this.configRoot, /[\\/]/.test(selected) ? selected : join('configs/mcp', selected)); await loadMcp(path); this.state.mcp = path; }
@@ -180,12 +213,12 @@ export class InteractiveSession {
           if (arg === 'shell ask' || arg === 'shell deny') { this.state.shell = arg.endsWith('ask') ? 'ask' : 'deny'; await this.store.save(this.state); }
           else if (PERMISSION_MODES.includes(arg as PermissionMode)) { this.state.permission = arg as PermissionMode; await this.store.save(this.state); }
           else if (arg) return { text: '支持 /permissions read-only|ask|workspace-write|full-access 或 shell ask|deny。', error: true };
-          return { text: `执行权限 ${this.state.permission} · Shell ${this.state.shell}\nCAD写入仅绑定本连接新建的工作图。Agent Shell为本机执行，除full-access外逐条审批。` };
+          return { text: `执行权限 ${this.state.permission} · Shell ${this.state.shell}\nCAD写入仅绑定本连接新建的工作图。Agent Shell有效策略：${this.state.shell === 'deny' ? 'deny（优先于full-access）' : this.state.permission === 'read-only' ? 'deny' : this.state.permission === 'full-access' ? 'automatic' : 'ask'}。` };
         }
         case '/open': {
-          if (!arg) return { text: '/open <工作区图片或DWG路径>', error: true };
+          if (!arg) return { text: '/open <本地JPG/PNG或工作区DWG路径>', error: true };
           const ref = await this.reference(arg);
-          return { text: `已选择 ${relative(this.state.workspace, ref.path)} · ${ref.bytes} bytes · SHA256 ${ref.sha256}\n`
+          return { text: `已选择 ${basename(arg)} · ${ref.bytes} bytes · SHA256 ${ref.sha256}\n`
             + (ref.kind === 'image' ? '下轮作为授权原图发送给视觉模型。' : 'CAD_OPEN_UNAVAILABLE：已登记DWG元数据引用，尚未在AutoCAD中打开；当前MCP无任意DWG受控打开接口。'), error: ref.kind === 'drawing' };
         }
         case '/undo': return { text: 'CAD_UNDO_UNAVAILABLE：当前会话未执行CAD写入，现有公共契约无受控撤销接口；未发送逆操作。', error: true };
@@ -229,11 +262,12 @@ export class InteractiveSession {
     await this.store.save(this.state);
     return { text: `上下文已生成未验证摘要，原对话完整保留。文字token估算 ${before.estimatedTextTokens} → ${this.context().estimatedTextTokens}` };
   }
-  private async converse(line: string, callbacks: ChatCallbacks): Promise<ChatReply> {
+  private async converse(line: string, callbacks: ChatCallbacks, qualityResume?:QualityResume): Promise<ChatReply> {
     if (this.state.messages.length > 1900 || Buffer.byteLength(JSON.stringify(this.state)) > 1_600_000)
       return { text: '会话存档接近上限，请 /clear 开始新会话；旧记录保留。', error: true };
     if (line.length > 24000 || this.context().estimatedTextTokens > 20000) return { text: '上下文达到本轮上限，请先 /compact 或 /clear。', error: true };
-    const references = [...line.matchAll(/(?:^|\s)@(?:"([^"]+)"|([^\s]+))/g)].map(match => match[1] ?? match[2]!);
+    const explicit=[...new Set([...line.matchAll(/(?:^|\s)@(?:"([^"]+)"|([^\s]+))/g)].map(match=>match[1]??match[2]!).concat(referencedPaths(line)))];
+    const references=explicit;
     for (const path of references) await this.reference(path);
     for (const ref of this.state.references) {
       const path = await workspacePath(this.state.workspace, ref.path);
@@ -241,26 +275,64 @@ export class InteractiveSession {
     }
     const image = this.state.references.find(ref => ref.kind === 'image');
     if (image && !this.model.input.includes('image')) throw new Error('MODEL_IMAGE_UNSUPPORTED');
+    const pathOnly=explicit.length>0&&explicit.reduce((text,path)=>text.replaceAll(path,''),line).replace(/[@"“”\s，。:：]/g,'')==='';
+    if(pathOnly&&this.state.pendingRedrawRequest)line=this.state.pendingRedrawRequest;
+    if(pathOnly&&!this.state.pendingRedrawRequest&&!this.state.redrawTask)
+      return {text:'参考图已读入并注册为视觉输入。请描述绘图任务；例如“根据参考图新建空白图纸重绘并保存为 result.dwg”。'};
+    const continuation=/^(?:继续|继续绘制|继续重绘|继续这个任务|开始|开始绘制|重试|continue|resume)[。！!？?]*$/i.test(line)||pathOnly;
+    if(image&&this.state.pendingRedrawRequest&&continuation)line=this.state.pendingRedrawRequest;
+    let referenceTask=this.state.redrawTask;
+    if(referenceTask&&continuation){
+      if(image&&image.sha256!==referenceTask.image.sha256)return {text:'参考图已更换，旧重绘任务不会自动重放或修改。请明确发送新的重绘需求和DWG目标；新任务将新建工作图。',error:true};
+      else{
+        line=referenceTask.request;
+        if(!qualityResume&&referenceTask.qualityRun){
+          const saved=JSON.parse(await readFile(await workspacePath(this.state.workspace,referenceTask.qualityRun),'utf8'));
+          if(saved.phase==='complete')return {text:`该重绘任务已完成，DWG：${referenceTask.outputPath}；未重复绘图。`};
+          if(saved.plan)qualityResume=saved;
+        }
+      }
+    }
+    if(!image&&wantsRedraw(line)&&/复现|重绘|临摹|手稿|参考图|图片|照片|按图|这张图|\bredraw\b|\btrace\b|\breproduce\b|\brecreate\b/i.test(line)){
+      this.state.pendingRedrawRequest=line;await this.store.save(this.state);
+      return {text:'重绘任务已保留，尚未收到参考图。请直接粘贴本地JPG/PNG路径，或用 /open <路径> 后输入“继续”；不需要拖入GUI附件。',error:true};
+    }
+    if(image&&wantsRedraw(line)){
+      if(!referenceTask||!continuation&&!qualityResume){
+        referenceTask={request:line,image:{path:image.path,sha256:image.sha256,width:image.width!,height:image.height!},
+          outputPath:referenceOutput(this.state.workspace,line,explicit[0]??image.path),freshDrawing:true,qualityRun:null};
+      }
+      this.state.redrawTask=referenceTask;this.state.pendingRedrawRequest=null;
+    }else referenceTask=null;
     const history = this.state.messages.slice(this.state.contextFrom).map(({ role, content, status }) => ({ role, content, status }));
     const content = this.clean(line), userIndex = this.state.messages.length;
     this.state.messages.push({ role: 'user', content, status: 'submitted', at: new Date().toISOString() }); await this.store.save(this.state);
-    if (this.state.mcp && !(await this.execution.status()).connected) await this.execution.connect(this.state.mcp);
+    if (this.state.mcp && !this.execution.facts().frozen && !(await this.execution.status()).connected) await this.execution.connect(this.state.mcp);
     this.execution.mode = this.state.permission;
+    const executionMark = this.execution.mark();
     const report = await this.runner(this.configRoot, { task: content + '\nAuthorized reference metadata (DWG content is NOT decoded):\n'
       + JSON.stringify(this.state.references.map(ref => ({ ...ref, path: relative(this.state.workspace, ref.path) }))),
       workspaceRoot: this.state.workspace, modelProfile: this.state.model,
-      executionTools: [...this.execution.definitions(callbacks.confirm), ...this.execution.fileTools(callbacks.confirm).filter(tool => this.state.shell !== 'deny' || tool.name !== 'cader_shell')],
+      executionTools: [...this.execution.definitions(callbacks.confirm), ...this.execution.controlTools(), ...this.execution.fileTools(callbacks.confirm).filter(tool => this.state.shell !== 'deny' || tool.name !== 'cader_shell')],
+      executionState: () => this.execution.facts(executionMark), toolAvailable: name => this.execution.toolAvailable(name),
+      captureCadView: this.state.mcp ? signal => this.execution.captureView(signal, callbacks.confirm) : undefined,
       permissionMode: this.state.permission,
+      executionOwner:this.execution,confirmTask:callbacks.confirm,originalTask:content,
+      qualityResume,referenceTask:referenceTask??undefined,
       executionAuditDirectory: this.execution.runDirectory,
       skill: this.state.skill ?? undefined, image: image?.path, history, summary: this.state.summary,
       domain: this.domains.find(domain => domain.id === this.state.domain)!.instruction,
       signal: callbacks.signal, onEvent: event => { if (event.type === 'model.usage' && event.role === 'main') this.lastUsage = event.usage; callbacks.onEvent?.(event); } });
     this.state.messages[userIndex]!.status = report.run_status;
+    if(report.quality)this.state.qualityRun=join(report.runDirectory,'quality.json');
+    if(referenceTask&&report.quality)this.state.redrawTask={...referenceTask,qualityRun:join(report.runDirectory,'quality.json')};
     this.state.messages.push({ role: 'assistant', content: this.clean(report.text || (report.run_status === 'cancelled' ? '[已取消，未形成完整结论]' : `[失败 ${report.errorCode ?? 'UNKNOWN'}]`)),
       status: report.run_status, at: new Date().toISOString() });
     await this.store.save(this.state);
-    return { text: this.clean(report.text), error: !report.ok, note: `${this.state.permission} · 工具执行以审计为准，模型回复不等于独立验收`,
-      ...(!report.ok ? { text: this.clean(`${report.text}\n${report.errorCode ?? report.run_status}: ${report.hint ?? report.blocked_reasons.join(', ')}`) } : {}) };
+    const facts=this.execution.facts(executionMark),counts=facts.counts,total=facts.session_counts;
+    const status=!report.ok?this.clean(`${report.errorCode ?? report.blocked_reasons[0] ?? report.run_status}: ${report.hint ?? (report.blocked_reasons.includes('CAD_WRITE_FROZEN') ? `程序写屏障仍有效；自动恢复资格：${facts.recovery.eligible?'可对账':'不具备'}（${facts.recovery.reason}）。受控查询仍可用，重连/重启不能解除。` : report.blocked_reasons.join(', '))}`):'';
+    return {text:this.clean(report.text)+(status?'\n'+status:''),afterStream:status,error:!report.ok,
+      note:`${this.state.permission} · CAD ${facts.write_state} · 本轮确认 ${counts.committed} / 未知 ${counts.unknown} / 未派发阻断 ${counts.blocked_not_dispatched} · 会话确认 ${total.committed} / 未知 ${total.unknown} · 模型回复不等于独立验收`};
   }
   async dispose() { await this.execution.dispose(); }
 }

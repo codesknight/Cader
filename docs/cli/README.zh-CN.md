@@ -2,7 +2,7 @@
 
 [English](README.md) · **简体中文** · [项目首页](../../README.zh-CN.md) · [文档导航](../README.md)
 
-**适用版本：Cader 0.3.0 · 更新日期：2026-11-20**
+**适用版本：Cader 0.4.0-dev.7 · 更新日期：2026-11-22**
 
 Cader CLI 是基于 DeepSeek Harness 的 CAD Agent 终端：在一个持续会话中描述任务、选择模型和技能、引用图片、查看 CAD 状态，或用单次命令接入脚本。
 
@@ -125,6 +125,8 @@ Slash 命令在 Cader 会话内部输入。尖括号表示需要替换的参数�
 | `/status` | 查看目录、模型、权限、MCP连接与工作图绑定；COM仅返回生命周期状态 |
 | `/model [ID]` | 列出或选择已配置模型，例如 `/model MainAgent`；只影响当前主会话模型选择 |
 | `/mcp list` | 列出配置文件 |
+| `/mcp barrier` | 只读核对旧缺参屏障、原始审计及当前工具schema，显示人工复核资格 |
+| `/mcp resolve` | 仅用户可发起的旧缺参复核；证据符合且明确确认后归档原屏障，要求新建工作图 |
 | `/mcp use <配置路径>` | 选择 MCP 配置，例如 `/mcp use configs/mcp/AutoCAD.local.yaml` |
 | `/mcp tools` / `/mcp off` | 发现服务工具或禁用后续 MCP 连接；发现工具不等于授权 Agent 使用全部工具 |
 | `/skills list` | 查看主 Agent 可见的 Skill |
@@ -137,9 +139,10 @@ Slash 命令在 Cader 会话内部输入。尖括号表示需要替换的参数�
 | `/undo` | 明确返回 `CAD_UNDO_UNAVAILABLE`；当前没有受控 CAD 撤销接口 |
 | `/checkpoint` | 保存会话及工程引用哈希清单；不备份 DWG 或创建 CAD 数据库恢复点 |
 | `/permissions [模式]` | read-only / ask（默认）/ workspace-write / full-access；另支持 shell ask / shell deny |
+| `/quality` / `/quality resume` | 查看质量阶段及未完成项；同一连接安全重验，不重放绘图，累计最多3轮修正 |
 | `/exit` | 保存会话并退出 |
 
-上表按子命令展开，包含 16 个 Slash 根命令。MCP连接跨轮保持；`/mcp off`、切换配置、工作目录、清空/恢复会话或退出时释放。恢复会话重置为 ask，不恢复 CAD 写入绑定；新连接必须新建工作图。
+上表按子命令展开，包含 17 个 Slash 根命令。MCP连接跨轮保持；`/mcp off`、切换配置、工作目录、清空/恢复会话或退出时释放。恢复会话重置为 ask，不恢复 CAD 写入绑定；新连接必须新建工作图。
 
 | 模式 | 查询 | 工作图绘制/编辑 | 删除、覆盖 |
 |---|---|---|---|
@@ -165,10 +168,18 @@ CAD写入只作用于本连接通过 `new_drawing` 新建的工作图；不继�
 
 除仓库内的校准图外，上述文件名是示例，使用前替换为当前工作区中的真实文件。
 
-- 支持 `@draft.png`、`@"路径有空格.jpg"` 和 `@drawing.dwg`，引用必须位于当前工作目录内。
+- 支持 `@draft.png`、`@"路径有空格.jpg"`、直接粘贴本地 JPG/PNG 路径和 `/open <路径>`。显式选择的外部图片会复制为工作区 `.cader/references/` 下的哈希快照，不扩大 Agent 文件/Shell 权限；含空格路径须加引号。DWG 引用仍须位于工作区内。
 - PNG/JPEG 上限为 10 MiB、4000 万像素；当前每轮最多一张活动原图，新图会替换它。图片选择会保留到后续轮次，发送给配置声明支持图片的模型。
 - DWG 上限为 64 MiB，只校验文件头并记录大小与 SHA-256，不解析图纸内容。PDF 尚未支持。
-- 每轮前复核已选文件哈希，变化后要求重新选择；`/cd` 清空引用。图片、Skill 与 DWG 引用均不授予写权限。
+- 每轮前复核已选快照哈希，快照变化后要求重新选择；外部原文件变化不会暗中替换已选图片。`/cd` 清空引用和未完成重绘请求。图片、Skill 与 DWG 引用均不授予写权限。
+
+```text
+根据 "D:\sketches\draft.jpg"，新建空白图纸复现图中符号、可读文字和连接，保存为 result.dwg。
+```
+
+也可先 `/open "D:\sketches\draft.jpg"`，再发送绘图任务。未提供图片时会保留请求并提示选择；随后输入路径或 `/open` 后说“继续”，无需 GUI 上传。程序先读取手稿结构，再规划/绘图，对照原图和真实 CAD 截图验证，最后报告实际 DWG 路径。未指定路径时在工作区生成唯一文件名。批准任务包含该目标的新文件保存，覆盖其他或已改动文件仍另行审批。只有质量和文件检查均通过才完成；未通过但可安全保存时生成明确标记的待验稿，不把它当合格成品。
+
+同一连接内说“继续”或 `/quality resume` 可继续未完成重绘，保留原始需求、原图哈希、目标和修正上限，不重放已确认几何。已经完成的任务不会因“继续”重复绘图。重启/重连不继承旧 CAD 写权限，也不解除未知写屏障。
 
 ### 快捷键
 
@@ -299,7 +310,7 @@ cader exec "检查左上区域" --image benchmark/fixtures/vision-calibration.pn
 ```
 
 裁剪示例须匹配所选原图尺寸。`exec` 支持 `--permissions read-only|ask|workspace-write|full-access`、`--mcp`、`--skill`、`--image`、`--crop x,y,w,h`、`--rotate 0|90|180|270` 和 `--intent assess|redraw`；先按原图像素裁剪，再顺时针旋转。exec无交互审批；需要自动绘图时显式选 workspace-write，并在同一任务先新建工作图。
-`assess` 为默认；`redraw` 当前返回 `blocked / WRITE_CAPABILITY_UNAVAILABLE`，不调用模型或 MCP。
+`assess` 为默认；`redraw` 需要 `--image`、可用 MCP 和写权限，走同一源图/新图/文件质量流程。只读或无图时仍返回 `blocked / WRITE_CAPABILITY_UNAVAILABLE`。示例：`cader exec "根据参考图新建空白图纸重绘，保存为 result.dwg" --intent redraw --image draft.jpg --mcp configs/mcp/AutoCAD.local.yaml --permissions workspace-write`。非覆盖的工作区文件可自动保存；需要审批的操作在 exec 中不会自动批准。
 交互会话的 `/model`、`/mcp`、`/skills` 选择不影响另一次 `exec`，单次任务从配置及本次参数装配。
 
 ### JSON 与退出码
@@ -406,3 +417,147 @@ Linux/macOS 将 `pnpm.cmd` 换为 `pnpm`。保留自己的 `.env`、`*.local.yam
 在 [GitHub Issues](https://github.com/codesknight/Cader/issues) 反馈时提供 Cader/Node 版本、操作系统与终端、命令、脱敏 `errorCode` 和预期/实际行为；图片需明确允许公开后再上传。
 
 CLI 功能变更须在同一提交中同步两种语言手册、帮助与示例；若行为不同，先修正文档或实现，再标记验收。[开发流程](../development/process.md)记录检查要求，未实现能力保留明确状态。
+
+
+## v0.4 研发快照：执行事实、恢复与视觉反馈
+
+`0.4.0-dev.1` 引入以下可靠性行为；当前 dev.2 的质量调度见下节，仍不是 v0.4 全量验收发布。
+
+- `/mcp doctor`：通过实际查询诊断读能力，分别报告传输、缓存观察、工作图与冻结状态。当前COM可能惰性启动CAD，空文档时可能由后端创建默认图；不是独立的原生无副作用health接口。
+- `/mcp recover`：仅在**同一原连接**收到明确写入成功响应、随后postflight读回失败时，重读并对账后恢复。结果未知、超时、重连、旧锁、截图未知均不自动解除，不重放写入。命令不会删除旧锁、关闭或重启AutoCAD。
+- `cader_cad_health` / `cader_cad_recover`：模型可调用相同诊断/恢复能力。冻结后写工具从后续模型步骤移除；同批已排队请求返回 `blocked_not_dispatched`，不同于首个已派发操作的 `unknown`。
+- 写入分别记录preflight、dispatch、acknowledgement、postflight、artifact verification。原MCP错误、HRESULT（可提取时）、调用/操作ID及异常栈留在私有执行JSONL。当前后端没有提供的COM线程ID、权威revision与MCP wire ID不伪造。
+- 实体操作优先通过实际返回ObjectID调用get_entity核验，响应标记 `observation_scope=affected_entity`；它不是全图实体列表。文档级操作和显式最终查询仍读全图。健康状态里的全图数量是带时间戳的缓存。
+- 三维多段线/填充要求每个点明确为有限的 `[x,y,z]`；不自动补零或展平错误点。非法参数在派发前拒绝且不冻结。
+- 工具审计生成 `execution_evidence`；冻结强制 `ok=false` / `task_status=blocked`，即使模型本轮正常结束。终端显示确认操作数、未知数和未派发阻断数；操作数不是实体数。
+- `cader_review_cad_view`：主Agent可导出本连接工作图的真实视图，并自动把图片附件交给视觉模型；不要求用户参考图或先存DWG。导出会改变视口/打印设置并写私有PNG，受现有权限及串行控制。默认每轮最多4次，配置 `max_visual_reviews_per_turn`（1–5）。当前后端未提供像素到CAD的权威映射；修改仍需查询实体坐标。真实导出已有超时失败记录，因此完整视觉纠错尚未验收。
+
+显式实机入口（互斥，均会创建隔离草稿；后两种不以固定计划冒充模型推理）：
+
+```powershell
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --reliability
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --faults
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --visual
+```
+
+`--reliability` 是真实CAD确定性A/B/E复现，不调用模型；`--faults` 在真实CAD写入外注入客户端响应抑制/读回失败/取消，不冒充原生COM崩溃或真实网络丢包。`--visual` 使用付费真实模型自主绘制带缺陷房屋并请求视觉纠错；是否通过只看实际报告，不能以代码存在代替验收。
+
+边界与失败证据见[本轮报告](../validation/2026-11-20-reliable-execution.md)。原Drawing8未知结果屏障仍保留；full-access和切换模型不能清除它。相邻MCP修补需另有授权，当前未修改。
+
+CAD失败行现在直接显示错误码、阶段与“已派发/未派发”，完整异常留在私有JSONL。
+
+冻结同时隐藏并阻止Agent Shell，即使full-access也不能经Shell绕开写屏障；用户主动!命令仍是独立逐条审批通道。
+
+## dev.2：自主绘图质量任务
+
+绘图、设计/生成图纸、重绘、示意图、布局及添加文字等请求会进入程序控制的质量任务。“能帮我画……吗”也按任务处理；“你能画什么”属于能力咨询。简单移动/旋转沿用工具后的确定性读回，不强制视觉往返。复杂图纸默认自动路由 VisionAgent，无需用户要求视觉检查或切换模型。
+
+CLI 显示规划、绘制、几何验证、拓扑验证、视觉验证、修正和完成/待验证/阻断。模型提交不可中途修改的验收清单和组件绝对坐标布局，程序在绘图前拒绝组件重叠、内部端口及不存在的实体类型；随后查询实际 CAD 图元，检查支持的数量/标注、线段与包围盒交叉以及两端组件的串联闭环。电气任务自动加载 `electrical-quality` 知识，不提供固定绘图序列，也不扩张权限。
+
+默认 ask 会审批具体任务计划及当前工作图。一次批准覆盖创建图层、绘图、视图检查和本任务新建实体的安全局部修正，累计最多3轮；本任务实体删除已在授权描述中明确列出。删除其他实体、保存/覆盖、文件及 Shell 操作仍按原策略处理。任务结束即撤销授权。`cader_apply_cad_patch` 可批量绘制/修改/删除；每项沿用原工具 schema、审批、串行写入和审计，首项失败停止，已确认项不得重放。
+
+视觉报告用严格 schema 提交；最多一次格式修复复用同一图片，MainAgent 和 VisionAgent 默认输出上限均为8192。运行时共享40次模型步骤、100次工具调用和4次视图评审预算；这是上限，并非每个任务必定消耗。取消、格式无效、视觉未通过、未知实体引用、观察期间图元变化或疑似视图裁切均不能标为完成。非必要观察和程序已证明的几何精度不应充当视觉缺陷；无可定位缺陷但结论仍不确定时保留待验证，不推测性改图。
+
+```text
+画一个带有 5V 电源和一个灯泡的串联电路图。
+/quality
+/quality resume
+```
+
+这是输入示例，**不代表该完整实机案例已通过**。`/quality` 显示最新清单与证据路径；`resume` 在同一仍存活的 MCP 连接与工作图上重新查询/评审，跳过原始绘图，不重置3轮上限。切换连接、退出或恢复普通会话后，旧连接身份失效，不能自动继承写权限；冻结仍须按 `/mcp recover` 的原有条件处理，`/quality resume` 不解除屏障。
+
+私有 `quality.json`、`verification.json`、`events.jsonl` 及执行日志记录请求、阶段、每轮检查、视觉结果、image hash、查询状态摘要及失败。原生 `document_revision` 和 `pixel_to_cad` 当前均不可用，明确为 null；ObjectID 必须能在实际查询中找到，像素不能单独决定编辑。边缘像素检查只是保守的裁切提示，不证明图片完整。
+
+显式实机入口（会调用付费模型并创建真实工作图，使用隔离工作目录）：
+
+```powershell
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality
+```
+
+该入口使用默认 MainAgent（当前 Flash）完成上述一个自然语言需求，由 Harness 自动调用 Flash 视觉，并先用真实发现的 schema 做漏参负向预检；审批回调仅授权 CAD 操作，不是人工终端按键验收。它不保存 DWG，也不测试任意电路、原生文档修订或像素映射。查看[真实结果、失败和未完成项](../validation/2026-11-20-autonomous-quality.md)。
+
+## dev.3：参数拒绝、诊断与恢复显示
+
+直接CAD调用与程序MCP客户端在发送前执行schema校验；批量补丁先验证整个批次的schema，再执行任何一项。缺少height等必填项、类型/枚举/嵌套不符会明确显示`TOOL_ARGUMENTS_INVALID`或`CAD_FAILED_BEFORE_DISPATCH`、`preflight`、`未派发`，不会因此冻结。程序不替模型填默认值、不强制转换参数；Agent可以纠参后重新提交未执行的请求。补丁不是原子事务：后续权限/原生执行失败时，已经确认的项仍可能保留，禁止整批盲目重放。
+
+远端isError、超时、丢响应不能仅凭“validation”等报错文字认定无副作用。没有成功确认的写入仍unknown/frozen；只允许既有同连接、已确认写入后的postflight读回恢复。本次不会自动清理旧版本的Drawing6或任何持久unknown锁。
+
+状态新增`counts_scope`、`operation_mark`、`session_counts`、`freeze_operation`/`freeze_evidence`、`recovery.eligible/reason`及`cad_observation.stale_due_to_mutations`。CLI尾行明确区分本轮与会话累计；重开进程后历史屏障不计入新会话计数，仍会显示其来源及首发错误。缓存值过时或过滤查询为空不能证明全图为空，COM生命周期空字段也不能证明断连。
+
+```text
+为什么阻塞了
+为何冻结
+查看冻结原因
+恢复
+/mcp recover
+```
+
+上述自然诊断/恢复短语由程序处理，不调用模型；受限恢复不成功会明确显示“未恢复”及资格原因。模型调用恢复工具返回`recovered:false`时也不再显示成功勾号。冻结期间受控查询仍可用，重连/重启不会赋予旧文档权限。已经流式显示的回答只追加程序状态，失败时不再重打全文。
+
+原连接已关闭或更换时，恢复原因是`ORIGINAL_CONNECTION_REQUIRED`；连接仍在但派发未获确认时是`DISPATCH_OUTCOME_UNCONFIRMED`。两者都不能通过重复恢复来放行写入。
+
+本次真实Flash/AutoCAD验证已越过文字绘制并进入自动视觉，缺参负向预检未派发、未冻结；完整电路仍因疑似导出裁切和计划约束未通过。详见[dev.3修复与实际结果](../validation/2026-11-20-schema-preflight-fix.md)。
+
+## dev.4：历史缺参屏障复核
+
+启动时即读取工作区屏障并显示冻结原因，包括没有配置MCP的情况。已知冻结的绘图质量任务直接进入`blocked`，不再先付费调用模型生成计划；报告记录`model_run_status: not_started`。`run_status: succeeded`仅表示程序处理完成，业务仍为`ok: false`、`task_status: blocked`。本轮确认0不能推翻历史屏障。
+
+旧版缺height记录不会因升级而自动消失。先退出仍在运行的旧Cader会话，在使用原工作目录的新会话中输入：
+
+```text
+/mcp barrier
+/mcp resolve
+```
+
+需先选择原MCP配置。程序把原始缺参错误、请求、目标图、日志和当前schema关联核对；已确认写入、超时、截图、原生错误、证据变化或另一原写入进程仍活跃均拒绝。`eligible: true`只表示可人工复核，**不证明CAD未执行**。即使`full-access`也必须确认：原请求未执行、已结束且无运行中或延迟操作。无法确认时回答否，保留屏障；不要手动删锁。该入口不是通用reset，Agent没有对应工具。
+
+用户审定后，原始unknown屏障、日志快照及带hash的决定记录保存到工作区`.cader/barriers/`，不修改旧unknown、不重放、不接管原图。程序关闭当前连接并丢弃任务授权及文档绑定；重新发送任务时必须新建工作图。`/quality resume`不能续接旧任务。复核互斥锁或文件读写失败均阻断；不自动清理崩溃遗留的复核锁。
+
+Drawing6实际记录已用真实MCP schema完成只读复核，原屏障保持不变；真实用户批准归档及完整新绘图未代替用户执行。详见[诊断与边界](../validation/2026-11-21-legacy-barrier-review.md)。
+
+## dev.5：减少可避免的写入屏障
+
+指定图层的写入在派发前实时查询`list_layers`。图层不存在、无法查询或返回无效数据时，本次修改不发送，记为`failed_before_dispatch`，不冻结；Agent会收到先`create_layer`再提交未执行项的明确反馈。程序不会偷偷创建图层或重复已提交的批次。补丁失败结果新增`not_dispatched`索引列表，已确认项不得重放。
+
+原生执行失败仍可能留下部分实体。工具结果及最终CLI会显示首发原生错误；若没有可信的执行终态，仍保留屏障。相邻AutoCAD-MCP本轮增加创建前图层检查及仅清理本次新建实体的防护；这是尽力清理，不是事务证明，清理失败/丢回执仍须保留现场。旧Drawing2的部分执行屏障不会被升级自动清除，`/mcp resolve`也不适用于它。
+
+本轮MCP导出同时改为前台打印、显式fit-to-page及完整打印设置恢复，拒绝覆盖已有输出。减少背景任务延迟触发的截图冻结；未知导出异常仍不会自动重打或宣称完成。需重启Cader使其MCP子进程加载更新。
+
+规划模型失败现在进入`blocked`并记录`quality.failure`与规划`model_runs`，明确显示QUOTA等原因及“尚未允许绘图”；不再笼统显示质量待验证。没提交有效计划显示`ACCEPTANCE_PLAN_MISSING`。QUOTA只表示服务侧配额/访问拒绝分类，不足以单独断言余额不足。
+
+可通过显式实机入口重跑任意质量任务（付费模型、真实CAD；默认任务仍为串联电路）：
+
+```powershell
+pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task "新建一张空白图纸，绘制一个房子，旁边有棵树。"
+```
+
+`--task`仅随`--quality`接受；其它smoke模式仍拒绝。测试入口给模型自然语言需求，不提交固定操作序列。实测、失败及未解决边界见[依赖预检与部分执行报告](../validation/2026-11-21-dependency-and-partial-execution.md)。
+
+旧任务已经部分执行而被冻结时，不要使用缺参复核来强行续写旧图。需要保留现场并开始独立新任务时，可从Cader源码目录使用新的工程工作区（不复用旧图或重放旧请求）：
+
+```powershell
+New-Item -ItemType Directory -Force .cader/workspaces/new-task
+cader chat --workspace .cader/workspaces/new-task
+```
+
+此工作区仍默认ask、必须新建工作图，并受相同写屏障保护；新建工作区不代表旧操作已对账或旧图质量已通过。
+
+## dev.6：手稿到新图与DWG
+
+显式图片路径会注册实际像素，不再要求GUI上传；“复现/临摹/重绘”进入质量任务。阶段新增“读取手稿”和“保存DWG”。Agent可用 `cader_open_image` 打开工作区PNG/JPEG并获取裁图工具；文本Read不等于图片语义读取。程序要求本任务新建图、确认几何、原图哈希及目标文件一致，不能把旧图评审当重绘结果。
+
+MainAgent/VisionAgent默认最多8192输出token，仍受总预算和一次格式修复限制。计划禁止的穿组件导线在派发前拒绝；视觉报告的不存在实体ID要求模型纠正。模型在绘制/修正阶段失败时，若本任务已有确认几何、未冻结、未取消且仍满足文件保护条件，程序尝试保存待验稿；保留QUOTA等首发失败，绝不因此标为完成。冻结/取消/没有几何时不自动保存或重放。
+
+真实手稿运行已生成并独立重开DWG，但完整质量仍有未通过条件；[证据及已知问题](../validation/2026-11-21-reference-redraw-fix.md)。重启CLI后 `cader -v` 应显示dev.6；MCP子进程也需重启加载截图边距修复。
+
+## dev.7：完整质量复验与标注保护
+
+原图观察后，程序对最多4个标注区域附带实际裁图重新读取；清晰标注必须保留在计划文字检查中，不能替换数值或SI前缀。仍不确定时会绘图并保存待验稿，保持待验证，不猜测标注后宣称完成。这一复核只用于有标注的参考图，不增加简单移动任务的视觉调用。
+
+文字检查忽略排版空白及兼容字形，支持数学负号与普通短横的规范化，但完整核对标注、保留SI大小写并检查数量；`5V`不等于`15V`，`m`不等于`M`。视觉清单必须使用程序提供的验收ID各一次，错误会返回模型纠正。
+
+拓扑失败证据新增断点坐标、度数、导线ID、最近端点距离、组件边界与未支持实体。当前串联验证需要导线图层使用`AcDbLine`；该MCP未提供多段线/圆弧导线端点，程序会在创建前提示改用线段，符号层仍可使用这些图元。未请求保存的普通绘图任务不能凭空增加保存验收项。
+
+普通组件绘图未指定总线段数时，也不能自设总线段数量硬上限。视觉总评“不确定”必须关联具体未通过的必要项；全部清单通过却只提出无关不确定性时，程序要求有限重报，不直接改为通过。更新日期：2026-11-22；本地手稿和电源/灯泡两例真实通过，仍不保证任意图纸质量。
+
+主模型默认`reasoning_effort: low`，视觉模型仍为`off`；输出、步骤、工具与修正上限不变。MainAgent模型YAML可调整；有界推理仍会产生服务费用，不保证每张图都通过。重启后 `cader -v` 应显示dev.7。[真实复验及限制](../validation/2026-11-21-complete-quality-retest.md)。

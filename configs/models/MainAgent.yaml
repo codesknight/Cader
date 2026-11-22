@@ -7,7 +7,7 @@ api_key_env: DEEPSEEK_API_KEY
 model: deepseek-flash
 input: [text, image]
 generation:
-  max_output_tokens: 2048
-  reasoning_effort: off
+  max_output_tokens: 8192
+  reasoning_effort: low
 timeout_ms: 120000
 can_delegate: true

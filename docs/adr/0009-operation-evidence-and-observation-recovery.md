@@ -1,0 +1,15 @@
+# ADR 0009: Operation evidence and bounded observation recovery
+
+Date: 2026-11-20. Work item [#19](https://github.com/codesknight/Cader/issues/19), v0.4 milestone. The user requested further development using the v0.4 guide, with recommendations distinguished from actual code and authority.
+
+Keep DSH/Cordis and the separate MCP backend. Maintain the existing shared write barrier. A mutation has separate preflight, dispatch, acknowledgement, postflight and artifact verification stages. Store model call/agent/operation IDs, arguments, actual result, original protocol error and stage in private JSONL; never store hidden reasoning. Native worker IDs, authoritative revisions and MCP wire request IDs are unavailable in the current backend and must not be invented.
+
+Unknown dispatched mutations freeze writes. Subsequent calls are blocked_not_dispatched and do not reach MCP; conditional tool activation removes write tools from subsequent model steps. A successful mutation response followed by a failed observation is committed_observation_failed, not an unknown mutation. Only this acknowledged case, on the original still-owned connection and specifically after a postflight read failure, can recover by repeating the read. No mutation is replayed. Lost responses, timeouts, capture uncertainty, legacy locks and disconnected/rebound owners remain frozen. Reconnect cannot adopt prior write ownership or remove a barrier.
+
+Health separates transport, raw backend lifecycle metadata, Cader scratch ownership, cached successful observations and the write barrier. Empty COM documents/not_probed fields mean unavailable native metadata. A successful non-mutating query proves a read worked; it does not grant ownership or prove that an old timed-out native write cannot later commit. Generic task reports remain geometrically unverified, and authoritative frozen state forces ok=false / task_status=blocked regardless of model prose.
+
+Validate legacy schema gaps before dispatch, notably finite XYZ triples for polyline/hatch. Confirm entity-specific operations using the returned ObjectID and get_entity; use full queries for document-level operations and explicit final verification. This avoids a full-document O(n) scan after every new entity while making the observation scope explicit. Cached full-query counts are not current entity totals.
+
+Current-view export is a controlled viewport/plot/file operation restricted to the owned scratch drawing, serialized with CAD writes and approved under the effective mode. It does not require saving DWG or a user reference image. Actual image bytes enter the existing attachment/vision-worker path; reviews are bounded, structured results are checked and pixel-to-CAD mapping remains unavailable. Vision findings never authorize edits or replace geometry/topology/file verification.
+
+The adjacent MCP checkout contains unrelated user modifications. A minimal COM Name-readiness/point-arity patch was prepared separately and approval requested under repository guidance. This ADR does not authorize applying that patch or pretend the entire v0.4 checklist has passed.

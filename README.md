@@ -324,3 +324,11 @@ private drawings, and raw live-run artifacts out of commits.
 [MIT](LICENSE) · Copyright © 2026 codesknight
 
 Real-model CAD execution evidence: [acceptance report](docs/validation/2026-11-20-agent-execution.md).
+
+Development snapshot 0.4.0-dev.3 fixes raw MCP input validation, whole-patch schema checks, scoped diagnostics and duplicated output. Real Flash/AutoCAD now reaches text creation and automatic vision; full circuit acceptance remains open. See [this fix and actual results](docs/validation/2026-11-20-schema-preflight-fix.md), [quality history](docs/validation/2026-11-20-autonomous-quality.md) and [retained reliability failures](docs/validation/2026-11-20-reliable-execution.md).
+
+Current snapshot **0.4.0-dev.4** adds startup barrier warnings, model-free blocking of frozen drawing tasks and user-only `/mcp barrier` / `/mcp resolve` review of matching legacy missing-argument evidence. Explicit operator confirmation is always required; original unknown outcomes remain archived, with no replay or old-document adoption. [Diagnosis and limits](docs/validation/2026-11-21-legacy-barrier-review.md). Full drawing quality remains open.
+
+Latest **0.4.0-dev.5** checks layer dependencies before mutation, preserves partial-execution errors and reports planning failures directly. The accompanying MCP fix validates before creation, cleans up new entities on setter failure and plots in the foreground with settings restored. Real house/tree run: 18 confirmed writes, no unknown writes, automatic vision and one correction; full quality still pending on plan semantics and capture bounds. [Actual evidence and limits](docs/validation/2026-11-21-dependency-and-partial-execution.md).
+
+**0.4.0-dev.6** repairs missing reference pixels, redraw routing and old-drawing acceptance. Source snapshots, structured observation, fresh-document/file binding, two-image review and application-owned DWG saving now form one task. Real models produced actual CAD/DWG; independent reopen retained geometry/text. Topology/appearance remain pending, and the final run hit provider QUOTA. Drafts and failures are retained without claiming arbitrary sketch reconstruction passed. [Fix and actual validation](docs/validation/2026-11-21-reference-redraw-fix.md).

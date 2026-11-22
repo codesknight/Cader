@@ -37,7 +37,7 @@ test('task and smoke propagate actual DSH QUOTA to terminal and saved verificati
         assert.equal(report.ok, false);
         assert.equal(report.errorCode, 'QUOTA');
         assert.equal(report.source, 'provider');
-        assert.match(report.hint!, /balance|quota/);
+        assert.match(report.hint!, /balance|quota|配额/);
         assert.equal(report.cleanupError, 'CLEANUP_FAILED');
         const saved = await readFile(report.runDirectory + '/verification.json', 'utf8');
         assert.equal(JSON.parse(saved).errorCode, 'QUOTA');
@@ -71,7 +71,7 @@ test('exec passes the user task through the real DSH loop while preserving tool 
       profiles: options.profiles.map(profile => ({ ...profile, api_key_env: 'CADER_PROVIDER_FIXTURE' })) });
     runtime.ctx.on('llm/stream', async function* (request): AsyncGenerator<StreamChunk> {
       messages = JSON.stringify(request.messages);
-      assert.ok(request.tools?.every(tool => ['cader_delegate', 'cader_load_skill'].includes(tool.name)));
+      assert.ok(request.tools?.every(tool => ['cader_delegate', 'cader_load_skill','cader_open_image'].includes(tool.name)));
       yield { type: 'block-start', index: 0, blockType: 'text' };
       yield { type: 'text-delta', index: 0, text: '中文结果' };
       yield { type: 'block-end', index: 0, block: { type: 'text', text: '中文结果' } };

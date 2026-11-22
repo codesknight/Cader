@@ -5,7 +5,8 @@
 
 - [需求与验收](requirements.md)
 - [执行和记录规范](process.md)
-- [开发日志：11 月 19 日](logs/2026-11-19.md) / [11 月 18 日](logs/2026-11-18.md)
+- [开发日志：11 月 20 日](logs/2026-11-20.md) / [11 月 19 日](logs/2026-11-19.md) / [11 月 18 日](logs/2026-11-18.md)
+- [开发日志：11 月 21 日修复收尾](logs/2026-11-21.md)
 - [测试记录](testing.md)
 - [Bug 与排障](bugs.md)
 - [阶段路线](roadmap.md)
@@ -17,3 +18,10 @@
 历史记录不覆盖旧失败，追加复验结果。没有执行的验证必须写“未执行”。
 
 - [模型配置与真实集成](model-configuration.md)
+- [v0.4 实测、故障证据与未通过门槛](../validation/2026-11-20-reliable-execution.md) · [研发指导原文](../designs/Cader_v0.4.0_Development_Guide.md)
+
+当前为 `0.4.0-dev.1` 研发快照。代码提交、离线 CI 与完整实机验收分别跟踪；后端修补待授权、压力/生命周期及视觉纠错未通过项不会因推送而关闭，见 [#19](https://github.com/codesknight/Cader/issues/19)。
+
+当前推进到 `0.4.0-dev.2`：[自主质量实测及脱敏轨迹](../validation/2026-11-20-autonomous-quality.md)、[调度决策](../adr/0010-harness-owned-quality-gate.md)、[#20](https://github.com/codesknight/Cader/issues/20)。自动视觉/补丁已有真实执行，完整电路验收未通过；Drawing5新捕获屏障保留。上段dev.1为历史阶段记录。
+
+当前为 `0.4.0-dev.3`：[12:32日志审计](../validation/2026-11-20-user-log-1232.md)及[代码修复/实机证据](../validation/2026-11-20-schema-preflight-fix.md)。参数漏检、状态诊断和重复输出已修复；真实Flash已越过文字绘制进入视觉，完整质量仍未通过。上段dev.2为历史记录；旧锁不自动迁移。
