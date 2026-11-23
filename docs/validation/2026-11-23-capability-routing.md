@@ -37,3 +37,5 @@ pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task "新建一
 最终同一自然语言命令再次真实执行：`.cader/runs/quality-703e892a-faf3-4df4-bc1f-8aa9591f08e1/`，**complete、6/6、20确认/0unknown、8模型步骤、0轮修正、1次Vision/1张截图**；主动调用后Harness复用通过结果。图像hash为90f3e78234be2f0baec3c252eb519c30ede1a5bcb859f3fbd441d02f410f0a32，1600×1280，边缘前景像素0、possible_clipping=false；再次独立查看实际PNG可辨房子和旁边的树。两次计划提交分别因version和未请求的保存被拒，模型自行纠正后开始绘图；唯一failed_before_dispatch是smoke的显式缺参负测，无真实绘图工具错误。仍未请求保存，不计DWG交付。
 
 远端commit/CI状态将在实际运行后追加，未通过前不称远端完成。
+
+远端交付（2026-11-23）：实现提交 `ab6c6b9` 已普通推送至 `codex/capability-vision-routing`，审阅入口 [PR #22](https://github.com/codesknight/Cader/pull/22)（草稿，未合并）。实现提交的 [CI 45127926273](https://github.com/codesknight/Cader/actions/runs/45127926273) 四项均成功：Windows/Ubuntu DSH与Python MCP。该记录后的文档提交不改执行代码，最新PR检查在交付时另核对；#20/Milestone 3保持打开。

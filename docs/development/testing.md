@@ -294,3 +294,5 @@ REQ-033手稿日志审计：读取用户原始附件及实际verification/events
 `pnpm typecheck`、`pnpm test`100/100、`pnpm smoke`通过；手册links-only及diff检查通过。新增实际DSH请求级目录/准入一致性与任务状态刷新、主动/兜底同份证据、写后失效/并发合并、裁切不通过、模型不能去掉必要视觉条件、偏好/历史不启动模型/CAD、继续不重放及视觉进度不解除修正阶段禁新图回归。最初96/98测试的失败及修复记录保留于[本轮实测](../validation/2026-11-23-capability-routing.md)，不覆盖旧失败。
 
 两次显式 `pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task "新建一张空白图纸，绘制一个房子，旁边有棵树。"` 均真实模型/AutoCAD完成6/6，均Agent主动评审1次、Harness复用、1张真实图，unknown0；最终dev.8为20确认、8步骤、0修正。图片独立查看，未保存DWG，不冒充文件验收。非固定绘图计划，原始轨迹只在.cader/runs；CI另按实际结果追加。
+
+远端交付（2026-11-23）：实现提交 `ab6c6b9` 已普通推送至 `codex/capability-vision-routing`，审阅入口 [PR #22](https://github.com/codesknight/Cader/pull/22)（草稿，未合并）。实现提交的 [CI 45127926273](https://github.com/codesknight/Cader/actions/runs/45127926273) 四项均成功：Windows/Ubuntu DSH与Python MCP。该记录后的文档提交不改执行代码，最新PR检查在交付时另核对；#20/Milestone 3保持打开。
