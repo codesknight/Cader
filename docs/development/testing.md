@@ -296,3 +296,11 @@ REQ-033手稿日志审计：读取用户原始附件及实际verification/events
 两次显式 `pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task "新建一张空白图纸，绘制一个房子，旁边有棵树。"` 均真实模型/AutoCAD完成6/6，均Agent主动评审1次、Harness复用、1张真实图，unknown0；最终dev.8为20确认、8步骤、0修正。图片独立查看，未保存DWG，不冒充文件验收。非固定绘图计划，原始轨迹只在.cader/runs；CI另按实际结果追加。
 
 远端交付（2026-11-23）：实现提交 `ab6c6b9` 已普通推送至 `codex/capability-vision-routing`，审阅入口 [PR #22](https://github.com/codesknight/Cader/pull/22)（草稿，未合并）。实现提交的 [CI 45127926273](https://github.com/codesknight/Cader/actions/runs/45127926273) 四项均成功：Windows/Ubuntu DSH与Python MCP。该记录后的文档提交不改执行代码，最新PR检查在交付时另核对；#20/Milestone 3保持打开。
+
+2026-11-23 REQ-038审计：只读解析用户运行JSONL/quality，核对MCP连接/新建及pywin32源码；用conda环境Python执行GetActiveObject/只读Documents与ModelSpace.Count，15:17:52见1张空Drawing5。无Add/Save/Close/Dispatch启动、无模型调用、无重放或解锁。运行代码未变，本次没有重新执行单测或付费绘图；此前100/100不覆盖新故障。见[证据与待验证假设](../validation/2026-11-23-new-drawing-add-audit.md)。
+
+## 2026-11-23 REQ-039修复验收
+
+最终pnpm typecheck、pnpm test 112/112、pnpm smoke通过；实际stdio链路6项负测、原生故障注入8项、同图格式修复、视觉交接/父子时限与规划有限重试均分层验证。独立MCP pytest235 passed/33 skipped，已有uv环境isolated ruff I/F通过（conda无ruff）。手册links-only及diff检查通过，cader -v为dev.9。
+
+真实原生连续3次新建且只新增1图/绑定正确，测试图全部关闭，用户Drawing5保留。原始红屋顶/蓝墙/大树绘本需求最终整体ok=true，8/8、47确认/0unknown、12步骤、1轮修正、2次主动视觉且Harness复用。只关闭本轮自建图；未保存DWG。各早期超时/截断/质量与汇总矛盾原结果保留，不改成通过。运行ID、截图hash与证据范围见[完整记录](../validation/2026-11-23-native-document-create-fix.md)。远端以相关PR对应提交CI与Issue交付记录为准。

@@ -1,7 +1,7 @@
 import { mkdir, open, readFile, writeFile, unlink, lstat, readdir } from 'node:fs/promises';
 import { resolve, relative, dirname, basename, extname, matchesGlob } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { createMcpClient, defineTool, inspectCadImageBorder, assertToolArguments, ToolArgumentsError, createToolRuntime, invokeTool } from '@cader/dsh-adapter';
+import { createMcpClient, defineTool, inspectCadImageBorder, assertToolArguments, ToolArgumentsError, NativeCreateNotInvokedError, createToolRuntime, invokeTool } from '@cader/dsh-adapter';
 import type { ToolDefinition } from '@cader/dsh-adapter';
 import { loadMcp, workspacePath, readReferenceImage } from '@cader/config';
 import { runUserShell } from './interactive-shell.js';
@@ -19,7 +19,7 @@ export type Approval = (description: string, cwd: string) => Promise<boolean>;
 type Client = Awaited<ReturnType<typeof createMcpClient>>;
 type Outcome = 'committed' | 'committed_observation_failed' | 'unknown' | 'blocked_not_dispatched' | 'failed_before_dispatch';
 export interface CadOperationRecord { operation_id: string; tool_call_id?: string; agent_id?: string; tool: string;
-  stage: string; outcome: Outcome; dispatched: boolean; error?: unknown; target: string | null; duration_ms: number }
+  stage: string; outcome: Outcome; dispatched: boolean; transport_dispatched?:boolean; native_dispatched?:boolean; error?: unknown; target: string | null; duration_ms: number }
 
 /** One owner and one persistent MCP process per interactive workspace. COM retains its
  * scratch document binding; a new client must never inherit write authority. */
@@ -383,7 +383,7 @@ export class ExecutionSession {
             await this.authorize(this.clean(`CAD ${name}\n${JSON.stringify(payload)}\nTarget: ${this.scratch ?? 'new scratch drawing'}`), destructive, confirm,false,{name,payload});
             exec.signal.throwIfAborted(); await this.acquire();
             await this.audit({ ...record, phase: 'prepared', request: operationId, args: payload });
-            record.stage = 'dispatch'; record.dispatched = true;
+            record.stage = 'dispatch'; record.dispatched = true;record.transport_dispatched=true;
             // Cancellation after dispatch never abandons, automatically retries or replays a mutation.
             const result = await this.client!.call(name, payload, operationId);
             acknowledged = true; record.outcome = 'committed'; record.stage = 'acknowledgement';
@@ -415,6 +415,9 @@ export class ExecutionSession {
             return JSON.stringify({ operation: record, result, observed, observation_scope, artifact: output ? this.lastArtifact : null,
               verification: 'queried-after-write; geometric/semantic/visual/file-reopen acceptance is separate' });
           } catch (error) {
+            if(!acknowledged&&name==='new_drawing'&&error instanceof NativeCreateNotInvokedError&&error.requestId===operationId){
+              record.dispatched=false;record.native_dispatched=false;record.stage='native_preflight';record.outcome='failed_before_dispatch';
+            }
             if(!acknowledged&&error instanceof ToolArgumentsError){record.dispatched=false;record.stage='preflight';record.outcome='failed_before_dispatch';}
             if (!record.dispatched && this.frozen) record.outcome = 'blocked_not_dispatched';
             record.error = this.diagnostic(error); record.duration_ms = Date.now() - started;
@@ -428,6 +431,7 @@ export class ExecutionSession {
             await this.audit({ ...record, phase: record.dispatched ? 'frozen' : 'not_dispatched', request: operationId });
             throw new Error(this.clean(JSON.stringify({ code: record.dispatched ? acknowledged ? 'CAD_COMMITTED_OBSERVATION_FAILED' : 'OUTCOME_UNKNOWN_FROZEN' : record.outcome === 'blocked_not_dispatched' ? 'CAD_WRITE_BLOCKED_FROZEN_NOT_DISPATCHED' : 'CAD_FAILED_BEFORE_DISPATCH',
               operation_id: operationId, dispatched: record.dispatched, stage: record.stage, outcome: record.outcome,
+              transport_dispatched:record.transport_dispatched??false,native_dispatched:record.native_dispatched,
               cause: (record.error as { protocol_failure?:{error?:{message?:string}};message?: string })?.protocol_failure?.error?.message ?? (record.error as { message?: string })?.message, recovery: this.frozen ? this.recoveryEligibility().guidance : 'Correct arguments or dependencies, or obtain approval before a new request. Never replay committed patch operations.' })));
           }
         }) }));

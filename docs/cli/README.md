@@ -562,6 +562,18 @@ Component tasks also cannot acquire an unrequested line-entity ceiling. An uncer
 
 MainAgent defaults to `reasoning_effort: low`, while vision remains `off`; output/step/tool/repair limits are unchanged. Adjust the MainAgent model YAML if needed. Bounded reasoning still incurs provider costs and cannot guarantee acceptance of every drawing. After restart, `cader -v` should report dev.7. [Actual retesting and limits](../validation/2026-11-21-complete-quality-retest.md).
 
+## dev.9: native creation and bounded recovery (2026-11-23)
+
+The paired AutoCAD-MCP fix attaches without implicit creation. Explicit new_drawing resolves Add metadata with bounded read-only readiness, invokes once, and binds only a uniquely new active document. An old ActiveDocument is not successful creation.
+
+Optional request_id is correlation, not idempotency or replay permission; successful names remain compatible. Cader supplies its operation ID. Only complete, matched native preflight evidence proving no invocation/implicit creation avoids freezing. The terminal distinguishes MCP receipt from native invocation. Legacy text, mismatched requests and failures/timeouts after invocation remain frozen.
+
+Agent-requested quality review yields to Scheduler immediately. API request timeouts remain unchanged; scheduled main turns use the existing task deadline (600 seconds by default), avoiding premature cancellation of nested vision. Child limits, shared budgets, user cancellation and at most three corrections remain enforced.
+
+A truncated plan with no valid submission gets one compact retry before CAD authorization; QUOTA is not retried. Generic illustrations may omit topology ports, and unrequested primitive ceilings are rejected. Visual malformed/truncated output gets one same-image repair. Only fully accepted current evidence supersedes prior failed visual attempts; failures remain recorded. Main failures and unmet requirements still block success.
+
+Old unknown barriers are not retrospectively released. Exit the old CLI and start a new workspace to load a new MCP process. Existing recover/resolve cannot adjudicate the old Add outcome. Isolation neither confirms the historical request nor adopts its drawing. Check dev.9 with cader -v. See [fix and layered validation](../validation/2026-11-23-native-document-create-fix.md).
+
 ## dev.8: capability catalog, agent review and task evidence (2026-11-23)
 
 Each model step receives a unified tool/worker/Skill catalog with purpose, trigger, input/output, invocation entry, availability and refusal reason. Input references point to that step's actual tool schemas; availability is projected from the resolved DSH toolSet. Availability does not grant write permission. Model profiles accept optional description/when_to_use, and the Skill catalog accepts optional when_to_use. Explicit registration and lazy Markdown/resource loading remain enforced.

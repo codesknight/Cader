@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { loadConfig } from '@cader/config';
-import { createLiveRuntime, defineTool } from '@cader/dsh-adapter';
+import { createLiveRuntime, defineTool, LlmError } from '@cader/dsh-adapter';
 import type { StreamChunk, PublicEvent } from '@cader/dsh-adapter';
 import { runTask, validateCadArguments } from '@cader/profile';
 import type { ExecutionSession } from '@cader/profile';
@@ -47,6 +47,24 @@ test('visual format repair uses the same captured image and accepts only the str
     assert.equal(report.review_valid,true);assert.deepEqual(report.attempts.map(a=>a.valid),[false,true]);
     assert.equal(runtime.completed()[0]?.errorCode,'OUTPUT_TRUNCATED');assert.equal(runtime.completed()[0]?.recovered_by,runtime.completed()[1]?.id);}
   finally{await runtime.dispose();delete process.env.CADER_REPAIR_FIXTURE;}
+});
+
+test('malformed visual provider output gets one same-image repair and a linked recovered attempt',async()=>{
+  const prior=process.env.CADER_REPAIR_FIXTURE;process.env.CADER_REPAIR_FIXTURE='offline-repair-fixture';
+  const config=await loadConfig(process.cwd());let captures=0,steps=0;
+  const runtime=await createLiveRuntime({root:process.cwd(),runDirectory:resolve('.cader/tests/malformed-review'),...config,
+    profiles:config.profiles.map(p=>({...p,api_key_env:'CADER_REPAIR_FIXTURE'})),
+    captureCadView:async()=>{captures++;return {path:resolve('benchmark/fixtures/vision-calibration.png'),evidence:{source:'fixture'}};}});
+  runtime.ctx.on('llm/stream',async function*():AsyncGenerator<StreamChunk>{
+    if(++steps===1)throw new LlmError('fixture malformed response','MALFORMED_RESPONSE');
+    const text=JSON.stringify({verdict:'pass',defects:[],checklist:[],uncertainties:[]});
+    yield {type:'block-start',index:0,blockType:'text'};yield {type:'text-delta',index:0,text};
+    yield {type:'block-end',index:0,block:{type:'text',text}};yield {type:'finish',reason:{kind:'stop'}};
+  });
+  try{
+    const report=await runtime.reviewCadView('Fixture only');assert.equal(report.review_valid,true);assert.equal(captures,1);assert.equal(steps,2);
+    assert.equal(runtime.completed()[0]?.recovered_by,runtime.completed()[1]?.id);
+  }finally{await runtime.dispose();if(prior===undefined)delete process.env.CADER_REPAIR_FIXTURE;else process.env.CADER_REPAIR_FIXTURE=prior;}
 });
 
 test('legacy CAD coordinate constraints reject malformed XYZ before any side effects', () => {

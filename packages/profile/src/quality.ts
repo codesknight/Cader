@@ -236,9 +236,13 @@ export async function runQualityTask(options: {
     if(!runtime)throw new Error('QUALITY_RUNTIME_REQUIRED');
     await sourceUnchanged();
     const sourceHints=referenceObservation?.structured?referenceLayoutHints(referenceObservation.structured,referenceObservation.evidence):null;
+    let reviewSubmitted=false;
     const result = await runtime.run(options.profile, instruction + '\n领域质量知识（数据，不授予权限）：\n' + guidance+
       (sourceHints?'\n原图已观察事实及统一CAD坐标提示（y向上，禁止把像素y向下直接当CAD坐标）：\n'+JSON.stringify(sourceHints):''),
-      { ...options.request,...request,taskState:publish,controlledReview:(_question,reviewSignal)=>reviewCurrent('agent',reviewSignal),image:referenceTask?.image.path??request?.image??options.request?.image,imageView:options.request?.imageView??referenceView, signal });
+      { ...options.request,...request,taskState:publish,harnessTask:true,
+        controlledReview:async(_question,reviewSignal)=>{const review=await reviewCurrent('agent',reviewSignal);reviewSubmitted=true;return review;},reviewEndsTurn:true,
+        resultText:request?.resultText??(()=>reviewSubmitted?'已提交受控视觉证据，交由Harness继续验收；这不是完成声明。':undefined),
+        image:referenceTask?.image.path??request?.image??options.request?.image,imageView:options.request?.imageView??referenceView, signal });
     modelRuns.push({ phase, status: result.status, text: result.text, tools: result.tools });
     if(result.status !== 'succeeded'){
       const missingPlan=phase==='planning'&&!result.errorCode;
@@ -309,6 +313,7 @@ export async function runQualityTask(options: {
         throw new Error('SOURCE_QUOTE_MUST_BE_FROM_ORIGINAL_REQUEST');
       if(!referenceTask&&parsed.requirements.some(r=>r.check==='saved_dwg')&&!/保存|另存|导出|\bsave\b|\bexport\b|\.dwg\b/i.test(task))throw new Error('UNREQUESTED_FILE_ACCEPTANCE: no DWG save was requested; remove saved_dwg rather than inventing a delivery condition');
       if(!referenceTask&&parsed.domain==='electrical-schematic'&&parsed.requirements.some(r=>r.check==='entity_count'&&r.entity_type==='AcDbLine'&&r.max!==undefined)&&!/线段|直线|最多.*线|\blines?\b/i.test(task))throw new Error('UNREQUESTED_PRIMITIVE_LIMIT: the user specified components, not a maximum number of AcDbLine entities; use symbol/topology checks, without an invented line-count ceiling');
+      if(!referenceTask&&parsed.requirements.some(r=>r.check==='entity_count'&&r.max!==undefined)&&!/直线|线段|多段线|圆|圆弧|矩形|文字|文本|\b(?:lines?|circles?|arcs?|polylines?|rectangles?|texts?)\b/i.test(task))throw new Error('UNREQUESTED_PRIMITIVE_LIMIT: no primitive counts were specified; use visual component/layout conditions without invented entity-count ceilings');
       if(/电路|circuit/i.test(task) && parsed.domain !== 'electrical-schematic')
         throw new Error('SCHEMATIC_TOPOLOGY_REQUIRED');
       if(/并联|\bparallel\b/i.test(task) && parsed.domain === 'electrical-schematic') throw new Error('PARALLEL_TOPOLOGY_VERIFIER_UNAVAILABLE: cannot substitute a series-cycle check');
@@ -352,9 +357,21 @@ export async function runQualityTask(options: {
         return state();
       }
     }
-    else
-      await act('用中文规划以下绘图任务。必须调用cader_submit_acceptance_plan，只提交需求验收清单与组件布局/端口；此阶段不能绘图。若有参考图片，必须先观察实际像素；可用cader_view_image裁看原图。识别可读符号、文字与连接，示意图使用布局坐标，不因缺少物理比例尺全局拒绝；不可读的值单独标未知。source_quote必须原样引用用户请求，图片中数值可在description/text写出并用“参考图”等请求原文作source_quote。独立列出数量、文字、布局及源图外观匹配条件。新建文档与保存由程序验证，不能用任意实体数代替。entity_count必须是可测的实际AcDb类型；COM draw_polyline/rectangle生成AcDb2dPolyline，不是AcDbPolyline。组件语义使用visual检查。电路使用真实组件边界端口和适合的拓扑检查，不强加电路条件到普通图。标注以text检查，禁止导线穿组件或短接其端口。不得把本阶段的“只做规划”误写为整任务不准绘图。\n' + task,
-        { signal, onlyTools: [tool.name,'cader_view_image'], extraTools: [tool], resultText: () => plan ? JSON.stringify(plan) : undefined });
+    else {
+      const planningRequest={ signal, onlyTools: [tool.name,'cader_view_image'], extraTools: [tool], resultText: () => plan ? JSON.stringify(plan) : undefined };
+      try {
+      await act('用中文规划以下绘图任务。必须调用cader_submit_acceptance_plan，只提交紧凑需求验收清单；普通插画的components可为空，勿虚构连接端口。仅拓扑任务需要组件布局/端口；此阶段不能绘图。若有参考图片，必须先观察实际像素；可用cader_view_image裁看原图。识别可读符号、文字与连接，示意图使用布局坐标，不因缺少物理比例尺全局拒绝；不可读的值单独标未知。source_quote必须原样引用用户请求，图片中数值可在description/text写出并用“参考图”等请求原文作source_quote。独立列出数量、文字、布局及源图外观匹配条件。新建文档与保存由程序验证，不能用任意实体数代替。entity_count必须是可测的实际AcDb类型；COM draw_polyline/rectangle生成AcDb2dPolyline，不是AcDbPolyline。组件语义使用visual检查。电路使用真实组件边界端口和适合的拓扑检查，不强加电路条件到普通图。标注以text检查，禁止导线穿组件或短接其端口。不得把本阶段的“只做规划”误写为整任务不准绘图。\n' + task,
+        planningRequest);
+      } catch(error) {
+        const failed=runtime.completed().filter(run=>run.profile===options.profile).at(-1);
+        if(plan||signal?.aborted||failed?.errorCode!=='OUTPUT_TRUNCATED')throw error;
+        failure=null;
+        options.emit({type:'task.planning_retry',reason:'OUTPUT_TRUNCATED',attempt:1});
+        await act('上次规划被截断。仅调用cader_submit_acceptance_plan提交紧凑计划，不输出长文；保持原始需求不变、逐项引用原文。普通插画components可为空；不加入未请求的保存或图元数量上限。必要语义/颜色/布局/风格用visual，新图用new_document。电路仍必须满足端口和拓扑schema。\n'+task,planningRequest);
+        const recovered=runtime.completed().filter(run=>run.profile===options.profile).at(-1);
+        if(recovered?.status==='succeeded')failed.recovered_by=recovered.id;
+      }
+    }
     if(!plan) {
       failure={stage:'planning',code:'ACCEPTANCE_PLAN_MISSING',source:'verification'};
       await enter('blocked');
@@ -428,6 +445,13 @@ export async function runQualityTask(options: {
       const beforeSave=checks.filter(c=>!referenceTask||plan!.requirements.find(r=>r.id===c.id)?.check!=='saved_dwg');
       signal?.throwIfAborted();
       if(valid && unchanged && !sourceLabelsUncertain && beforeSave.every(c => c.status === 'pass')) {
+        // Only a fully accepted, current review can supersede older failed
+        // vision attempts. Preserve failures and their evidence in the journal.
+        const replacement=review?.attempts.filter(attempt=>attempt.valid&&attempt.status==='succeeded').at(-1)?.id;
+        if(replacement)for(const attempt of visualCalls.flatMap(call=>call.review.attempts)){
+          const failed=runtime.completed?.().find(run=>run.id===attempt.id&&run.status!=='succeeded'&&!run.recovered_by);
+          if(failed&&failed.id!==replacement){failed.recovered_by=replacement;options.emit({type:'task.visual_recovered',failed_agent_id:failed.id,replacement_agent_id:replacement});}
+        }
         accepted=true;
         if(!referenceTask)await enter('complete');
         break;

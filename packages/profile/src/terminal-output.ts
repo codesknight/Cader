@@ -12,6 +12,8 @@ export function toolResultLine(event: PublicEvent) {
     code: string;
     stage: string;
     dispatched: boolean;
+    transport_dispatched?:boolean;
+    native_dispatched?:boolean;
   }|undefined;
   const business=event.businessOutcome as {
     status: string;
@@ -19,6 +21,6 @@ export function toolResultLine(event: PublicEvent) {
   }|undefined;
   const refused=business?.status==='refused';
   return `\n  ${event.isError? '×':refused? '!':'✓'} ${String(event.tool)}`+
-    (failure? ` · ${failure.code} · ${failure.stage} · ${failure.dispatched? '已派发':'未派发'}`:'')+
+    (failure? ` · ${failure.code} · ${failure.stage} · ${failure.transport_dispatched&&failure.native_dispatched===false?'MCP已送达，原生未调用':failure.dispatched? '已派发':'未派发'}`:'')+
     (refused? ` · 未恢复（${business?.reason??'REFUSED'}）`:'')+'\n';
 }

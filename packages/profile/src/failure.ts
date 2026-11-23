@@ -14,6 +14,7 @@ const hints: Record<string, string> = {
   RATE_LIMIT: 'Wait for the provider rate limit to recover before retrying.',
   TIMEOUT: 'Check provider availability and configured timeouts.',
   OUTPUT_TRUNCATED: '模型输出达到长度上限；未形成完整结论。检查输出预算，已确认的CAD操作不得重放。',
+  MALFORMED_RESPONSE: '模型服务返回了无效格式。仅在后续有效验证实际替代该失败时记录恢复；否则任务仍未通过。',
   NETWORK: 'Check provider network connectivity.',
   CONFIG_INVALID: 'Check model/MCP/Skill configuration, reference image limits and required credential environment variables.',
   CONFIG_NOT_FOUND: 'Check the configuration file path and run from the Cader repository root.',

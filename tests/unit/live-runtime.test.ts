@@ -64,6 +64,44 @@ test('actual DSH loop loads configs Static/Skill, isolates worker tools and enfo
   }
 });
 
+test('scheduled main tools/vision use task deadline while ordinary turns keep profile timeout',async()=>{
+  const old=process.env.CADER_DEADLINE_FIXTURE;process.env.CADER_DEADLINE_FIXTURE='offline-deadline-fixture';
+  const config=await loadConfig(process.cwd());config.profiles=config.profiles.map(p=>({...p,api_key_env:'CADER_DEADLINE_FIXTURE',timeout_ms:1000}));
+  const runtime=await createLiveRuntime({...config,root:process.cwd(),runDirectory:resolve('.cader/tests/task-deadline')});
+  runtime.ctx.on('llm/stream',async function*():AsyncGenerator<StreamChunk>{
+    await new Promise(resolve=>setTimeout(resolve,1200));
+    yield {type:'block-start',index:0,blockType:'text'};
+    yield {type:'text-delta',index:0,text:'Fixture result'};
+    yield {type:'block-end',index:0,block:{type:'text',text:'Fixture result'}};
+    yield {type:'finish',reason:{kind:'stop'}};
+  });
+  try{
+    assert.equal((await runtime.run('MainAgent','Scheduled fixture',{harnessTask:true})).status,'succeeded');
+    assert.equal((await runtime.run('MainAgent','Ordinary fixture')).status,'cancelled');
+  }finally{await runtime.dispose();if(old===undefined)delete process.env.CADER_DEADLINE_FIXTURE;else process.env.CADER_DEADLINE_FIXTURE=old;}
+});
+
+test('controlled quality review yields to Scheduler without spending another main model step',async()=>{
+  const old=process.env.CADER_HANDOFF_FIXTURE;process.env.CADER_HANDOFF_FIXTURE='offline-handoff-fixture';
+  const config=await loadConfig(process.cwd());config.profiles=config.profiles.map(p=>({...p,api_key_env:'CADER_HANDOFF_FIXTURE'}));
+  let steps=0,reviewed=false;
+  const runtime=await createLiveRuntime({...config,root:process.cwd(),runDirectory:resolve('.cader/tests/review-handoff'),captureCadView:async()=>{throw new Error('No raw capture');}});
+  runtime.ctx.on('llm/stream',async function*():AsyncGenerator<StreamChunk>{
+    steps++;
+    const id='handoff-review' as Extract<StreamChunk,{type:'tool-call-delta'}>['id'];
+    const args=JSON.stringify({question:'Review fixture'});
+    yield {type:'block-start',index:0,blockType:'tool-call'};
+    yield {type:'tool-call-delta',index:0,id,name:'cader_review_cad_view',argumentsDelta:args};
+    yield {type:'block-end',index:0,block:{type:'tool-call',id,name:'cader_review_cad_view',arguments:args}};
+    yield {type:'finish',reason:{kind:'tool-calls'}};
+  });
+  try{
+    const result=await runtime.run('MainAgent','Review fixture',{reviewEndsTurn:true,controlledReview:async()=>{reviewed=true;return {review_valid:true};},resultText:()=>reviewed?'Evidence handed to Scheduler; not completion':undefined});
+    assert.equal(result.status,'succeeded');assert.equal(steps,1);assert.equal(reviewed,true);
+    assert.deepEqual(result.tools,['cader_review_cad_view']);
+  }finally{await runtime.dispose();if(old===undefined)delete process.env.CADER_HANDOFF_FIXTURE;else process.env.CADER_HANDOFF_FIXTURE=old;}
+});
+
 test('actual model requests expose controlled visual routing, phase capabilities and refreshed task evidence',async()=>{
   const prior=process.env.CADER_ROUTE_FIXTURE;process.env.CADER_ROUTE_FIXTURE='sk-route-fixture-no-network';
   const config=await loadConfig(process.cwd());config.profiles=config.profiles.map(p=>({...p,api_key_env:'CADER_ROUTE_FIXTURE'}));

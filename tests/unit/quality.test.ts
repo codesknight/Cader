@@ -68,11 +68,12 @@ test('schemas reject semantic entity types, contradictory visual pass and missin
 });
 // These are scheduling fixtures, not a model/CAD acceptance result.
 async function schedulingFixture(verdict: 'pass' | 'fail' | 'invalid' | 'cancel' | 'uncertain', repair = false,
-  extra: { resume?: Parameters<typeof runQualityTask>[0]['resume']; connection?: string; clipped?: boolean; changed?: boolean;unrequestedSave?:boolean;unrequestedLines?:boolean;agentReview?:boolean;writeAfterReview?:boolean;concurrentReview?:boolean;omitVisual?:boolean } = {}) {
+  extra: { resume?: Parameters<typeof runQualityTask>[0]['resume']; connection?: string; clipped?: boolean; changed?: boolean;unrequestedSave?:boolean;unrequestedLines?:boolean;agentReview?:boolean;writeAfterReview?:boolean;concurrentReview?:boolean;omitVisual?:boolean;unrequestedGenericLimit?:boolean } = {}) {
   const phases: string[] = [], actions: string[] = [];
   let reviews = 0, approvals = 0, ended = false;
   let revision=0;
   const reviewQuestions:string[]=[];
+  const completed:{id:string;status:string;errorCode?:string;recovered_by?:string}[]=[];
   const runtime = {
     async run(_profile: string, _instruction: string, request?: {
       controlledReview?: (question:string)=>Promise<unknown>;
@@ -83,6 +84,7 @@ async function schedulingFixture(verdict: 'pass' | 'fail' | 'invalid' | 'cancel'
     }) {
       if(extra.unrequestedSave&&request?.extraTools)await assert.rejects(request.extraTools[0]!.execute({...plan,requirements:[...plan.requirements,{id:'unsolicited-save',check:'saved_dwg',description:'Invented file obligation',source_quote:'画图'}]}, {concludeTurn(){}}),/UNREQUESTED_FILE_ACCEPTANCE/);
       if(extra.unrequestedLines&&request?.extraTools)await assert.rejects(request.extraTools[0]!.execute({...plan,requirements:[...plan.requirements,{id:'unsolicited-line-limit',check:'entity_count',entity_type:'AcDbLine',max:12,description:'Invented primitive ceiling',source_quote:'画图'}]}, {concludeTurn(){}}),/UNREQUESTED_PRIMITIVE_LIMIT/);
+      if(extra.unrequestedGenericLimit&&request?.extraTools)await assert.rejects(request.extraTools[0]!.execute({...plan,domain:'generic',components:[],requirements:[{id:'count',source_quote:'画图',description:'Invented generic ceiling',check:'entity_count',entity_type:'AcDbCircle',min:1,max:3}]},{concludeTurn(){}}),/UNREQUESTED_PRIMITIVE_LIMIT/);
       if(extra.omitVisual&&request?.extraTools)await assert.rejects(request.extraTools[0]!.execute({version:1,domain:'generic',components:[],visual_required:false,requirements:[{id:'count',source_quote:'画图',description:'Count only',check:'entity_count',entity_type:'AcDbLine',min:1}]},{concludeTurn(){}}),/VISUAL_ACCEPTANCE_REQUIRED/);
       if(request?.extraTools)
         await request.extraTools[0]!.execute(plan, { concludeTurn() { } });
@@ -105,12 +107,16 @@ async function schedulingFixture(verdict: 'pass' | 'fail' | 'invalid' | 'cancel'
       if(verdict === 'cancel')
         throw new Error('cancelled fixture');
       const result = repair && reviews > 1 ? 'pass' : verdict;
+      const id=`fixture-review-${reviews}`;
+      completed.push({id,status:result==='invalid'?'failed':'succeeded',...(result==='invalid'?{errorCode:'MALFORMED_RESPONSE'}:{})});
       return {
+        attempts:[{id,status:result==='invalid'?'failed':'succeeded',valid:result!=='invalid',text:'fixture'}],
         evidence: { image_bounds: { possible_clipping: extra.clipped ?? false } }, review_valid: result !== 'invalid', structured: result === 'invalid' ? null : {
           verdict: result, defects: [], checklist: [{ requirement_id: 'visual', status: result, evidence: 'fixture' }], uncertainties: []
         }
       };
     },
+    completed:()=>completed,
   };
   const owner = {
     facts: () => ({ frozen: false, local_connection_id: extra.connection ?? 'fixture-connection', scratch: 'fixture.dwg',session_counts:{committed:revision} }),
@@ -123,7 +129,7 @@ async function schedulingFixture(verdict: 'pass' | 'fail' | 'invalid' | 'cancel'
     }) => phases.push(String(e.phase)), persist: async () => { }
   };
   const result = await runQualityTask(options as unknown as Parameters<typeof runQualityTask>[0]);
-  return { result, phases, actions, reviews, approvals, ended,reviewQuestions };
+  return { result, phases, actions, reviews, approvals, ended,reviewQuestions,completed };
 }
 
 test('agent review and mandatory fallback share bound evidence without duplicate capture; later writes invalidate it',async()=>{
@@ -203,4 +209,16 @@ test('invalid, cancelled or unlocalized uncertain review cannot complete or auth
     assert.equal(result.reviews, 1);
     assert.equal(result.ended, true);
   }
+});
+
+test('generic component drawings cannot acquire unrequested primitive ceilings',async()=>{
+  const run=await schedulingFixture('pass',false,{unrequestedGenericLimit:true});
+  assert.equal(run.result.phase,'complete');assert.equal(run.reviews,1);
+});
+
+test('accepted current visual evidence supersedes an earlier failed worker without erasing history',async()=>{
+  const run=await schedulingFixture('invalid',true,{agentReview:true});
+  assert.equal(run.result.phase,'complete');assert.equal(run.reviews,2);
+  assert.equal(run.completed[0]?.status,'failed');assert.equal(run.completed[0]?.recovered_by,run.completed[1]?.id);
+  assert.equal(run.result.visual_calls[0]?.review.review_valid,false);
 });

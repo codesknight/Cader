@@ -133,6 +133,8 @@ export async function createLiveRuntime(options: LiveOptions) {
       comparisonImage?: string;
       taskState?: () => unknown;
       controlledReview?: (question: string, signal?: AbortSignal) => Promise<unknown>;
+      reviewEndsTurn?: boolean;
+      harnessTask?: boolean;
       sourceDetails?:{path:string;view:ImageView;label:string}[];
       history?: { role: 'user' | 'assistant'; content: string; status?: string }[]; summary?: string; domain?: string;
     } = {}): Promise<AgentResult> {
@@ -145,8 +147,11 @@ export async function createLiveRuntime(options: LiveOptions) {
       if (selectedSkill) emit({ type: 'skill.loaded', name: request.skill, resource: null, role: profile.role,
         mode: 'selected', sha256: createHash('sha256').update(selectedSkill).digest('hex') });
       const id = brandString<SessionId>(`cader-${profile.role}-${randomUUID()}`);
+      // Scheduled CAD work includes native tools and nested vision. Keep the
+      // provider request timeout, but use the existing task-wide deadline here.
+      const turnTimeout=request.harnessTask&&profile.role==='main'&&!request.parent?options.runtime.timeout_ms:Math.min(profile.timeout_ms,options.runtime.timeout_ms);
       const signal = AbortSignal.any([lifetime.signal, request.signal ?? new AbortController().signal,
-        AbortSignal.timeout(Math.min(profile.timeout_ms, options.runtime.timeout_ms))]);
+        AbortSignal.timeout(turnTimeout)]);
       let text = '', currentText = '', errorCode: string | undefined, agentSteps = 0, outputTruncated=false;
       const tools: string[] = [];
       let handle: AgentHandle | undefined;
@@ -217,9 +222,11 @@ export async function createLiveRuntime(options: LiveOptions) {
                   output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
                   isConcurrencySafe: () => false,
                   async execute(args, exec) {
-                    return JSON.stringify(await (request.controlledReview
+                    const result = await (request.controlledReview
                       ? request.controlledReview(args.question, exec.signal)
-                      : reviewCadView(args.question, exec.signal, agent)));
+                      : reviewCadView(args.question, exec.signal, agent));
+                    if(request.controlledReview&&request.reviewEndsTurn)exec.concludeTurn();
+                    return JSON.stringify(result);
                   },
                 }), { when: () => options.toolAvailable?.('cader_review_cad_view') ?? true });
                 allowed.push('cader_review_cad_view');
@@ -329,6 +336,7 @@ export async function createLiveRuntime(options: LiveOptions) {
                 selected_skill: request.skill ?? null,
                 remaining_model_steps: Math.max(0, options.runtime.max_model_steps - steps),
                 remaining_tool_calls: Math.max(0, options.runtime.max_tool_calls - calls),
+                model_request_timeout_ms:profile.timeout_ms,agent_turn_timeout_ms:turnTimeout,
                 max_parallel_subagents: profile.can_delegate ? pool.limit : 0,
                 worker_profiles: profile.can_delegate ? options.profiles.filter(worker => options.runtime.subagent_profiles.includes(worker.id))
                   .map(worker => ({ id: worker.id, role: worker.role, model: worker.model, input: worker.input,
@@ -379,7 +387,8 @@ export async function createLiveRuntime(options: LiveOptions) {
                 try {
                   const parsed = JSON.parse(result.error.message);
                   if (typeof parsed.dispatched === 'boolean' && typeof parsed.outcome === 'string')
-                    cadFailure = { code: parsed.code, stage: parsed.stage, outcome: parsed.outcome, dispatched: parsed.dispatched, operation_id: parsed.operation_id };
+                    cadFailure = { code: parsed.code, stage: parsed.stage, outcome: parsed.outcome, dispatched: parsed.dispatched, operation_id: parsed.operation_id,
+                      transport_dispatched:parsed.transport_dispatched,native_dispatched:parsed.native_dispatched };
                 } catch { /* Non-CAD failures keep their own public error contract. */ }
               }
               emit({ type: 'tool.result', agentId: id, role: profile.role, callId: exec.callId,
@@ -499,9 +508,9 @@ export async function createLiveRuntime(options: LiveOptions) {
         attempts.push({ id:review.id,status: review.status, text: review.text, valid: structured !== null });
         if(structured)for(const previous of attempts.slice(0,-1)){
           const failed=completed.find(result=>result.id===previous.id);
-          if(failed?.errorCode==='OUTPUT_TRUNCATED')failed.recovered_by=review.id;
+          if(failed&&['OUTPUT_TRUNCATED','MALFORMED_RESPONSE'].includes(failed.errorCode??''))failed.recovered_by=review.id;
         }
-        if (structured || (review.status !== 'succeeded'&&review.errorCode!=='OUTPUT_TRUNCATED') || signal?.aborted) break;
+        if (structured || (review.status !== 'succeeded'&&!['OUTPUT_TRUNCATED','MALFORMED_RESPONSE'].includes(review.errorCode??'')) || signal?.aborted) break;
       }
       const reference=referenceImage?await readReferenceImage(options.workspaceRoot??options.root,referenceImage):undefined;
       const result = { image_ref: ref, evidence: {...capture.evidence as Record<string,unknown>,reference:reference?{path:referenceImage,sha256:createHash('sha256').update(reference.data).digest('hex'),width:reference.width,height:reference.height}:null}, requirements: question, review_valid: structured !== null, structured, attempts };

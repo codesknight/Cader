@@ -33,3 +33,5 @@ dev.6：[手稿输入与DWG修复 / reference redraw execution](validation/2026-
 dev.7：[完整质量复验 / full quality retesting](validation/2026-11-21-complete-quality-retest.md) · [ADR0015](adr/0015-source-labels-and-actionable-quality-feedback.md)。手稿17项和电源/灯泡11项真实通过；失败、误验收及旧unknown保留，局部标注复核/报告一致性/截图清理修复分层记录。
 
 dev.8：[能力目录与统一视觉入口 / scoped capabilities and shared review](validation/2026-11-23-capability-routing.md) · [ADR0016](adr/0016-capability-routing-and-shared-review.md)。主Agent主动视觉、Harness兜底复用及动态任务证据，偏好/状态/继续分开路由；真实房子/树两轮通过，旧失败与屏障保留。
+
+dev.9：[原生新图与质量恢复 / native creation and quality recovery](validation/2026-11-23-native-document-create-fix.md)。原生创建单次/新图验证、父子时限与视觉交接/格式恢复；原始彩色绘本任务8/8、47确认/0unknown，历史失败与屏障保留。

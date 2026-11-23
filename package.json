@@ -1,6 +1,6 @@
 {
   "name": "@cader/workspace",
-  "version": "0.4.0-dev.8",
+  "version": "0.4.0-dev.9",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.28.5",
