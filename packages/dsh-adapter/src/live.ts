@@ -22,6 +22,7 @@ import FileSystem from '@deepseek-ai/dsh-fs-local';
 import type { ModelProfile, RuntimeConfig, McpConfig } from '@cader/config';
 import { parseVisualReport, visualReportSchema, requireCredential, loadSkills, mcpEnvironment, workspacePath, readReferenceImage,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema } from '@cader/config';
 import { ChildPool } from './pool.js';
+import { capabilityCatalog } from './capabilities.js';
 import { prepareImageView, attachmentToSource } from './image-view.js';
 import type { ImageView } from './image-view.js';
 import { assertToolArguments, patchArgumentsSchema } from './tool-validation.js';
@@ -40,6 +41,7 @@ interface LiveOptions {
   executionTools?: ToolDefinition[];
   permissionMode?: string;
   executionState?: () => unknown;
+  taskState?: () => unknown;
   toolAvailable?: (name: string) => boolean;
   captureCadView?: (signal: AbortSignal) => Promise<{ path: string; evidence: unknown }>;
 }
@@ -129,6 +131,8 @@ export async function createLiveRuntime(options: LiveOptions) {
       extraTools?: ToolDefinition[]; onlyTools?: string[]; resultText?: () => string | undefined;
       parent?: Agent; image?: string; imageView?: ImageView; skill?: string; signal?: AbortSignal;
       comparisonImage?: string;
+      taskState?: () => unknown;
+      controlledReview?: (question: string, signal?: AbortSignal) => Promise<unknown>;
       sourceDetails?:{path:string;view:ImageView;label:string}[];
       history?: { role: 'user' | 'assistant'; content: string; status?: string }[]; summary?: string; domain?: string;
     } = {}): Promise<AgentResult> {
@@ -154,7 +158,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       try {
         signal.throwIfAborted();
         const staticText = await readFile(resolve(options.root, 'configs/prompts/static',
-          profile.role === 'main' ? 'MainAgent.md' : 'SubAgent.md'), 'utf8');
+          profile.role === 'main' ? 'MainAgent.md' : profile.role === 'vision' ? 'VisionAgent.md' : 'SubAgent.md'), 'utf8');
         handle = await ctx.agents.create({
           sessionId: id, signal,
           meta: { cwd: options.workspaceRoot ?? options.root, ...(request.parent ? { parentSession: request.parent.id,
@@ -213,7 +217,9 @@ export async function createLiveRuntime(options: LiveOptions) {
                   output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
                   isConcurrencySafe: () => false,
                   async execute(args, exec) {
-                    return JSON.stringify(await reviewCadView(args.question, exec.signal, agent));
+                    return JSON.stringify(await (request.controlledReview
+                      ? request.controlledReview(args.question, exec.signal)
+                      : reviewCadView(args.question, exec.signal, agent)));
                   },
                 }), { when: () => options.toolAvailable?.('cader_review_cad_view') ?? true });
                 allowed.push('cader_review_cad_view');
@@ -311,21 +317,29 @@ export async function createLiveRuntime(options: LiveOptions) {
             if (selectedSkill) agentCtx.systemPrompt.context({ name: 'cader:selected-skill', order: 121,
               required: true, interpolate: false, text: selectedSkill });
             agentCtx.systemPrompt.context({ name: 'cader:available', order: 120, required: true,
-              interpolate: false, text: () => JSON.stringify({ role: profile.role, model: profile.model,
-                tools: agentCtx.tools.schemas(agent).map(tool => tool.name),
+              interpolate: false, text: context => {
+                const registered=agentCtx.tools.schemas(agent);
+                const active=context.toolSet?agentCtx.tools.schemas(agent,context.toolSet):registered.filter(tool=>options.toolAvailable?.(tool.name)??true);
+                return JSON.stringify({ role: profile.role, model: profile.model,
+                capabilities: capabilityCatalog({ tools: registered.map(tool=>({...tool,outputSchema:agentCtx.tools.get(tool.name,agent)?.output.schema})), availableTools: active.map(tool=>tool.name),skills: roleSkills,
+                  workers: options.profiles.filter(worker => options.runtime.subagent_profiles.includes(worker.id)),
+                  canDelegate: profile.can_delegate, disabled: Boolean(options.disableTools) }),
+                tools: active.map(tool => tool.name),
                 skills: roleSkills,
                 selected_skill: request.skill ?? null,
                 remaining_model_steps: Math.max(0, options.runtime.max_model_steps - steps),
                 remaining_tool_calls: Math.max(0, options.runtime.max_tool_calls - calls),
                 max_parallel_subagents: profile.can_delegate ? pool.limit : 0,
-                worker_profiles: profile.can_delegate ? options.profiles.filter(worker => worker.role !== 'main')
-                  .map(worker => ({ id: worker.id, role: worker.role, model: worker.model, input: worker.input })) : [],
+                worker_profiles: profile.can_delegate ? options.profiles.filter(worker => options.runtime.subagent_profiles.includes(worker.id))
+                  .map(worker => ({ id: worker.id, role: worker.role, model: worker.model, input: worker.input,
+                    description: worker.description, when_to_use: worker.when_to_use })) : [],
                 image_refs: imageRefs,
                 permission_mode: options.permissionMode ?? 'read-only',
                 execution_state: options.executionState?.() ?? null,
+                task_state: (request.taskState ?? options.taskState)?.() ?? null,
                 execution: options.executionTools ? 'Program-controlled tools available; request actions and obey approval results. New scratch drawings require no existing DWG or reference image.' : 'No dynamic execution session selected.',
                 document_identity_and_units: 'not verified; do not assume target identity or units',
-              }) });
+              });} });
             agentCtx.on('agent/pre-step', async (_payload, next) => {
               if (++steps > options.runtime.max_model_steps) { errorCode = 'MODEL_STEP_BUDGET_EXCEEDED'; return { kind: 'reject' }; }
               agentSteps++;

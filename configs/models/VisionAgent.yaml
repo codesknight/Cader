@@ -1,6 +1,8 @@
 version: 1
 id: VisionAgent
 role: vision
+description: Review actual image evidence and return a schema-validated visual report.
+when_to_use: Drawing appearance, symbols, labels, layout or source-image fidelity; use the controlled CAD review entry.
 provider: openai-compatible
 base_url: https://api.deepseek.com
 api_key_env: DEEPSEEK_API_KEY

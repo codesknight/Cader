@@ -561,3 +561,22 @@ Topology failures now identify coordinates, node degrees, wire IDs, nearest endp
 Component tasks also cannot acquire an unrequested line-entity ceiling. An uncertain visual verdict must identify an affected required check; all-pass checklists with unrelated global uncertainty require bounded report repair, never automatic promotion to pass. Updated 2026-11-22: the local reference and power/lamp cases passed real testing; this does not guarantee arbitrary drawing quality.
 
 MainAgent defaults to `reasoning_effort: low`, while vision remains `off`; output/step/tool/repair limits are unchanged. Adjust the MainAgent model YAML if needed. Bounded reasoning still incurs provider costs and cannot guarantee acceptance of every drawing. After restart, `cader -v` should report dev.7. [Actual retesting and limits](../validation/2026-11-21-complete-quality-retest.md).
+
+## dev.8: capability catalog, agent review and task evidence (2026-11-23)
+
+Each model step receives a unified tool/worker/Skill catalog with purpose, trigger, input/output, invocation entry, availability and refusal reason. Input references point to that step's actual tool schemas; availability is projected from the resolved DSH toolSet. Availability does not grant write permission. Model profiles accept optional description/when_to_use, and the Skill catalog accepts optional when_to_use. Explicit registration and lazy Markdown/resource loading remain enforced.
+
+The main agent can call `cader_review_cad_view`. In quality tasks the Harness binds this entry to frozen requirements and actual CAD observations. If omitted, mandatory Harness review still runs; model prose cannot complete a task. Valid reports are reused only within the same task with matching connection, document, write history, entity snapshot and reference image. Edits trigger revalidation. This is not a native revision guarantee; reuse never transfers across tasks, processes or resume. Clipping, invalid/cancelled reports, changed observations and unknown writes still block acceptance.
+
+Dynamic task_state supplies phase, original requirements, visual call count, latest report/image hash, checks and unmet conditions. `/quality` exposes the same evidence, with historical rather than live-drawing scope. The terminal distinguishes agent-requested review from Harness acceptance, new calls from reuse, and source comparison from ordinary visual review.
+
+```text
+Always use vision review after drawing.
+是否使用了视觉验证？
+继续
+以后按需做视觉检查。
+```
+
+The first input persists a session preference without a drawing plan or CAD call. The history inquiry reads recorded evidence without a model or new capture. Continue rechecks the bound task only when its original connection/document and frozen plan remain valid; it never replays drawing and does nothing to an already accepted task. The last input restores complexity-based review while preserving mandatory gates. Policy text cannot disable required acceptance, grant permission or clear barriers.
+
+The shorter MainAgent static prompt retains stable coordination and evidence/permission rules. CAD workflow knowledge is the registered cad-execution Skill; vision uses its own role prompt. New drawings without a reference do not require one. For a local launcher already bound to this repository, run `pnpm build`, restart, and check dev.8 with `cader -v`. One real house/tree task verifies active review and Harness reuse, not arbitrary redraw, DWG delivery or full v0.4 acceptance. See [implementation and tests](../validation/2026-11-23-capability-routing.md).

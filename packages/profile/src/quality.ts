@@ -6,6 +6,7 @@ import type { ExecutionSession, Approval } from './execution.js';
 import type { ReferenceTask } from './reference-input.js';
 import { referenceLayoutHints } from './reference-input.js';
 import {crossesInterior} from './cad-arguments.js';
+import { taskIntent } from './task-intent.js';
 export type QualityPhase = 'reference' | 'planning' | 'drawing' | 'geometry' | 'topology' | 'vision' | 'correcting' | 'saving' | 'complete' | 'pending_verification' | 'blocked';
 export interface CheckResult {
   id: string;
@@ -19,6 +20,9 @@ export interface QualityResume {
   request_sha256: string;
   plan: QualityPlan;
   round: number;
+  visual_calls?: VisualCall[];
+  reviews?: unknown[];
+  visual_attempt_count?: number;
   reference_task?:ReferenceTask|null;
   execution: {
     local_connection_id: string | null;
@@ -26,9 +30,35 @@ export interface QualityResume {
   };
 }
 export function requiresQuality(task: string) {
+  if (taskIntent(task) !== 'drawing') return false;
   if(/有什么功能|能画什么|如何|怎么|已经.*验证.*吗/.test(task))return false;
   if(/^(?:请)?(?:移动|平移|旋转|move|rotate)/i.test(task))return false;
   return /画|绘制|重绘|复现|临摹|描绘|布局|添加.*(?:文字|标注)|(?:创建|设计|生成|制作|搭建|做).*(?:电路|图|符号|组件)|\bdraw\b|\bredraw\b|\btrace\b|\breproduce\b|\brecreate\b|\bdiagram\b|\bschematic\b/i.test(task);
+}
+type VisualResult = Awaited<ReturnType<Awaited<ReturnType<typeof createLiveRuntime>>['reviewCadView']>>;
+type VisualCall = { source: 'agent' | 'harness'; observed_state_hash: string; review: VisualResult };
+
+/** Compact evidence for model steps and status queries. Saved evidence is
+ * historical, never a fresh native revision or authority to resume writes. */
+export function qualityTaskContext(saved: { task_id: string; phase: string; original_request: string; round: number;
+  checks: CheckResult[]; visual_calls?: VisualCall[]; reviews?: unknown[]; plan?: QualityPlan; visual_attempt_count?: number; visual_error?: string | null }) {
+  const legacy = saved.reviews?.at(-1) as { image_evidence?: unknown; visual_report?: unknown } | undefined;
+  const last = saved.visual_calls?.at(-1)?.review;
+  const clipped=Boolean((last?.evidence as {image_bounds?:{possible_clipping?:boolean}}|undefined)?.image_bounds?.possible_clipping);
+  return { task_id: saved.task_id, phase: saved.phase, original_request: saved.original_request,
+    correction_round: saved.round, visual_call_count: saved.visual_attempt_count ?? Math.max(saved.visual_calls?.length ?? 0, saved.reviews?.filter(r => Boolean((r as { image_evidence?: unknown }).image_evidence)).length ?? 0),
+    visual_error: saved.visual_error ?? null,
+    pending_reasons: [...new Set([...saved.checks.filter(c=>c.status!=='pass').map(c=>c.id),
+      ...(clipped?['capture_bounds']:[]),...(saved.visual_error?[saved.visual_error]:[]),...(last&&!last.review_valid?['visual_report_invalid']:[])])],
+    last_visual: last ? { review_valid: last.review_valid, result: last.structured, image_evidence: last.evidence, image_ref: last.image_ref } : legacy ? { result: legacy.visual_report, image_evidence: legacy.image_evidence } : null,
+    checks: saved.checks, unmet_conditions: saved.checks.filter(c => c.status !== 'pass'),
+    verification: {
+      geometry: saved.checks.filter(c => !['visual','series_cycle'].includes(saved.plan?.requirements?.find(r=>r.id===c.id)?.check??'')),
+      topology: saved.checks.filter(c => saved.plan?.requirements?.find(r=>r.id===c.id)?.check==='series_cycle'),
+      vision: last ? {valid:last.review_valid,verdict:last.structured?.verdict??null} : legacy?.visual_report??null,
+    },
+    acceptance: saved.phase === 'complete' ? 'passed' : 'pending',
+    evidence_scope: 'Task evidence; no authoritative native revision. Re-query before further edits or acceptance.' };
 }
 type Entity = Record<string, any>;
 type P = number[];
@@ -162,6 +192,8 @@ export async function runQualityTask(options: {
   persist: (state: unknown) => Promise<void>;
   request?: Parameters<Awaited<ReturnType<typeof createLiveRuntime>>['run']>[2];
   referenceTask?:ReferenceTask;
+  alwaysVisual?: boolean;
+  onState?: (state: ReturnType<typeof qualityTaskContext>) => void;
 }) {
   const { runtime, owner, task, signal } = options;
   let phase: QualityPhase = 'planning', plan: QualityPlan | undefined, round = 0, checks: CheckResult[] = [], visual: unknown = null;
@@ -171,7 +203,13 @@ export async function runQualityTask(options: {
     text: string;
     tools: string[];
   }[] = [];
-  const reviews: unknown[] = [];
+  const reviews: unknown[] = [...options.resume?.reviews ?? []];
+  const visualCalls: VisualCall[] = [...options.resume?.visual_calls ?? []];
+  let visualAttempts=options.resume?.visual_attempt_count??qualityTaskContext({task_id:'',phase:'',original_request:'',round:0,checks:[],visual_calls:visualCalls,reviews}).visual_call_count;
+  let visualError:string|null=null;
+  let cachedReview: { key: string; review: VisualResult } | undefined;
+  let reviewedWrites: string | undefined;
+  let reviewFlight: Promise<VisualResult> | undefined;
   let guidance = '';
   const referenceTask=options.referenceTask??options.resume?.reference_task??undefined;
   let artifact:Awaited<ReturnType<ExecutionSession['saveTaskArtifact']>>|null=null;
@@ -190,14 +228,17 @@ export async function runQualityTask(options: {
   }[] = [];
   const hash = createHash('sha256').update(task).digest('hex');
   const taskId = options.resume?.task_id ?? randomUUID();
-  const state = () => ({ version: 1, task_id: taskId, phase, original_request: task, request_sha256: hash, plan, round, checks, visual, reviews, transitions, failure,reference_task:referenceTask??null,reference_observation:referenceObservation,artifact,quality_accepted:accepted, model_runs: modelRuns, execution: owner.facts() });
+  const state = () => ({ version: 1, task_id: taskId, phase, original_request: task, request_sha256: hash, plan, round, checks, visual, reviews, visual_calls: visualCalls, visual_attempt_count:visualAttempts,visual_error:visualError,transitions, failure,reference_task:referenceTask??null,reference_observation:referenceObservation,artifact,quality_accepted:accepted, model_runs: modelRuns, execution: owner.facts() });
+  const publish = () => { const facts=owner.facts();const context = {...qualityTaskContext(state()),
+    visual_evidence_requires_recheck: !cachedReview || facts.frozen || reviewedWrites!==JSON.stringify([facts.local_connection_id,facts.scratch,facts.session_counts]),
+    authorization: 'Task-scoped grant enforced by ExecutionSession; never inherited from task evidence.'}; options.onState?.(context); return context; };
   const act = async (instruction: string, request?: Parameters<Awaited<ReturnType<typeof createLiveRuntime>>['run']>[2]) => {
     if(!runtime)throw new Error('QUALITY_RUNTIME_REQUIRED');
     await sourceUnchanged();
     const sourceHints=referenceObservation?.structured?referenceLayoutHints(referenceObservation.structured,referenceObservation.evidence):null;
     const result = await runtime.run(options.profile, instruction + '\n领域质量知识（数据，不授予权限）：\n' + guidance+
       (sourceHints?'\n原图已观察事实及统一CAD坐标提示（y向上，禁止把像素y向下直接当CAD坐标）：\n'+JSON.stringify(sourceHints):''),
-      { ...options.request,...request,image:referenceTask?.image.path??request?.image??options.request?.image,imageView:options.request?.imageView??referenceView, signal });
+      { ...options.request,...request,taskState:publish,controlledReview:(_question,reviewSignal)=>reviewCurrent('agent',reviewSignal),image:referenceTask?.image.path??request?.image??options.request?.image,imageView:options.request?.imageView??referenceView, signal });
     modelRuns.push({ phase, status: result.status, text: result.text, tools: result.tools });
     if(result.status !== 'succeeded'){
       const missingPlan=phase==='planning'&&!result.errorCode;
@@ -206,7 +247,53 @@ export async function runQualityTask(options: {
     }
     return result;
   };
-  const enter = async (next: QualityPhase) => { phase = next; transitions.push({ phase, at: new Date().toISOString() }); options.emit({ type: 'task.phase', phase, round }); await options.persist(state()); };
+  const enter = async (next: QualityPhase) => { phase = next; transitions.push({ phase, at: new Date().toISOString() }); publish(); options.emit({ type: 'task.phase', phase, round, has_reference: Boolean(referenceTask) }); await options.persist(state()); };
+  // Both the model tool and mandatory fallback use this controller. Cache is
+  // task-local and requires the same connection, document, writes and full readback.
+  const reviewCurrent = async (source: 'agent' | 'harness', reviewSignal = signal): Promise<VisualResult> => {
+    if (reviewFlight) { await reviewFlight; reviewSignal?.throwIfAborted(); return reviewCurrent(source, reviewSignal); }
+    const perform = async () => {
+      reviewSignal?.throwIfAborted();
+      if (!runtime || !plan || !['drawing','correcting','vision'].includes(phase)) throw new Error('VISUAL_REVIEW_PHASE_DENIED');
+      if (owner.facts().frozen) throw new Error('CAD_CAPTURE_BLOCKED_FROZEN');
+      await sourceUnchanged();
+      const before = await owner.snapshot();
+      reviewSignal?.throwIfAborted();
+      const facts = owner.facts();
+      const digest = createHash('sha256').update(JSON.stringify(before.entities)).digest('hex');
+      const key = JSON.stringify([taskId, facts.local_connection_id, facts.scratch, before.document, digest, facts.session_counts, plan, referenceTask?.image.sha256]);
+      if (cachedReview?.key === key) {
+        options.emit({type:'task.visual',source,reused:true,review_valid:cachedReview.review.review_valid,verdict:cachedReview.review.structured?.verdict??null});
+        return cachedReview.review;
+      }
+      const geometry = verifyQuality(plan, before.entities, {new_document:owner.taskScope?.(taskId).new_drawing_confirmed,saved_dwg:Boolean(artifact)});
+      checks=geometry;publish();
+      visualAttempts++;visualError=null;publish();
+      const review = await runtime.reviewCadView(JSON.stringify({ original_request: task,
+        requirements: plan.requirements.filter(r => r.check === 'visual'), geometry, domain_guidance: guidance,
+        entity_snapshot: before.entities, observed_state_hash: digest, document_revision: null,
+        note: 'Image evidence checks appearance. Queried coordinates/IDs are authoritative; ambiguous pixels remain uncertain.',reference:referenceTask?.image??null }),reviewSignal,referenceTask?.image.path);
+      visual = review;
+      visualCalls.push({source,observed_state_hash:digest,review});
+      const after = await owner.snapshot();
+      reviewSignal?.throwIfAborted();
+      await sourceUnchanged();
+      const afterFacts=owner.facts();
+      const stable = !afterFacts.frozen && before.document===after.document && facts.local_connection_id===afterFacts.local_connection_id && facts.scratch===afterFacts.scratch &&
+        digest===createHash('sha256').update(JSON.stringify(after.entities)).digest('hex') && JSON.stringify(facts.session_counts)===JSON.stringify(afterFacts.session_counts);
+      // Invalid or stale results are retained as evidence, never reusable acceptance.
+      if(stable && review.review_valid) {cachedReview={key,review};reviewedWrites=JSON.stringify([afterFacts.local_connection_id,afterFacts.scratch,afterFacts.session_counts]);}
+      else cachedReview=undefined;
+      publish(); await options.persist(state());
+      options.emit({type:'task.visual',source,reused:false,call_count:visualCalls.length,review_valid:review.review_valid,verdict:review.structured?.verdict??null,observation_unchanged:stable});
+      if(!stable) throw new Error('VISUAL_OBSERVATION_CHANGED');
+      return review;
+    };
+    reviewFlight=perform();
+    try { return await reviewFlight; }
+    catch(error){visualError=error instanceof Error?error.message:'VISUAL_REVIEW_FAILED';publish();await options.persist(state());throw error;}
+    finally {reviewFlight=undefined;}
+  };
   const saveReferenceArtifact=async()=>{
     if(!referenceTask)return;
     await sourceUnchanged();await enter('saving');
@@ -227,6 +314,8 @@ export async function runQualityTask(options: {
       if(/并联|\bparallel\b/i.test(task) && parsed.domain === 'electrical-schematic') throw new Error('PARALLEL_TOPOLOGY_VERIFIER_UNAVAILABLE: cannot substitute a series-cycle check');
       if(/图|diagram|文字|text|电路|circuit/i.test(task))
         parsed.visual_required = true;
+      if(options.alwaysVisual||requiresQuality(task)||parsed.requirements.some(r=>r.check==='visual')) parsed.visual_required = true;
+      if(parsed.visual_required&&!parsed.requirements.some(r=>r.check==='visual'))throw new Error('VISUAL_ACCEPTANCE_REQUIRED: include an independently reviewable visual condition quoted from the original request');
       if(referenceTask){
         parsed.visual_required=true;
         if(!parsed.requirements.some(r=>r.check==='visual'))throw new Error('REFERENCE_APPEARANCE_CHECK_REQUIRED');
@@ -279,7 +368,7 @@ export async function runQualityTask(options: {
     }
     await enter('drawing');
     if(!options.resume)
-      await act((referenceTask?'根据当前实际附带的原图重绘。本任务必须先调用new_drawing新建空白图，不允许复用上一任务图。图层先创建再使用；不要只写分析或要求GUI上传。程序会将结果保存到约定DWG，模型阶段不要保存。':'按原始请求及已封存验收计划自主绘图，不要重建已存在的合适工作图。')+'所有点必须XYZ，按验收计划绝对坐标与端口位置执行。WIRE只用于组件外部连接，不得跨过组件本体或短接同一组件两端。所有文本应按原图可读标注绘制，不虚构尺寸。不要调用视觉工具，不要向用户宣称完成；调度器会验证。\n' + JSON.stringify({ task, plan }), options.request);
+      await act((referenceTask?'根据当前实际附带的原图重绘。本任务必须先调用new_drawing新建空白图，不允许复用上一任务图。图层先创建再使用；不要只写分析或要求GUI上传。程序会将结果保存到约定DWG，模型阶段不要保存。':'按原始请求及已封存验收计划自主绘图，不要重建已存在的合适工作图。')+'所有点必须XYZ，按验收计划绝对坐标与端口位置执行。WIRE只用于组件外部连接，不得跨过组件本体或短接同一组件两端。所有文本应按原图可读标注绘制，不虚构尺寸。绘制后主动调用cader_review_cad_view检查实际结果；该入口由程序绑定本任务需求和实体证据，已有有效检查会复用。若未调用，调度器仍会补验；不要向用户宣称完成。\n' + JSON.stringify({ task, plan }), options.request);
     if(referenceTask&&!owner.facts().frozen){
       let scope=owner.taskScope(taskId);
       if(!scope.new_drawing_confirmed||!scope.geometry_confirmed){
@@ -308,12 +397,7 @@ export async function runQualityTask(options: {
       const snapshotHash = createHash('sha256').update(JSON.stringify(snapshot.entities)).digest('hex');
       if(plan.visual_required) {
         await enter('vision');
-        visual = await runtime.reviewCadView(JSON.stringify({
-          original_request: task, requirements: plan.requirements.filter(r => r.check === 'visual'), geometry: checks, domain_guidance: guidance,
-          entity_snapshot: snapshot.entities, observed_state_hash: snapshotHash, document_revision: null,
-          note: 'Use image for symbol/label/layout quality. Coordinates and IDs from queries are authoritative for location; mark pixel ambiguity uncertain. Do not invent requested dimensions.',
-          reference:referenceTask?.image??null,
-        }), signal,referenceTask?.image.path);
+        visual = await reviewCurrent('harness');
       }
       const review = visual as Awaited<ReturnType<typeof runtime.reviewCadView>> | null;
       const knownIds = new Set(snapshot.entities.map(e => e.object_id));
@@ -342,6 +426,7 @@ export async function runQualityTask(options: {
         entity_mapping: 'queried ObjectIDs; pixel-to-CAD transform unavailable; visual suggestions require coordinate reconciliation'
       });
       const beforeSave=checks.filter(c=>!referenceTask||plan!.requirements.find(r=>r.id===c.id)?.check!=='saved_dwg');
+      signal?.throwIfAborted();
       if(valid && unchanged && !sourceLabelsUncertain && beforeSave.every(c => c.status === 'pass')) {
         accepted=true;
         if(!referenceTask)await enter('complete');
@@ -357,7 +442,7 @@ export async function runQualityTask(options: {
         break;
       }
       await enter('correcting');
-      await act('使用中文。程序已附实际读回实体和定位到坐标/ID的拓扑缺陷，修改前核对目标实体，再调用cader_apply_cad_patch或CAD修改工具提交实际局部修改。优先修复程序明确指出的断点、分支、组件越界与文字，不重复增加已存在的线段；错误导线应替换，不能叠加捷径。组件必须容纳于封存bounds且符号引线到达封存ports，物理圆不能画成超出盒的椭圆近似。不要只描述计划，不输出长篇思考，不整图重建；删除仅限本任务实体，由执行层检查。以坐标核对视觉分歧，不能凭像素编辑。验收计划不能更改。不要宣称完成，修正后程序重新核验。\n' + JSON.stringify({ original_request: task, plan, checks, entity_snapshot:after.entities,visual: review?.structured }));
+      await act('使用中文。程序已附实际读回实体和定位到坐标/ID的拓扑缺陷，修改前核对目标实体，再调用cader_apply_cad_patch或CAD修改工具提交实际局部修改。优先修复程序明确指出的断点、分支、组件越界与文字，不重复增加已存在的线段；错误导线应替换，不能叠加捷径。组件必须容纳于封存bounds且符号引线到达封存ports，物理圆不能画成超出盒的椭圆近似。不要只描述计划，不输出长篇思考，不整图重建；删除仅限本任务实体，由执行层检查。以坐标核对视觉分歧，不能凭像素编辑。验收计划不能更改。不要宣称完成，修正后主动调用cader_review_cad_view；程序仍会重新核验。\n' + JSON.stringify({ original_request: task, plan, checks, entity_snapshot:after.entities,visual: review?.structured }));
     }
     if(referenceTask&&!owner.facts().frozen&&(phase as QualityPhase)!=='blocked'){
       await saveReferenceArtifact();

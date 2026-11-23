@@ -12,7 +12,8 @@ import type { ImageView } from '@cader/dsh-adapter';
 import { ExecutionSession } from './execution.js';
 import type { PermissionMode } from './execution.js';
 import { environmentRedactor } from './session-store.js';
-import { requiresQuality, runQualityTask } from './quality.js';
+import { requiresQuality, runQualityTask, qualityTaskContext } from './quality.js';
+import { taskIntent } from './task-intent.js';
 import type { QualityResume } from './quality.js';
 import type { Approval } from './execution.js';
 import { importReferenceImage, referenceOutput, wantsRedraw } from './reference-input.js';
@@ -29,6 +30,7 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
   executionOwner?: ExecutionSession; confirmTask?: Approval; originalTask?: string;
   qualityResume?:QualityResume;
   referenceTask?:ReferenceTask;
+  taskState?: () => unknown; alwaysVisual?: boolean;
   history?: { role: 'user' | 'assistant'; content: string; status?: string }[]; summary?: string; domain?: string;
   onEvent?: (event: PublicEvent) => void },
   factory: typeof createLiveRuntime = createLiveRuntime) {
@@ -55,6 +57,12 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
   let result: AgentResult | undefined;
   let quality: Awaited<ReturnType<typeof runQualityTask>> | undefined;
   let qualityPhase = 'planning';
+  let currentTaskState: unknown;
+  const routedIntent=taskIntent(input.originalTask??input.task);
+  const shouldCheck=()=>Boolean(input.referenceTask||input.qualityResume||requiresQuality(input.originalTask??input.task)||
+    (input.alwaysVisual&&/^(?:请)?(?:移动|平移|旋转|修改|move|rotate)/i.test(input.originalTask??input.task)));
+  const intentAllowsTool=(name:string)=>!['status','preference'].includes(routedIntent)||
+    /^(?:cader_(?:read_file|list_files|glob|cad_health|load_skill|open_image|view_image)|mcp__.+__(?:get_\w+|query_entities|list_\w+))$/.test(name);
   let qualityEnabled = Boolean(input.executionOwner && !input.disableTools && (input.referenceTask||requiresQuality(input.originalTask ?? input.task)));
   let cleanupError: string | undefined;
   let stage: 'configuration' | 'runtime' | 'mcp' = 'configuration';
@@ -82,7 +90,7 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
           outputPath:referenceOutput(workspace,input.originalTask??input.task,originalImage),freshDrawing:true};
       if (input.imageView) await prepareImageView(workspace, input.image, input.imageView);
     }
-    qualityEnabled=Boolean(input.executionOwner&&!input.disableTools&&(input.referenceTask||requiresQuality(input.originalTask??input.task)));
+    qualityEnabled=Boolean(input.executionOwner&&!input.disableTools&&shouldCheck());
     if (!drawingBlocked) {
       let mcp = input.mcpPath ? await loadMcp(resolve(root, input.mcpPath)) : undefined;
       if (input.permissionMode && !input.executionTools) {
@@ -95,14 +103,15 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
         input.executionState = () => execution!.facts(); input.toolAvailable = name => execution!.toolAvailable(name);
         input.captureCadView = signal => execution!.captureView(signal); mcp = undefined;
         input.executionOwner = execution;
-        qualityEnabled = !input.disableTools && Boolean(input.referenceTask||requiresQuality(input.originalTask ?? input.task));
+        qualityEnabled = !input.disableTools && shouldCheck();
       }
       stage = mcp ? 'mcp' : 'runtime';
       input.signal?.throwIfAborted();
       if(input.referenceTask&&input.executionOwner?.facts().transport!=='connected')throw new Error('REFERENCE_MCP_REQUIRED');
       const executeQuality=(activeRuntime?:Awaited<ReturnType<typeof createLiveRuntime>>)=>runQualityTask({runtime:activeRuntime,root,profile:config.runtime.main_profile,task:input.originalTask??input.task,
-        owner:input.executionOwner!,signal:input.signal,confirm:input.confirmTask,resume:input.qualityResume,referenceTask:input.referenceTask,
-        emit:event=>{qualityPhase=String(event.phase);events.push(event);input.onEvent?.(event);},
+        owner:input.executionOwner!,signal:input.signal,confirm:input.confirmTask,resume:input.qualityResume,referenceTask:input.referenceTask,alwaysVisual:input.alwaysVisual,
+        onState:state=>{currentTaskState=state;},
+        emit:event=>{if(event.type==='task.phase')qualityPhase=String(event.phase);events.push(event);input.onEvent?.(event);},
         persist:state=>writeFile(join(directory,'quality.json'),cleanEnvironment(redactSecrets(JSON.stringify(state,null,2),config.profiles))),
         request:{skill:input.skill,image:input.image,history:input.history,summary:input.summary,domain:input.domain}});
       if(qualityEnabled&&input.executionOwner?.facts().frozen){
@@ -110,8 +119,9 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
       }else{
       runtime = await factory({ root, workspaceRoot: workspace, runDirectory: directory, ...config, mcp, disableTools: input.disableTools,
         executionTools: input.executionTools, permissionMode: input.permissionMode,
-        executionState: input.executionState, toolAvailable: name => (input.toolAvailable?.(name) ?? true) && (!qualityEnabled ||
-          (!['cader_shell','cader_delegate','cader_review_cad_view'].includes(name) && !(qualityPhase==='correcting' && name.endsWith('__new_drawing'))&&(!input.referenceTask||!name.endsWith('__save_drawing')))), captureCadView: input.captureCadView,
+        taskState:()=>currentTaskState??input.taskState?.()??{intent:routedIntent,phase:'conversation',visual_call_count:0},
+        executionState: input.executionState, toolAvailable: name => intentAllowsTool(name) && (input.toolAvailable?.(name) ?? true) && (!qualityEnabled ||
+          (!['cader_shell','cader_delegate'].includes(name) && !(qualityPhase==='correcting' && name.endsWith('__new_drawing'))&&(!input.referenceTask||!name.endsWith('__save_drawing')))), captureCadView: input.captureCadView,
         images: input.image ? { 'image-1': input.image } : {}, onEvent: event => {
           // Streaming deltas are displayed live; persist only the final public answer, not duplicate deltas.
           if (event.type !== 'assistant.delta') events.push(event);
@@ -155,6 +165,7 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
     task_status: cancelled || writeBlocked || qualityPending ? 'blocked' : !runSucceeded ? 'failed' : drawingBlocked ? 'blocked' : quality?.phase==='complete'?'succeeded':'unverified',
     blocked_reasons: cancelled ? ['CANCELLED'] : writeBlocked ? ['CAD_WRITE_FROZEN'] : failure?[failure.errorCode]:qualityPending?['QUALITY_NOT_ACCEPTED']:drawingBlocked && runSucceeded ? ['WRITE_CAPABILITY_UNAVAILABLE'] : [],
     quality:quality??null,
+    task_context:quality?qualityTaskContext(quality):input.taskState?.()??null,
     model_run_status:result?.status??(runtime?'no_result':'not_started'),
     execution_evidence: executionEvidence ?? null,
     authorization: { user_task_authorized: true, write_authorized: Boolean(input.permissionMode && input.permissionMode !== 'read-only' && events.some(event => event.type === 'tool.result' && event.isError === false && /(?:__(?:new_drawing|draw_\w+|create_layer|set_layer_properties|move_entity|rotate_entity|copy_entity|scale_entity|mirror_entity|delete_entity|save_drawing)|cader_(?:write_file|edit_file|shell))$/.test(String(event.tool)))),
@@ -167,7 +178,7 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
     selectedSkill: input.skill ?? null, imageProvided: Boolean(input.image),
     text: qualityEnabled&&writeBlocked?`${!runtime?'任务未开始：工作区写屏障已存在，未调用模型规划。':'绘图执行中断：尚未通过验收。'}\n${input.executionOwner?.diagnosticSummary()??''}\n${!runtime?'/mcp barrier 可查看旧缺参屏障复核资格。':'请保留原图和执行证据；不得重放未知写入。'}` : qualityEnabled&&quality?.failure?`任务在${quality.failure.stage==='planning'?'规划':quality.failure.stage}阶段失败，${quality.failure.stage==='planning'?'尚未允许绘图。':'未通过验收。'}\n原因：${failure?.errorCode??quality.failure.code}。详细证据：${join(directory,'quality.json')}` : qualityEnabled ? `${quality?.phase==='complete'?'任务验收通过。':'任务尚未完成，质量验证待通过。'}\n`+
       (quality?.plan?quality.checks.map(check=>`${check.status==='pass'?'✓':'×'} ${quality?.plan?.requirements.find(r=>r.id===check.id)?.description??check.id}：${check.evidence}`).join('\n'):'验收计划未建立，未允许绘图。')+
-      `\n阶段：${quality?.phase??'pending_verification'}；修正轮次：${quality?.round??0}/3。详细证据：${join(directory,'quality.json')}`+
+      `\n阶段：${quality?.phase??'pending_verification'}；视觉调用：${quality?.visual_attempt_count??0}；修正轮次：${quality?.round??0}/3。详细证据：${join(directory,'quality.json')}`+
       (quality?.artifact?`\nDWG已生成并校验：${quality.artifact.path}${quality.phase==='complete'?'':'（待验稿，未通过全部质量条件）'}`:'') : result?.text ?? '', ...failure, cleanupError, runDirectory: directory };
   if(quality?.failure&&quality.artifact)report.text+=`\nDWG已生成并校验：${quality.artifact.path}（待验稿，模型中断，未通过全部质量条件）`;
   const redact = (text: string) => cleanEnvironment(redactSecrets(text, config.profiles));

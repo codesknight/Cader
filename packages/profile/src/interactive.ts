@@ -11,6 +11,8 @@ import { runUserShell } from './interactive-shell.js';
 import { ExecutionSession, PERMISSION_MODES } from './execution.js';
 import type { PermissionMode } from './execution.js';
 import type { QualityResume } from './quality.js';
+import { qualityTaskContext } from './quality.js';
+import { taskIntent } from './task-intent.js';
 import { importReferenceImage, referencedPaths, referenceOutput, wantsRedraw } from './reference-input.js';
 
 export const SLASH_COMMANDS = [
@@ -18,7 +20,7 @@ export const SLASH_COMMANDS = [
   ['/status', '工作区与CAD状态'], ['/model', '查看或切换配置模型'], ['/mcp', 'list / use <配置> / tools / doctor / recover / barrier / resolve / off'],
   ['/skills', 'list / use <技能> / off'], ['/domain', '查看或切换专业'], ['/context', '上下文统计'],
   ['/compact', '用模型总结上下文，保留原始对话'], ['/clear', '保存并新建空白会话'], ['/resume', '列出或恢复会话ID'],
-  ['/quality','查看质量任务；resume 安全重验，不重放绘图'],
+  ['/quality','查看质量/视觉次数与证据；resume 安全重验，不重放绘图'],
   ['/undo', '检查受控撤销能力'], ['/checkpoint', '创建会话与工程引用检查点'], ['/permissions', 'read-only | ask | workspace-write | full-access；shell ask|deny'], ['/exit', '保存并退出'],
 ] as const;
 const Domains = z.object({ version: z.literal(1), domains: z.array(z.object({ id: z.string().regex(/^[a-z][a-z0-9-]*$/),
@@ -156,13 +158,13 @@ export class InteractiveSession {
           const path=await workspacePath(this.state.workspace,this.state.qualityRun);
           if((await stat(path)).size>2_000_000)throw new Error('QUALITY_MANIFEST_TOO_LARGE');
           const saved=JSON.parse(await readFile(path,'utf8'));
-          if(!arg)return {text:this.clean(JSON.stringify({phase:saved.phase,round:saved.round,checks:saved.checks,path},null,2))};
+          if(!arg)return {text:this.clean(JSON.stringify({...qualityTaskContext(saved),path},null,2))};
           if(arg!=='resume')return {text:'/quality 或 /quality resume',error:true};
           if(saved.phase==='complete')return {text:'该任务已验收，无需重放。'};
           return this.converse(saved.original_request,callbacks,saved as QualityResume);
         }
         case '/help': return { text: SLASH_COMMANDS.map(([key, description]) => `${key.padEnd(15)} ${description}`).join('\n')
-          + '\n\n自然语言持续对话 · @"路径含空格.png" 引用 · !dir 用户Shell\nEsc/Ctrl+C 中断当前任务 · Tab 补全 · 上下键历史 · Ctrl+D 或 /exit 退出\n/open DWG仅引用元数据，后端尚无任意DWG受控打开接口；/undo同样按能力拒绝。' };
+          + '\n\n自然语言持续对话 · @"路径含空格.png" 引用 · !dir 用户Shell\n“每次绘图都做视觉检查”保存会话偏好；“是否使用了视觉验证？”读取历史证据；“继续”安全重验当前质量任务。\nEsc/Ctrl+C 中断当前任务 · Tab 补全 · 上下键历史 · Ctrl+D 或 /exit 退出\n/open DWG仅引用元数据，后端尚无任意DWG受控打开接口；/undo同样按能力拒绝。' };
         case '/exit': await this.store.save(this.state); await this.dispose(); return { text: `会话已保存：${this.state.id}`, exit: true };
         case '/context': return { text: JSON.stringify(this.context(), null, 2) };
         case '/status': return { text: `工作目录 ${this.state.workspace}\n模型 ${this.model.model} (${this.state.model})\nCAD 权限 ${this.state.permission}\n${await this.mcpProbe()}` };
@@ -266,6 +268,34 @@ export class InteractiveSession {
     if (this.state.messages.length > 1900 || Buffer.byteLength(JSON.stringify(this.state)) > 1_600_000)
       return { text: '会话存档接近上限，请 /clear 开始新会话；旧记录保留。', error: true };
     if (line.length > 24000 || this.context().estimatedTextTokens > 20000) return { text: '上下文达到本轮上限，请先 /compact 或 /clear。', error: true };
+    const intent=taskIntent(line);
+    let priorQuality: Parameters<typeof qualityTaskContext>[0] & QualityResume | undefined;
+    if(this.state.qualityRun){
+      const path=await workspacePath(this.state.workspace,this.state.qualityRun);
+      if((await stat(path)).size>2_000_000)throw new Error('QUALITY_MANIFEST_TOO_LARGE');
+      priorQuality=JSON.parse(await readFile(path,'utf8'));
+      if(!priorQuality?.task_id||!Array.isArray(priorQuality.checks))throw new Error('QUALITY_MANIFEST_INVALID');
+    }
+    const remember=async(text:string)=>{
+      this.state.messages.push({role:'user',content:this.clean(line),status:'submitted',at:new Date().toISOString()},
+        {role:'assistant',content:this.clean(text),status:'succeeded',at:new Date().toISOString()});
+      await this.store.event(this.state,{kind:'task-routing',intent,visual_policy:this.state.visualPolicy});
+      await this.store.save(this.state);return {text};
+    };
+    if(intent==='preference'){
+      const negative=/不要|不再|无需|关闭|停止|never|disable/i.test(line);
+      const automatic=/按需|复杂任务|自动判断|必要时|\bauto\b/i.test(line)&&!/每次|始终|\balways\b/i.test(line);
+      if(!negative)this.state.visualPolicy=automatic?'auto':'always';
+      return remember(negative?'质量验收不能通过规则说明关闭。现有检查策略保留；未创建绘图任务、未调用CAD。':`已记录：${automatic?'按任务复杂度自动检查，必要视觉验收仍强制执行':'本会话后续绘图均要求视觉检查'}，恢复会话后仍保留。主Agent可主动调用，遗漏时Harness补验；未创建绘图任务、未调用CAD。`);
+    }
+    if(intent==='status'&&/视觉|vision/i.test(line)&&/是否|有没有|几次|多少|结果|状态|之前|此前|做过|用过|调用过|使用过|检查过|验证过|校验过|了吗|have you|did you|status/i.test(line)){
+      return remember(priorQuality?`当前任务视觉检查已调用 ${qualityTaskContext(priorQuality).visual_call_count} 次。以下为已保存的任务证据，不代表当前图纸的实时状态：\n${JSON.stringify(qualityTaskContext(priorQuality),null,2)}`:'当前会话没有已记录的质量任务；不能据此判断其他会话是否执行过视觉检查。');
+    }
+    if(intent==='continue'&&!this.state.redrawTask&&priorQuality){
+      if(priorQuality.phase==='complete')return remember('当前任务已验收通过，未重复绘图。请明确描述新的绘图需求。');
+      if(!priorQuality.plan)return remember('当前任务尚未建立有效验收计划，请重新发送完整绘图需求；未重放CAD操作。');
+      qualityResume=priorQuality;line=priorQuality.original_request;
+    }
     const explicit=[...new Set([...line.matchAll(/(?:^|\s)@(?:"([^"]+)"|([^\s]+))/g)].map(match=>match[1]??match[2]!).concat(referencedPaths(line)))];
     const references=explicit;
     for (const path of references) await this.reference(path);
@@ -319,6 +349,7 @@ export class InteractiveSession {
       permissionMode: this.state.permission,
       executionOwner:this.execution,confirmTask:callbacks.confirm,originalTask:content,
       qualityResume,referenceTask:referenceTask??undefined,
+      taskState:()=>priorQuality?qualityTaskContext(priorQuality):null,alwaysVisual:this.state.visualPolicy==='always',
       executionAuditDirectory: this.execution.runDirectory,
       skill: this.state.skill ?? undefined, image: image?.path, history, summary: this.state.summary,
       domain: this.domains.find(domain => domain.id === this.state.domain)!.instruction,

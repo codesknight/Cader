@@ -1,17 +1,26 @@
 version: 1
 skills:
+  - name: cad-execution
+    description: CAD execution workflow, dependencies, reference-image use and recovery evidence.
+    when_to_use: Before planning CAD writes, image redraw, patches, layer dependencies or recovery.
+    roles: [main]
+    mode: read-only
+    resources: {}
   - name: electrical-quality
     description: Electrical schematic symbol, port and local correction knowledge; no execution authority.
+    when_to_use: When planning or reviewing electrical symbols, ports and local topology repairs.
     roles: [main, vision]
     mode: read-only
     resources: {}
   - name: cad-inspection
     description: Inspect CAD layers through reviewed read-only MCP tools.
+    when_to_use: When inspecting actual CAD entities, layers or read-only backend evidence.
     roles: [main, subagent, vision]
     mode: read-only
     resources: {}
   - name: cad-redraw-review
     description: Review reference evidence, scale uncertainty and redraw acceptance. The Harness controls authorized drawing and DWG delivery; this skill grants no tools or permissions.
+    when_to_use: When assessing or redrawing an image reference and comparing source evidence with CAD results.
     roles: [main, vision]
     mode: read-only
     resources:

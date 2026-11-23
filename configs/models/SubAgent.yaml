@@ -1,6 +1,8 @@
 version: 1
 id: SubAgent
 role: subagent
+description: Analyze one bounded independent text task and return findings and uncertainty.
+when_to_use: Independent read-only analysis; no CAD writes, delegation or final task acceptance.
 provider: openai-compatible
 base_url: https://api.deepseek.com
 api_key_env: DEEPSEEK_API_KEY

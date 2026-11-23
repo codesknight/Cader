@@ -288,3 +288,9 @@ REQ-033手稿日志审计：读取用户原始附件及实际verification/events
 实际`pnpm typecheck`、`pnpm test`93/93、`pnpm smoke`通过；定向21项涵盖完整文字/数量/SI、定位断点、清单ID修复、原图裁图数据通路、清晰文字绑定与不确定稿仍绘制保存但不完成。这些fixture不是实际OCR或真实CAD证明；后者分层见[记录](../validation/2026-11-21-complete-quality-retest.md)。最终灯泡/手册/CI状态随后追加，不据此关闭全部v0.4验收。
 
 2026-11-22最终收尾：typecheck、94/94测试、smoke通过；定向22项。实际最终手稿17/17及灯泡11/11通过，DWG分别17435/16991bytes，独立只读重开/源期望核对通过；灯泡文件从执行审计取得，未冒充手工保存。中间一次捕获Add.Delete导致unknown，原锁保留；独立MCP80a07bd修复后5次新图截图/恢复通过，227 passed/33 skipped及CI44914265701通过。无关全局视觉uncertain现在要求有界重报而非直接pass，组件任务也不得自设总线段上限。详细失败和证据层级见同一实测记录。
+
+## 2026-11-23 REQ-037 / #20：能力与视觉路由
+
+`pnpm typecheck`、`pnpm test`100/100、`pnpm smoke`通过；手册links-only及diff检查通过。新增实际DSH请求级目录/准入一致性与任务状态刷新、主动/兜底同份证据、写后失效/并发合并、裁切不通过、模型不能去掉必要视觉条件、偏好/历史不启动模型/CAD、继续不重放及视觉进度不解除修正阶段禁新图回归。最初96/98测试的失败及修复记录保留于[本轮实测](../validation/2026-11-23-capability-routing.md)，不覆盖旧失败。
+
+两次显式 `pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task "新建一张空白图纸，绘制一个房子，旁边有棵树。"` 均真实模型/AutoCAD完成6/6，均Agent主动评审1次、Harness复用、1张真实图，unknown0；最终dev.8为20确认、8步骤、0修正。图片独立查看，未保存DWG，不冒充文件验收。非固定绘图计划，原始轨迹只在.cader/runs；CI另按实际结果追加。

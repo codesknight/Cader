@@ -6,6 +6,7 @@ import { loadConfig } from '@cader/config';
 import { createLiveRuntime, defineTool } from '@cader/dsh-adapter';
 import type { StreamChunk, PublicEvent } from '@cader/dsh-adapter';
 import { runTask, validateCadArguments } from '@cader/profile';
+import type { ExecutionSession } from '@cader/profile';
 
 test('actual DSH composite patch validates nested schemas, executes serially and stops at first failure', async () => {
   process.env.CADER_PATCH_FIXTURE='offline-patch-fixture';
@@ -53,6 +54,33 @@ test('legacy CAD coordinate constraints reject malformed XYZ before any side eff
   assert.throws(() => validateCadArguments('draw_line', { start_x: 0,start_y: 0,start_z: 0,end_x: 0,end_y: 0,end_z: 0 }), /ZERO_LENGTH/);
   assert.throws(() => validateCadArguments('draw_circle', { radius: Infinity }), /NONFINITE/);
   validateCadArguments('draw_polyline', { points: [[-40,14,0],[-24,14,0],[-18,20,0]] });
+});
+
+test('visual progress events cannot lift the correction phase ban on new drawings',async()=>{
+  await mkdir('.cader/tests',{recursive:true});const directory=await mkdtemp(resolve('.cader/tests/phase-'));
+  let revision=0,reviewCount=0,guardObserved=false;
+  const owner={facts:()=>({frozen:false,local_connection_id:'fixture',scratch:'fixture.dwg',session_counts:{committed:revision}}),
+    authorizeTask:async()=>true,endTask(){},snapshot:async()=>({document:'fixture.dwg',entities:[]})} as unknown as ExecutionSession;
+  const factory:typeof createLiveRuntime=async options=>({
+    async run(_profile:string,_instruction:string,request?:Parameters<Awaited<ReturnType<typeof createLiveRuntime>>['run']>[2]){
+      const state=request?.taskState?.() as {phase:string};
+      if(request?.extraTools){await request.extraTools[0]!.execute({version:1,domain:'generic',components:[],visual_required:true,requirements:[{id:'look',source_quote:'画图',description:'Fixture appearance',check:'visual'}]},{concludeTurn(){}} as never);}
+      else if(state.phase==='correcting'){
+        revision++;
+        assert.equal(options.toolAvailable?.('mcp__autocad__new_drawing'),false);
+        await request!.controlledReview!('Review fixture only');
+        assert.equal(options.toolAvailable?.('mcp__autocad__new_drawing'),false);
+        guardObserved=true;
+      }
+      return {id:'fixture-main',profile:'MainAgent',status:'succeeded',text:'Fixture',tools:[],modelSteps:1};
+    },
+    async reviewCadView(){reviewCount++;return {review_valid:true,structured:{verdict:reviewCount===1?'fail':'pass',defects:[],checklist:[{requirement_id:'look',status:reviewCount===1?'fail':'pass',evidence:'fixture'}],uncertainties:[]},evidence:{},image_ref:'fixture',requirements:'fixture',attempts:[]};},
+    completed:()=>[{id:'fixture-main',profile:'MainAgent',status:'succeeded',text:'Fixture',tools:[],modelSteps:1}],dispose:async()=>{},
+  } as unknown as Awaited<ReturnType<typeof createLiveRuntime>>);
+  try{
+    const report=await runTask(process.cwd(),{task:'画图',workspaceRoot:directory,executionOwner:owner,executionTools:[],executionState:()=>owner.facts(),permissionMode:'ask'},factory);
+    assert.equal(guardObserved,true);assert.equal(report.quality?.phase,'complete');
+  }finally{await rm(directory,{recursive:true});}
 });
 
 test('actual DSH routes a generated image attachment to vision automatically and enforces review budget', async () => {

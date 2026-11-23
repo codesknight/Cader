@@ -9,6 +9,7 @@ export const Session = z.object({ version: z.literal(1), id: z.string().regex(/^
   mcp: z.string().nullable(), skill: z.string().nullable(), shell: z.enum(['ask', 'deny']),
   permission: z.enum(['read-only', 'ask', 'workspace-write', 'full-access']).default('ask'),
   qualityRun:z.string().nullable().default(null),
+  visualPolicy:z.enum(['auto','always']).default('auto'),
   redrawTask:z.object({request:z.string().max(24000),image:z.object({path:z.string(),sha256:z.string().regex(/^[a-f0-9]{64}$/),width:z.int().positive(),height:z.int().positive()}).strict(),outputPath:z.string(),freshDrawing:z.literal(true),qualityRun:z.string().nullable().default(null)}).strict().nullable().default(null),
   pendingRedrawRequest:z.string().max(24000).nullable().default(null),
   summary: z.string().max(12000), contextFrom: z.int().nonnegative(),
@@ -21,7 +22,7 @@ export type ChatSession = z.infer<typeof Session>;
 export function newSession(workspace: string, model: string): ChatSession {
   const now = new Date().toISOString();
   return { version: 1, id: `session-${randomUUID()}`, created: now, updated: now, workspace, model, domain: 'general',
-    mcp: null, skill: null, shell: 'ask', permission: 'ask', qualityRun:null, redrawTask:null, pendingRedrawRequest:null, summary: '', contextFrom: 0, messages: [], references: [] };
+    mcp: null, skill: null, shell: 'ask', permission: 'ask', qualityRun:null, visualPolicy:'auto', redrawTask:null, pendingRedrawRequest:null, summary: '', contextFrom: 0, messages: [], references: [] };
 }
 export async function privateDirectory(root: string, child: string) {
   await mkdir(resolve(root, '.cader'), { recursive: true });

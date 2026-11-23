@@ -47,6 +47,9 @@ test('actual DSH loop loads configs Static/Skill, isolates worker tools and enfo
     assert.ok(!requests[1]?.tools.includes('cader_delegate'));
     assert.ok(requests[2]?.tools.includes('cader_delegate'));
     assert.ok(requests[2]?.messages.includes('worker_profiles'));
+    assert.ok(requests[2]?.messages.includes('capabilities'));
+    assert.ok(requests[2]?.messages.includes('when_to_use'));
+    assert.ok(requests[2]?.messages.includes('ENTRY_NOT_AVAILABLE_IN_THIS_ROLE_OR_PHASE'));
     assert.ok(requests[2]?.messages.includes('deepseek-v4-pro'));
     assert.ok(requests.every(request => request.messages.includes('remaining_model_steps')));
     assert.ok(requests.every(request => !request.messages.includes('sk-fixture-not-a-live-key')));
@@ -59,4 +62,38 @@ test('actual DSH loop loads configs Static/Skill, isolates worker tools and enfo
     await runtime.dispose();
     if (prior === undefined) delete process.env.CADER_FIXTURE_KEY; else process.env.CADER_FIXTURE_KEY = prior;
   }
+});
+
+test('actual model requests expose controlled visual routing, phase capabilities and refreshed task evidence',async()=>{
+  const prior=process.env.CADER_ROUTE_FIXTURE;process.env.CADER_ROUTE_FIXTURE='sk-route-fixture-no-network';
+  const config=await loadConfig(process.cwd());config.profiles=config.profiles.map(p=>({...p,api_key_env:'CADER_ROUTE_FIXTURE'}));
+  const requests:{tools:string[];messages:string}[]=[];let controlled=0,captures=0;
+  const runtime=await createLiveRuntime({...config,root:process.cwd(),runDirectory:resolve('.cader/tests/route-fixture'),
+    captureCadView:async()=>{captures++;throw new Error('Raw capture must not bypass task controller');},
+    toolAvailable:name=>name!=='cader_delegate'});
+  runtime.ctx.on('llm/stream',async function*(request):AsyncGenerator<StreamChunk>{
+    requests.push({tools:request.tools?.map(t=>t.name)??[],messages:JSON.stringify(request.messages)});
+    if(requests.length===1){
+      const id='review-through-controller' as Extract<StreamChunk,{type:'tool-call-delta'}>['id'];
+      const args=JSON.stringify({question:'Review current drawing'});
+      yield {type:'block-start',index:0,blockType:'tool-call'};
+      yield {type:'tool-call-delta',index:0,id,name:'cader_review_cad_view',argumentsDelta:args};
+      yield {type:'block-end',index:0,block:{type:'tool-call',id,name:'cader_review_cad_view',arguments:args}};
+      yield {type:'finish',reason:{kind:'tool-calls'}};return;
+    }
+    yield {type:'block-start',index:0,blockType:'text'};
+    yield {type:'text-delta',index:0,text:'Fixture evidence observed; acceptance remains Harness-owned.'};
+    yield {type:'block-end',index:0,block:{type:'text',text:'Fixture result'}};
+    yield {type:'finish',reason:{kind:'stop'}};
+  });
+  try{
+    const result=await runtime.run('MainAgent','Use controlled review.',{taskState:()=>({phase:'drawing',visual_call_count:controlled,last_image:controlled?'fixture-sha':null}),
+      controlledReview:async()=>{controlled++;return {review_valid:true,evidence:{sha256:'fixture-sha'},structured:{verdict:'pass'}};}});
+    assert.equal(result.status,'succeeded');assert.equal(controlled,1);assert.equal(captures,0);
+    assert.ok(requests[0]!.tools.includes('cader_review_cad_view'));assert.ok(!requests[0]!.tools.includes('cader_delegate'));
+    assert.match(requests[0]!.messages,/schema_ref/);assert.match(requests[0]!.messages,/when_to_use/);
+    assert.match(requests[0]!.messages,/ENTRY_NOT_AVAILABLE_IN_THIS_ROLE_OR_PHASE/);
+    assert.ok(!requests[0]!.messages.includes('fixture-sha'));assert.ok(requests[1]!.messages.includes('fixture-sha'));
+    assert.match(requests[1]!.messages,/visual_call_count/);
+  }finally{await runtime.dispose();if(prior===undefined)delete process.env.CADER_ROUTE_FIXTURE;else process.env.CADER_ROUTE_FIXTURE=prior;}
 });

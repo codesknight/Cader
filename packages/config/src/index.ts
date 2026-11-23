@@ -14,6 +14,8 @@ const Profile = z.object({
   }),
   api_key_env: z.string().regex(/^[A-Z][A-Z0-9_]*$/), model: z.string().min(1),
   input: z.array(z.enum(['text', 'image'])).min(1),
+  description: z.string().min(1).max(400).optional(),
+  when_to_use: z.string().min(1).max(400).optional(),
   generation: z.object({ max_output_tokens: z.int().min(64).max(32768),
     reasoning_effort: z.enum(['off', 'low', 'high', 'max']) }).strict(),
   timeout_ms: z.int().min(1000).max(300000), can_delegate: z.boolean(),
@@ -122,6 +124,7 @@ export async function workspacePath(root: string, path: string): Promise<string>
 const skillName = z.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/).max(64);
 const Catalog = z.object({ version: z.literal(1), skills: z.array(z.object({
   name: skillName, description: z.string().min(1).max(400),
+  when_to_use: z.string().min(1).max(400).optional(),
   roles: z.array(z.enum(['main', 'subagent', 'vision'])).min(1),
   mode: z.literal('read-only'),
   resources: z.record(skillName, z.string().regex(/^references\/[A-Za-z0-9_-]+\.md$/)).default({}),
@@ -151,7 +154,7 @@ export async function loadSkills(root: string) {
       for (const resource of Object.values(skill.resources)) await readAsset(directory, resource);
     }
     const list = (role: SkillRole) => catalog.skills.filter(skill => skill.roles.includes(role))
-      .map(skill => ({ name: skill.name, description: skill.description, mode: skill.mode,
+      .map(skill => ({ name: skill.name, description: skill.description, when_to_use: skill.when_to_use ?? skill.description, mode: skill.mode,
         resources: Object.keys(skill.resources) }));
     return {
       list,
