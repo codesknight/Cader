@@ -654,3 +654,5 @@ Recovery sends only the latest eight operation records to the model; full audits
 Scheduler supplies a fresh geometry/text readback at each drawing-unit start. Explicit confirmation quotes are offered from the actual request; source indices and values remain model-selected and program-checked. Terminal recovery counts distinguish the unit allowance from the task cumulative count.
 
 Planning and confirmation allow one compact retry for truncated output, malformed responses or model-response timeout. QUOTA/authentication errors are reported directly. Original failed records remain preserved.
+
+A visual report cannot claim every required condition passed while its overall verdict is uncertain, even with minor advice. The model must identify an affected required condition or submit a consistent report; bounded same-image repair never converts uncertainty into success automatically.

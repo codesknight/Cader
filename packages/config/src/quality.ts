@@ -11,7 +11,7 @@ export const VisualReport = z.object({
 }).strict().superRefine((report, ctx) => {
   if(report.verdict === 'pass' && (report.uncertainties.length || report.defects.some(d => d.severity !== 'minor') || report.checklist.some(c => c.status !== 'pass')))
     ctx.addIssue({ code: 'custom', message: 'Pass conflicts with unresolved evidence' });
-  if(report.verdict==='uncertain'&&report.checklist.length&&report.checklist.every(c=>c.status==='pass')&&!report.defects.length)
+  if(report.verdict==='uncertain'&&report.checklist.length&&report.checklist.every(c=>c.status==='pass'))
     ctx.addIssue({code:'custom',message:'UNCERTAINTY_MUST_AFFECT_REQUIRED_CHECK: every required checklist item passed; remove unrelated/already-proven uncertainty or mark the specific affected requirement uncertain with evidence'});
 });
 export type VisualReview = z.infer<typeof VisualReport>;

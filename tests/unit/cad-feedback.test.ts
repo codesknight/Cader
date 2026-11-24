@@ -163,3 +163,15 @@ test('a successful model answer cannot hide an authoritative frozen CAD task', a
     assert.equal(JSON.parse(await readFile(resolve(report.runDirectory,'verification.json'),'utf8')).ok, false);
   } finally { if (previous === undefined) delete process.env.CADER_REPORT_FIXTURE; else process.env.CADER_REPORT_FIXTURE = previous; }
 });
+
+for(const repaired of [true,false])test(`minor visual advice cannot hide an all-pass uncertain verdict; same-image repair=${repaired}`,async()=>{
+  const prior=process.env.CADER_VERDICT_FIXTURE;process.env.CADER_VERDICT_FIXTURE='offline-verdict-fixture';
+  const config=await loadConfig(process.cwd());let captures=0,steps=0;
+  const runtime=await createLiveRuntime({...config,root:process.cwd(),runDirectory:resolve(`.cader/tests/verdict-${repaired}`),profiles:config.profiles.map(p=>({...p,api_key_env:'CADER_VERDICT_FIXTURE'})),captureCadView:async()=>{captures++;return {path:resolve('benchmark/fixtures/vision-calibration.png'),evidence:{source:'fixture'}};}});
+  runtime.ctx.on('llm/stream',async function*():AsyncGenerator<StreamChunk>{
+    steps++;const text=JSON.stringify({verdict:repaired&&steps===2?'pass':'uncertain',defects:[{type:'Optional spacing',severity:'minor',location:'Fixture',evidence:'Required conditions passed',suggestion:'Optional',entity_ids:[]}],checklist:[{requirement_id:'look',status:'pass',evidence:'Fixture only'}],uncertainties:repaired&&steps===2?[]:['Already resolved observation']});
+    yield {type:'block-start',index:0,blockType:'text'};yield {type:'text-delta',index:0,text};yield {type:'block-end',index:0,block:{type:'text',text}};yield {type:'finish',reason:{kind:'stop'}};
+  });
+  try{const report=await runtime.reviewCadView(JSON.stringify({requirements:[{id:'look'}],entity_snapshot:[]}));assert.equal(captures,1);assert.equal(steps,2);assert.equal(report.review_valid,repaired);assert.equal(report.attempts[0]!.valid,false);if(repaired){assert.equal(report.structured!.verdict,'pass');assert.equal(report.structured!.defects.length,1);}else assert.equal(report.structured,null);}
+  finally{await runtime.dispose();if(prior===undefined)delete process.env.CADER_VERDICT_FIXTURE;else process.env.CADER_VERDICT_FIXTURE=prior;}
+});

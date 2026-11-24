@@ -66,6 +66,9 @@ test('schemas reject semantic entity types, contradictory visual pass and missin
   assert.throws(() => parseVisualReport({ verdict: 'pass', defects: [], checklist: [], uncertainties: ['unreadable'] }));
   assert.throws(() => parseVisualReport({ verdict: 'pass', defects: [], uncertainties: [] }));
   assert.throws(()=>parseVisualReport({verdict:'uncertain',defects:[],checklist:[{requirement_id:'visual',status:'pass',evidence:'All required observations passed'}],uncertainties:['Unrequested reference missing']}),/UNCERTAINTY_MUST_AFFECT_REQUIRED_CHECK/);
+  const minor={type:'Optional spacing advice',severity:'minor',location:'fixture',evidence:'No requirement violated',suggestion:'Optional',entity_ids:[]};
+  assert.throws(()=>parseVisualReport({verdict:'uncertain',defects:[minor],checklist:[{requirement_id:'visual',status:'pass',evidence:'All required observations passed'}],uncertainties:['Already human-confirmed']}),/UNCERTAINTY_MUST_AFFECT_REQUIRED_CHECK/);
+  assert.doesNotThrow(()=>parseVisualReport({verdict:'pass',defects:[minor],checklist:[{requirement_id:'visual',status:'pass',evidence:'All required observations passed'}],uncertainties:[]}));
   assert.equal(requiresQuality('画一个示意图'), true);
   assert.equal(requiresQuality('移动这条直线'), false);
   assert.equal(requiresQuality('你能画什么图吗'), false);

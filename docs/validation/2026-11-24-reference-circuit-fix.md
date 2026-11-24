@@ -159,3 +159,12 @@ CAD视觉报告也限制每轮4模型请求、两轮格式尝试，复用同一�
 修复：复用每阶段原有最多一次紧凑重试，覆盖MALFORMED_RESPONSE及模型响应TIMEOUT；QUOTA/鉴权及其他失败不纳入；不增加原生CAD重放、不提高输出/总额度。保留失败agent并仅在有效后继成功时链接替代记录。完整单元fixture新增规划损坏响应后继续、原确认持久化失败回滚/成功绑定等联合检查。
 
 验证：初次类型检查因新增includes条件未缩窄undefined失败，原输出保留；增加明确存在性守卫后typecheck、201/201测试及DSH组件smoke通过，证据`.cader/circuit-20261125-*-planning-recovery-fixed.txt`。a420bb9 CI push45441292913/PR45441307032均success。第38轮完整原图真实回归待执行，不将37轮源观察成功称为绘图成功。
+
+
+### BUG-074：minor建议绕过视觉判定一致性约束
+
+第38轮原始手稿完成23单元，全部12项清单通过，源8网/9文字和符号形态均在有效报告中通过；报告仍因可选间距建议及已由用户确认的笔触断缝给uncertain。旧一致性校验仅在defects为空时拦截“All pass + uncertain”，minor建议可绕过，导致两轮文字局部移动后2013802 token暂停。Drawing44，88确认、0未知，20826字节待验DWG保留，不算验收通过。
+
+修复：非空清单全部pass时不得给uncertain，即便存在minor建议；有效报告须将真正受影响的必要条目标uncertain/fail，或由视觉模型重新提交一致的pass报告（可保留minor建议）。存在要求清单时工具schema加入相同条件；保留同图、有界格式修复，不把原uncertain在程序里改成pass，不删除旧报告，不降低几何/源图/未知写入约束。
+
+验证：203/203、typecheck、DSH组件smoke通过；新增真实DSH+确定性模型两例：首份矛盾报告必须无效，同图有效后继可过；两份都矛盾则review_valid=false且structured=null。原图第39轮完整真实模型/AutoCAD回归待执行。5584caf CI push45442337679/PR45442359652均success。
