@@ -443,6 +443,8 @@ export async function createLiveRuntime(options: LiveOptions) {
                 const toolSet=await agentCtx.tools.resolve(payload);
                 try{
                   for(const [index,call] of queued.entries()){
+                    const before=options.executionState?.() as {frozen?:boolean;local_connection_id?:string|null;scratch?:string|null;operations?:{operation_id:string;outcome:string;dispatched?:boolean}[]}|undefined;
+                    const priorIds=new Set(before?.operations?.map(op=>op.operation_id));
                     const replayId=brandString<ToolCallId>(`continuation-${randomUUID()}`);
                     emit({type:'budget.continue_dispatch',original_call_id:call.original_call_id,call_id:replayId,tool:call.tool});
                     const batch=await agentCtx.tools.execute({agent,signal:payload.signal,toolSet,maxParallelToolCalls:1,
@@ -450,6 +452,21 @@ export async function createLiveRuntime(options: LiveOptions) {
                     const result=batch.results[0]?.result;
                     continuationResults.push({original_call_id:call.original_call_id,tool:call.tool,result});
                     if(!result||result.isError){
+                      const after=options.executionState?.() as typeof before;
+                      const fresh=after?.operations?.filter(op=>!priorIds.has(op.operation_id))??[];
+                      // A rejected proposed route is not an unknown native write.
+                      // Return the actual partial ledger to the model, just like
+                      // an ordinary tool error. Never replay the failed Patch.
+                      const rejectedBeforeDispatch=result?.isError&&!handoff&&before&&!before.frozen&&after&&!after.frozen&&
+                        before.local_connection_id&&before.local_connection_id===after.local_connection_id&&before.scratch&&before.scratch===after.scratch&&
+                        fresh.some(op=>op.outcome==='failed_before_dispatch'&&op.dispatched===false)&&
+                        fresh.every(op=>op.outcome==='committed'||op.outcome==='failed_before_dispatch'&&op.dispatched===false);
+                      if(rejectedBeforeDispatch){
+                        continuationResults.push({returned_for_replanning:true,not_dispatched_following_calls:queued.slice(index+1),no_replay:true,
+                          guidance:'The failed operation was rejected before dispatch. Earlier committed leaves are real. Query current entities and generate ONLY corrected/missing operations; never replay the original Patch. Following calls were not dispatched and require fresh planning.'});
+                        emit({type:'budget.continuation_replan',original_call_id:call.original_call_id,reason:'PROVEN_PREFLIGHT_REJECTION',returned_calls:queued.length-index-1,no_replay:true});
+                        break;
+                      }
                       pending.push(...queued.slice(index+1));
                       if(!handoff)errorCode='CONTINUATION_OPERATION_FAILED';
                       return {kind:'reject'};

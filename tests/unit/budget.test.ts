@@ -107,6 +107,49 @@ test('actual DSH hands off an untouched whole patch, drains it once before fresh
   }finally{await runtime.dispose();}
 });
 
+for(const scenario of ['preflight','unknown','changed-binding','no-ledger'] as const)test(`queued Patch failure resumes only with proven pre-dispatch rejection: ${scenario}`,async()=>{
+  const c=await config();c.runtime.max_cad_operations_per_round=4;
+  const writes:number[]=[],operations:{operation_id:string;outcome:string;dispatched:boolean}[]=[],events:PublicEvent[]=[];
+  let step=0,frozen=false,connection='original';
+  const runtime=await createLiveRuntime({...c,root:process.cwd(),runDirectory:resolve(`.cader/tests/queued-rejection-${scenario}`),onEvent:e=>events.push(e),
+    executionState:scenario==='no-ledger'?undefined:()=>({frozen,local_connection_id:connection,scratch:'owned.dwg',operations}),
+    executionTools:[defineTool({name:'mcp__autocad__draw_circle',description:'Synthetic ledger only; no real CAD',parameters:{radius:{type:'number',required:true}},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:v}]},async execute(a){
+      if(a.radius===99){
+        if(scenario==='unknown')frozen=true;
+        if(scenario==='changed-binding')connection='other';
+        operations.push({operation_id:`op-${operations.length}`,outcome:frozen?'unknown':'failed_before_dispatch',dispatched:frozen});
+        throw new Error('Synthetic rejected proposal; original Patch must not be replayed');
+      }
+      writes.push(a.radius);operations.push({operation_id:`op-${operations.length}`,outcome:'committed',dispatched:true});return 'fixture acknowledged';
+    }})]});
+  runtime.ctx.on('llm/stream',async function*(request):AsyncGenerator<StreamChunk>{
+    step++;
+    if(step<=2){yield* call('cader_apply_cad_patch',{operations:(step===1?[1,2,3]:[4,99,6]).map(radius=>({tool:'mcp__autocad__draw_circle',arguments:{radius}}))},`queued-${step}`);return;}
+    assert.equal(scenario,'preflight');assert.match(JSON.stringify(request.messages),/returned_for_replanning/);
+    assert.deepEqual(writes,[1,2,3,4]);
+    yield* call('cader_apply_cad_patch',{operations:[5,6].map(radius=>({tool:'mcp__autocad__draw_circle',arguments:{radius}})),unit_complete:true},'corrected-missing-only');
+    // End after the corrected Patch to avoid an unrelated model step.
+  });
+  try{
+    assert.equal((await runtime.run('MainAgent','Fixture',{harnessTask:true})).handoff?.code,'EXECUTION_ROUND_EXHAUSTED');
+    let checked=false;
+    const continuation={harnessTask:true,continuePending:true,completeDrawingUnit:async()=>{checked=true;},resultText:()=>checked?'fixture unit checked':undefined};
+    let result=await runtime.run('MainAgent','Continue without replay',continuation);
+    if(scenario==='preflight'){
+      // Failed leaf reservations remain spent. Corrected operations may need
+      // another round; this must not replay the earlier committed leaves.
+      assert.equal(result.handoff?.code,'EXECUTION_ROUND_EXHAUSTED');
+      result=await runtime.run('MainAgent','Continue corrected missing operations',continuation);
+      assert.equal(result.status,'succeeded');assert.deepEqual(writes,[1,2,3,4,5,6]);assert.equal(step,3);
+      assert.equal(events.filter(e=>e.type==='budget.continuation_replan').length,1);
+    }else{
+      assert.equal(result.errorCode,'CONTINUATION_OPERATION_FAILED');assert.equal(result.status,'failed');assert.equal(step,2);assert.deepEqual(writes,[1,2,3,4]);
+    }
+    assert.equal(operations.filter(op=>op.outcome==='failed_before_dispatch'||op.outcome==='unknown').length,1);
+    assert.equal(runtime.budgetState().pending.length,0);
+  }finally{await runtime.dispose();}
+});
+
 test('Scheduler rollover keeps task authorization, connection and document, then independently accepts',async()=>{
   const c=await config();Object.assign(c.runtime,{max_cad_operations_per_round:3,max_cad_operations:10});
   let created=0,approvals=0,ended=0,step=0,visualCalls=0,failedPostRead=false;

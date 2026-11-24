@@ -14,6 +14,8 @@ Explicit label clarifications may accompany the original request. The program re
 
 For circuit redraws, “hand-drawn” identifies the source medium. Rough strokes and handwritten fonts are output requirements only when explicitly requested. Independent final vision compares the actual source and CAD images; preliminary model opinions are withheld to reduce anchoring.
 
+If a queued Patch encounters a proven pre-dispatch rejection after budget renewal, the model receives its actual partial results and may replan missing operations. This requires the original connection/document and an unfrozen execution ledger; confirmed leaves are never replayed. Uncertain native outcomes still stop execution. Failed reservations remain spent.
+
 Symbols must actually reach their declared ports; a polyline bounding box is not endpoint evidence. Proven coincident ports may touch directly without a zero-length wire. A final Patch may request program readback/check-in with `unit_complete`, avoiding an extra model request; missing contacts return acknowledged results and missing items for continuation without replay.
 
 Cader CLI is a CAD agent terminal built on DeepSeek Harness. Describe tasks in a persistent conversation, select models and skills, reference images, inspect CAD status, or use a single command from a script.
