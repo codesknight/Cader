@@ -17,6 +17,14 @@ test('source layout hints invert image Y while preserving rectangular pixel aspe
   assert.deepEqual(hints.objects[0]!.terminals,[[500,1600],[500,400]]);
 });
 
+test('source text placement hints bound font size to its original box and preserve SI text',()=>{
+  const source=parseReferenceObservation({...observation,visible_text:[{text:'2µF',bounds:[[0.2,0.2],[0.4,0.3]],certainty:'clear'}]});
+  const label=referenceLayoutHints(source,{width:100,height:200}).visible_text[0]!;
+  assert.equal(label.text,'2µF');assert.deepEqual(label.text_layout.anchor,[200,1400]);
+  assert.equal(label.text_layout.target_width,200);assert.equal(label.text_layout.target_height,200);
+  assert.ok(label.text_layout.max_text_height*3*0.9<=200.001);assert.ok(label.text_layout.max_text_height<=140);
+});
+
 async function setup(){
   await mkdir('.cader/tests',{recursive:true});
   const root=await mkdtemp(resolve('.cader/tests/redraw-'));
@@ -358,16 +366,16 @@ test('semantic units receive sealed custom symbol and label layers rather than l
     components:[{id:'A',source_id:'source',source_terminals:[0],kind:'terminal',bounds:[[0,0],[1,1]],ports:[[0,0]],pin_names:['p']}],nets:[{id:'single',pins:[{component:'A',pin:'p'}]}],
     requirements:[{id:'appearance',check:'visual',source_quote:task,description:'Synthetic appearance'},{id:'net',check:'netlist',source_quote:task,description:'External conductor partition'},{id:'through',check:'no_wire_through_component',source_quote:task,description:'No interior wires'},{id:'clearance',check:'text_clearance',source_quote:task,description:'No text intersections'},
       {id:'text',check:'text',source_quote:task,description:'Source label',text:'R7',min:1,layer:'CUSTOM_LABELS'},{id:'symbol',check:'entity_count',entity_type:'AcDbLine',source_quote:task,description:'Observed symbol geometry',min:1,layer:'CUSTOM_SYMBOL'}]};
-  const source=parseReferenceObservation({...observation,drawing_kind:'schematic',objects:[{id:'source',kind:'terminal',category:'component',bounds:[[0,0],[1,1]],terminals:[[0,0]],certainty:'clear'}],nets:[{id:'single',pins:[{object:'source',terminal:0}]}],visible_text:[{text:'R7',bounds:[[0.2,0.2],[0.4,0.3]],certainty:'clear'}]});
+  const source=parseReferenceObservation({...observation,drawing_kind:'schematic',objects:[{id:'source',kind:'terminal',category:'component',bounds:[[0,0],[1,1]],terminals:[[0,0]],certainty:'clear'}],nets:[{id:'single',pins:[{object:'source',terminal:0}]}],visible_text:[{text:'R7',bounds:[[0.2,0.2],[0.4,0.3]],certainty:'clear'},{text:'+',bounds:[[0.0001,0.9995],[0.0005,0.9999]],certainty:'clear'}]});
   const owner={workspace:f.root,facts:()=>({frozen:false,local_connection_id:'fixture',scratch:target,session_counts:{committed,unknown:0},operations:[]}),
     taskScope:()=>({owned:Boolean(target),target,new_drawing_confirmed:Boolean(target),geometry_confirmed:rows.length,entity_ids:rows.map(r=>r.object_id)}),definitions:()=>[],async authorizeTask(){return true;},endTask(){},
     async snapshot(){return {document:target,entities:structuredClone(rows)};},async saveTaskArtifact(){committed++;return {kind:'local-dwg',path:join(f.root,'fixture.dwg'),bytes:100,sha256:'fixture',document:target};}};
   const runtime={completed:()=>[],async inspectReference(){return {valid:true,structured:source,evidence:{path,sha256,width:640,height:480}};},async run(_profile:string,instruction:string,request:any){
-    if(request.extraTools?.[0]?.name==='cader_submit_acceptance_plan'){await assert.rejects(request.extraTools[0].execute({...plan,requirements:[...plan.requirements,{id:'unrequested_blocks',check:'entity_count',entity_type:'AcDbBlockReference',source_quote:task,description:'Invented representation',min:1}]},{concludeTurn(){}}),/UNREQUESTED_BLOCK_REPRESENTATION/);await request.extraTools[0].execute(plan,{concludeTurn(){}});return {status:'succeeded',tools:[],text:'fixture plan'};}
-    instructions.push(instruction);const unit=request.taskState().active_drawing_unit;
+    if(request.extraTools?.[0]?.name==='cader_submit_acceptance_plan'){await assert.rejects(request.extraTools[0].execute({...plan,requirements:[...plan.requirements,{id:'unrequested_blocks',check:'entity_count',entity_type:'AcDbBlockReference',source_quote:task,description:'Invented representation',min:1}]},{concludeTurn(){}}),/UNREQUESTED_BLOCK_REPRESENTATION/);await assert.rejects(request.extraTools[0].execute({...plan,requirements:[...plan.requirements,{id:'punctuation',check:'text',text:'+',source_quote:task,description:'Unrequested duplicate symbol mark'}]},{concludeTurn(){}}),/SYMBOL_MARK_NOT_LITERAL_TEXT/);await request.extraTools[0].execute(plan,{concludeTurn(){}});return {status:'succeeded',tools:[],text:'fixture plan'};}
+    instructions.push(instruction);assert.doesNotMatch(instruction,/原图已观察事实及统一CAD坐标提示/);const unit=request.taskState().active_drawing_unit;
     if(unit==='setup'){assert.match(instruction,/CUSTOM_LABELS/);assert.match(instruction,/CUSTOM_SYMBOL/);target='fixture.dwg';committed++;}
-    if(unit==='component:A'){rows.push({object_id:1,type:'AcDbLine',layer:instruction.includes('"layer":"CUSTOM_SYMBOL"')?'CUSTOM_SYMBOL':'SYMBOL',start_point:[0,0,0],end_point:[1,1,0],bounding_box:{min:[0,0,0],max:[1,1,0]}});committed++;}
-    if(unit==='labels:0'){rows.push({object_id:2,type:'AcDbText',layer:instruction.includes('"layer":"CUSTOM_LABELS"')?'CUSTOM_LABELS':'TEXT',text_string:'R7',bounding_box:{min:[2,2,0],max:[3,3,0]}});committed++;}
+    if(unit==='component:A'){assert.match(instruction,/"source_symbol_marks":\[\{"text":"\+"/);rows.push({object_id:1,type:'AcDbLine',layer:instruction.includes('"layer":"CUSTOM_SYMBOL"')?'CUSTOM_SYMBOL':'SYMBOL',start_point:[0,0,0],end_point:[1,1,0],bounding_box:{min:[0,0,0],max:[1,1,0]}});committed++;}
+    if(unit==='labels:0'){assert.match(instruction,/max_text_height/);assert.doesNotMatch(instruction,/"text":"\+"/);rows.push({object_id:2,type:'AcDbText',layer:instruction.includes('"layer":"CUSTOM_LABELS"')?'CUSTOM_LABELS':'TEXT',text_string:'R7',bounding_box:{min:[2,2,0],max:[3,3,0]}});committed++;}
     await request.completeDrawingUnit();return {status:'succeeded',tools:[],text:'fixture unit checkpoint'};
   },async reviewCadView(){return {review_valid:true,attempts:[],structured:{verdict:'pass',defects:[],uncertainties:[],checklist:[{requirement_id:'appearance',status:'pass',evidence:'Fixture only'}]},evidence:{document:target,reference:{path,sha256,width:640,height:480}}};}};
   try{

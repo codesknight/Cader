@@ -63,5 +63,7 @@ export function referenceLayoutHints(source:ReferenceObservationData,image:{widt
   const box=(b:number[][])=>[point([b[0]![0]!,b[1]![1]!]),point([b[1]![0]!,b[0]![1]!])];
   return {coordinate_system:'CAD XY: x right, y UP. Relative layout units, not physical dimensions.',
     objects:source.objects.map(o=>({...o,bounds:box(o.bounds),terminals:o.terminals.map(point),indexed_terminals:o.terminals.map((p,index)=>({index,position:point(p)}))})),
-    visible_text:source.visible_text.map(t=>({...t,bounds:box(t.bounds)})),connections:source.nets?.length?[]:source.connections,nets:source.nets,unknowns:source.unknowns};
+    visible_text:source.visible_text.map(t=>{const bounds=box(t.bounds),width=bounds[1]![0]!-bounds[0]![0]!,height=bounds[1]![1]!-bounds[0]![1]!;
+      return {...t,bounds,text_layout:{anchor:bounds[0],target_width:width,target_height:height,max_text_height:Number(Math.min(height*0.7,width/(Math.max(1,[...t.text].length)*0.9)).toFixed(3)),note:'Source label box is a placement/size guide, not a point at the component centre. Fit native text inside this box; check actual bounding_box after writing.'}};
+    }),connections:source.nets?.length?[]:source.connections,nets:source.nets,unknowns:source.unknowns};
 }
