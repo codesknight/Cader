@@ -20,7 +20,7 @@ import * as mcpClient from '@deepseek-ai/dsh-mcp-client';
 import Attachments from '@deepseek-ai/dsh-attachment-local';
 import FileSystem from '@deepseek-ai/dsh-fs-local';
 import type { ModelProfile, RuntimeConfig, McpConfig } from '@cader/config';
-import { parseVisualReport, visualReportSchema, requireCredential, loadSkills, mcpEnvironment, workspacePath, readReferenceImage,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema,parseReferenceLabelInventory,referenceLabelInventorySchema,parseReferenceNets,reconcileSourceNets,referenceMembershipSchema,parseReferenceMembership,mergeConfirmedSourceConnections,parseSourceConnectionReview,referenceComponentInventorySchema,parseReferenceComponentInventory,reconcileSourceComponents } from '@cader/config';
+import { parseVisualReport, visualReportSchema, requireCredential, loadSkills, mcpEnvironment, workspacePath, readReferenceImage,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema,parseReferenceLabelInventory,referenceLabelInventorySchema,parseReferenceNets,reconcileSourceNets,referenceMembershipSchema,parseReferenceMembership,mergeConfirmedSourceConnections,parseSourceConnectionReview,referenceComponentInventorySchema,parseReferenceComponentInventory,reconcileSourceComponents,reconcileSourceLabels } from '@cader/config';
 import { ChildPool } from './pool.js';
 import { ExecutionBudget } from './budget.js';
 import type { BudgetStop } from './budget.js';
@@ -666,12 +666,7 @@ export async function createLiveRuntime(options: LiveOptions) {
         labelInventory={id:review.id,valid:scanned!==null};attempts.push({id:review.id,status:review.status,valid:scanned!==null});
         if(!scanned)structured=null;
         else{
-          const merged=[...scanned.visible_text];
-          for(const prior of observation.visible_text){
-            const match=merged.find(label=>{const [a,b]=label.bounds,[c,d]=prior.bounds;const area=Math.max(0,Math.min(b[0],d[0])-Math.max(a[0],c[0]))*Math.max(0,Math.min(b[1],d[1])-Math.max(a[1],c[1]));return area>0.2*Math.min((b[0]-a[0])*(b[1]-a[1]),(d[0]-c[0])*(d[1]-c[1]));});
-            if(match){match.bounds=[[Math.min(match.bounds[0][0],prior.bounds[0][0]),Math.min(match.bounds[0][1],prior.bounds[0][1])],[Math.max(match.bounds[1][0],prior.bounds[1][0]),Math.max(match.bounds[1][1],prior.bounds[1][1])]];if(match.text!==prior.text||prior.certainty==='uncertain')match.certainty='uncertain';}
-            else merged.push(prior);
-          }
+          const merged=reconcileSourceLabels(observation.visible_text,scanned.visible_text);
           if(merged.length>32)throw new Error('SOURCE_LABEL_INVENTORY_LIMIT');
           observation.visible_text=merged.sort((a,b)=>a.bounds[0][1]-b.bounds[0][1]||a.bounds[0][0]-b.bounds[0][0]);
         }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseReferenceObservation,parseReferenceNets,reconcileSourceNets,referenceMembershipSchema,parseReferenceMembership,mergeConfirmedSourceConnections,parseReferenceComponentInventory,reconcileSourceComponents} from '@cader/config';
+import {parseReferenceObservation,parseReferenceNets,reconcileSourceNets,referenceMembershipSchema,parseReferenceMembership,mergeConfirmedSourceConnections,parseReferenceComponentInventory,reconcileSourceComponents,parseReferenceLabelInventory,reconcileSourceLabels} from '@cader/config';
 const source=parseReferenceObservation({version:1,drawing_kind:'schematic',summary:'Synthetic reference only',coordinate_system:'normalized-image-top-left-y-down',content_bounds:[[0,0],[1,1]],objects:[{id:'Q',kind:'three-pin',category:'component',bounds:[[0,0],[1,1]],terminals:[[0,0],[1,0],[1,1]],certainty:'clear'}],visible_text:[],connections:[],unknowns:[],nets:[{id:'original',pins:[0,1,2].map(terminal=>({object:'Q',terminal})),certainty:'clear'}]});
 const net=(terminal:number,certainty:'clear'|'uncertain')=>({id:`n${terminal}`,pins:[{object:'Q',terminal}],certainty,evidence:'Synthetic confidence fixture only'});
 
@@ -59,4 +59,10 @@ test('independent component coverage adds unlabelled symbols without renumbering
   const missing=reconcileSourceComponents(source.objects,{objects:[inventory.objects[1]!]});assert.deepEqual(missing.unmatched_prior_ids,['Q']);assert.equal(missing.objects[0]!.id,'Q');
   assert.throws(()=>parseReferenceComponentInventory({objects:[{...inventory.objects[0],category:'wire'}]}));
   assert.throws(()=>parseReferenceComponentInventory({objects:[inventory.objects[0],inventory.objects[0]]}));
+});
+
+test('label observations match one-to-one despite shifted boxes; SI case conflicts remain uncertain',()=>{
+  const prior=parseReferenceLabelInventory({visible_text:[{text:'3mF',bounds:[[0.1,0.1],[0.2,0.2]],certainty:'clear'},{text:'3mF',bounds:[[0.1,0.5],[0.2,0.6]],certainty:'clear'},{text:'9V',bounds:[[0.8,0.8],[0.9,0.9]],certainty:'clear'}]}).visible_text;
+  const inventory=parseReferenceLabelInventory({visible_text:[{text:'3MF',bounds:[[0.22,0.1],[0.32,0.2]],certainty:'clear'},{text:'3mF',bounds:[[0.22,0.5],[0.32,0.6]],certainty:'clear'}]}).visible_text;
+  const before=JSON.stringify({prior,inventory}),merged=reconcileSourceLabels(prior,inventory);assert.equal(merged.length,3);assert.equal(merged[0]!.text,'3MF');assert.equal(merged[0]!.certainty,'uncertain');assert.deepEqual(merged[0]!.bounds,inventory[0]!.bounds);assert.equal(merged[1]!.certainty,'clear');assert.equal(merged[2]!.text,'9V');assert.equal(JSON.stringify({prior,inventory}),before);
 });

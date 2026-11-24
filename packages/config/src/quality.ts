@@ -23,6 +23,16 @@ const SourceLabel=z.object({text:Text,bounds:NormalBox,certainty:z.enum(['clear'
 const ReferenceLabelInventory=z.object({visible_text:z.array(SourceLabel).max(32)}).strict();
 export const referenceLabelInventorySchema=JSON.parse(JSON.stringify(z.toJSONSchema(ReferenceLabelInventory)));
 export function parseReferenceLabelInventory(value:unknown){return ReferenceLabelInventory.parse(value);}
+/** Associate observations one-to-one; case folding locates a reading only,
+ * never proves a case-sensitive SI value. Independent inventory boxes prevail. */
+export function reconcileSourceLabels(prior:z.infer<typeof SourceLabel>[],inventory:z.infer<typeof SourceLabel>[]){
+  const labels=structuredClone(inventory),key=(s:string)=>s.normalize('NFKC').replaceAll('\u2212','-').replace(/\s+/g,'');
+  const candidates=prior.flatMap((p,i)=>labels.flatMap((label,j)=>{const [a,b]=p.bounds,[c,d]=label.bounds,area=Math.max(0,Math.min(b[0],d[0])-Math.max(a[0],c[0]))*Math.max(0,Math.min(b[1],d[1])-Math.max(a[1],c[1])),overlap=area/Math.min((b[0]-a[0])*(b[1]-a[1]),(d[0]-c[0])*(d[1]-c[1])),gap=Math.hypot((a[0]+b[0]-c[0]-d[0])/2,(a[1]+b[1]-c[1]-d[1])/2),same=key(p.text).toLowerCase()===key(label.text).toLowerCase();return overlap>0.2||same&&gap<0.25?[{i,j,score:(same?2:0)+overlap-gap}]:[];})).sort((a,b)=>b.score-a.score);
+  const seen=new Set<number>(),used=new Set<number>();
+  for(const {i,j} of candidates){if(seen.has(i)||used.has(j))continue;seen.add(i);used.add(j);if(key(prior[i]!.text)!==key(labels[j]!.text)||prior[i]!.certainty==='uncertain')labels[j]!.certainty='uncertain';}
+  for(let i=0;i<prior.length;i++)if(!seen.has(i))labels.push(structuredClone(prior[i]!));
+  return labels.sort((a,b)=>a.bounds[0][1]-b.bounds[0][1]||a.bounds[0][0]-b.bounds[0][0]);
+}
 const ObservedNet=z.object({id:z.string().min(1).max(64),pins:z.array(z.object({object:z.string().max(32),terminal:z.number().int().min(0).max(7)}).strict()).min(1).max(64),evidence:z.string().min(1).max(400).optional(),certainty:z.enum(['clear','uncertain']).optional()}).strict();
 const SourceObject=z.object({id:z.string().regex(/^[a-zA-Z0-9_-]{1,32}$/),kind:Text,category:z.enum(['component','wire','annotation']).optional(),bounds:NormalBox,terminals:z.array(NormalPoint).max(8),certainty:z.enum(['clear','uncertain'])}).strict();
 const ReferenceComponentInventory=z.object({objects:z.array(SourceObject).min(1).max(32)}).strict().superRefine((v,ctx)=>{

@@ -34,6 +34,10 @@ BUG-062（REQ-045回归新增，#20）：第27轮自动11/11通过，原生同ha
 
 BUG-063（REQ-045回归新增，#20）：第28轮源清单漏两个可见符号，仍被视为有效源报告；完整端子Schema只能覆盖已列器件。规划缺索引、两次OUTPUT_TRUNCATED，0 CAD写入，未增加输出上限。现追网前独立整图器件inventory（不提供旧清单作依据），按图像位置/端子数量一对一对齐，保留原id/端子，漏项加入待追线单端候选；原器件未匹配则拒绝清点、明确报SOURCE_COMPONENT_INVENTORY_FAILED。Schema拒绝导线/文字假器件及重复ID。新纯匹配和实际DSH漏项回归，190项/typecheck/smoke通过；新同图完整实机继续，不把清点Schema当视觉正确性证明。
 
+BUG-064（REQ-045回归新增，#20）：第29轮两份标注清单以首个框重叠匹配、旧项无匹配直接追加，框偏移可导致同一真实标注重复纳入且union扩大裁图；源得到14处数值而原图期望9处，后续硬验收被错误清单约束。现一对一空间/读数字面关联，保持独立清点框，不跨邻字扩大；大小写折叠只关联，字面冲突仍uncertain，SI校验不折叠。纯fixture验证偏移重复值、大小写冲突和真实额外项保留。
+
+BUG-065（REQ-045回归新增，#20）：同轮已有明确标注确认，源clear读数仍可忽略实际用户值（例如SI大小写），此前强制审定仅覆盖uncertain。现显式标注确认时所有必要标签须审定：真实原文绑定或不涵盖的明确理由；clear未覆盖项不强改certainty，uncertain仍待验。确认工具串行、持久化失败回滚标签及确认记录，未批准值不能伪装成人工确认。扩展真实Scheduler fixture覆盖clear值改正与保存失败回滚，191项/typecheck/DSH smoke通过；当前实跑按原代码继续留证，新代码另完整复验。
+
 2026-11-24 REQ-043 / #20 / MCP#43：BUG-045的Count/CopyFrom截图恢复分支及BUG-047视觉失败绿色勾号已修复，恢复后状态读回/备份清理/请求关联均强制，未知仍保护。实机发现非活动文档ActiveLayout可能指向活动文档，新增Layout.Document/ObjectID绑定检查，并用ModelSpace.Layout确认旧图未变。回归首轮还发现Layers.Add动态解析错误，复用只读就绪/单次调用修复；Drawing18旧unknown保留。两轮原始绘本整体通过、10次复杂图重复捕获恢复通过；另一次风格uncertain保持待验证，历史蓝图根因、文件验收和纸布局自动路由仍未宣称解决。[分层结果](../validation/2026-11-24-capture-restoration-fix.md)。
 
 2026-11-24 REQ-042 / #20：BUG-045原生截图/恢复故障在用户Drawing17复现，48次绘图确认、预算充足，export Count异常及CopyFrom/COM拒绝使恢复状态未知；无PNG或实际VisionAgent调用。保留冻结，未修复。新增BUG-047：视觉失败的控制交接isError=false导致CLI绿色勾号，visual_attempt_count还包含截图失败，需拆分业务结果及真实视觉次数。dev.10异常交接本次确已生效。[证据](../validation/2026-11-24-house-capture-audit.md)。
