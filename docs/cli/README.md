@@ -650,3 +650,5 @@ The first input persists a session preference without a drawing plan or CAD call
 The shorter MainAgent static prompt retains stable coordination and evidence/permission rules. CAD workflow knowledge is the registered cad-execution Skill; vision uses its own role prompt. New drawings without a reference do not require one. For a local launcher already bound to this repository, run `pnpm build`, restart, and check dev.8 with `cader -v`. One real house/tree task verifies active review and Harness reuse, not arbitrary redraw, DWG delivery or full v0.4 acceptance. See [implementation and tests](../validation/2026-11-23-capability-routing.md).
 
 Recovery sends only the latest eight operation records to the model; full audits remain persisted. A completed unit does not reset the shared token, time, step or execution-round budget.
+
+Scheduler supplies a fresh geometry/text readback at each drawing-unit start. Explicit confirmation quotes are offered from the actual request; source indices and values remain model-selected and program-checked. Terminal recovery counts distinguish the unit allowance from the task cumulative count.

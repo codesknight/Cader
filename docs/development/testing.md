@@ -344,3 +344,5 @@ REQ-033手稿日志审计：读取用户原始附件及实际verification/events
 远端实施提交8dfe3ae：[push CI 45324012147](https://github.com/codesknight/Cader/actions/runs/45324012147)、[PR CI 45324019005](https://github.com/codesknight/Cader/actions/runs/45324019005)均success，各4项Windows/Ubuntu DSH及Cader Python MCP检查全过。CI为无付费API/真实CAD的回归，与上述显式真实测试分开记。
 
 2026-11-25 BUG071：`pnpm typecheck`、`pnpm test`（201/201）、`pnpm smoke`通过；本轮测试约28秒。证据`.cader/circuit-20261125-*-unit-recovery.txt`。真实第35轮失败保留，第36轮待执行。
+
+2026-11-25 BUG072：`pnpm typecheck`、`pnpm test`（201/201）、`pnpm smoke`通过，证据`.cader/circuit-20261125-*-readback*.txt`。第36轮总额暂停，待验稿不作验收通过；第37轮待执行。

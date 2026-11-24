@@ -89,7 +89,7 @@ export async function runTerminal(options: { workspace?: string; stdio?: boolean
           else if(event.type==='task.phase') write(`\n  阶段：${({reference:'读取手稿',planning:'规划',drawing:'绘制',geometry:'几何验证',topology:'拓扑验证',vision:event.has_reference?'源图对照验证':'视觉验证',correcting:'局部修正',saving:'保存DWG',complete:'验收完成',pending_verification:'待验证',blocked:'阻塞'} as Record<string,string>)[String(event.phase)]??String(event.phase)}\n`);
           else if(event.type==='task.visual') write(`\n  视觉检查 · ${event.source==='agent'?'Agent主动调用':'Harness验收'} · ${event.reused?'复用有效报告':`第${event.call_count}次`} · ${event.review_valid?String(event.verdict):'报告无效，待验证'}\n`);
           else if(event.type==='task.planning_retry')write('\n  规划输出被截断，正在进行一次紧凑重试（尚未绘图）。\n');
-          else if(event.type==='task.output_retry')write(`\n  模型响应中断（${String(event.reason)}） · 已核对账本及图纸 · 短批续跑 ${event.attempt}/2（不重放已确认操作）。\n`);
+          else if(event.type==='task.output_retry')write(`\n  模型响应中断（${String(event.reason)}） · 已核对账本及图纸 · 短批续跑 ${event.scope_attempt??event.attempt}/2${event.recovery_scope&&event.recovery_scope!=='task'?` · 单元 ${String(event.recovery_scope)}`:''}（累计${event.attempt}次，不重放已确认操作）。\n`);
           else if(event.type==='task.drawing_unit')write(`\n  绘图进度：${String(event.unit_id)} 已读回登记，整图尚待验收。\n`);
           else if(event.type==='task.checkpoint')write(`\n  预算检查点 · 第${event.execution_round}回合 · ${event.continuing?'已读回并保存进度，自动续轮':'已保存进度，任务总限额暂停'} · ${String(event.document??'尚未新建图纸')}\n`);
           else if(event.type==='task.review_handoff')write('\n  视觉或读回异常，已交回调度器；当前图纸尚未通过验收。\n');
