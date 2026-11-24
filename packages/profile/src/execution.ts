@@ -85,8 +85,16 @@ export class ExecutionSession {
   async snapshot(){return this.serial(async()=>{
     if(!this.client)throw new Error('MCP_NOT_CONNECTED');
     const operationId=randomUUID();
-    const entities=await this.client.call('query_entities',{},operationId);
-    if(!Array.isArray(entities))throw new Error('INVALID_ENTITY_SNAPSHOT');
+    let entities:unknown;
+    try {entities=await this.client.call('query_entities',{},operationId);}
+    catch(error){
+      await this.audit({phase:'quality_snapshot_failed',operation_id:operationId,tool:'query_entities',target:this.scratch,error:this.diagnostic(error),dispatched:true});
+      throw error;
+    }
+    if(!Array.isArray(entities)){
+      await this.audit({phase:'quality_snapshot_failed',operation_id:operationId,tool:'query_entities',target:this.scratch,error:{code:'INVALID_ENTITY_SNAPSHOT'},dispatched:true});
+      throw new Error('INVALID_ENTITY_SNAPSHOT');
+    }
     this.observedAt=new Date().toISOString();this.observedCount=entities.length;
     this.observedOperationMark=this.operations.length;
     await this.audit({phase:'quality_snapshot',operation_id:operationId,tool:'query_entities',target:this.scratch,observed:entities,document_revision:null});
@@ -362,7 +370,7 @@ export class ExecutionSession {
             validateCadArguments(name, payload);
             if(this.taskGrant)validatePlannedWire(name,payload,this.taskGrant.plan);
             if(this.taskGrant?.requireNew&&name!=='new_drawing')throw new Error('NEW_TASK_DRAWING_REQUIRED: call new_drawing before editing; old drawing cannot satisfy this task');
-            if(name==='new_drawing'&&this.taskGrant&&this.taskEntities.get(this.taskGrant.id)?.freshRequired&&!this.taskGrant.newAllowed)throw new Error('TASK_DRAWING_ALREADY_CREATED: continue local editing; do not rebuild');
+            if(name==='new_drawing'&&this.taskGrant&&!this.taskGrant.newAllowed)throw new Error('TASK_DRAWING_ALREADY_CREATED: continue local editing; do not rebuild');
             if (name !== 'new_drawing' && !this.scratch) throw new Error('NEW_SCRATCH_DRAWING_REQUIRED');
             await this.validateDependencies(name,payload,operationId);
             let destructive = name === 'delete_entity' || payload.erase_source === true;

@@ -95,7 +95,11 @@ test('CLI help and invalid exec arguments do not require repository config, cred
   const cli = fileURLToPath(new URL('../../../apps/cli/dist/index.js', import.meta.url));
   for (const args of [['--help'], ['exec', '--help'], ['exec'], ['exec', '任务', '--write'], ['exec', '任务', '--mcp'],
     ['exec', '任务', '--image'], ['exec', '任务', '--skill', 'cad-inspection', '--skill', 'cad-inspection'],
-    ['live-smoke', '--mcp', 'local.yaml', '--task', '画圆']]) {
+    ['live-smoke', '--mcp', 'local.yaml', '--task', '画圆'],
+    ['live-smoke', '--mcp', 'local.yaml', '--round-cad-budget', '4'],
+    ['live-smoke', '--mcp', 'local.yaml', '--quality', '--round-cad-budget', '0'],
+    ['live-smoke', '--mcp', 'local.yaml', '--quality', '--round-cad-budget', '1.5'],
+    ['live-smoke', '--mcp', 'local.yaml', '--quality', '--round-cad-budget', '65']]) {
     const result = spawnSync(process.execPath, [cli, ...args], { cwd: process.env.TEMP ?? '/tmp', encoding: 'utf8' });
     if (args.includes('--help')) {
       assert.equal(result.status, 0, result.stderr);

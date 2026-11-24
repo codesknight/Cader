@@ -46,6 +46,8 @@ test('rejects unsafe runtime limits and unreviewed CAD write tools', async () =>
   assert.throws(() => parseRuntime(text.replace('max_parallel_subagents: 5', 'max_parallel_subagents: 6')));
   assert.throws(() => parseRuntime(text.replace('max_delegation_depth: 1', 'max_delegation_depth: 2')));
   assert.throws(() => parseRuntime(text.replace('list_layers', 'delete_entity')));
+  assert.throws(() => parseRuntime(text.replace('validation_tool_reserve: 8', 'validation_tool_reserve: 100')));
+  assert.throws(() => parseRuntime(text.replace('max_cad_operations: 400', 'max_cad_operations: 0')));
 });
 
 test('seven child tasks use at most five slots and release slots after failure', async () => {

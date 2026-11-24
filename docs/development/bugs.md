@@ -205,3 +205,7 @@ BUG-038（REQ-037，已证实并修复）：DSH schemas(agent)表示注册可见
 BUG-039（REQ-038，#20，已确认故障、原生诱因待验证、未修复）：15:13新工作区首条new_drawing返回<unknown>.Add，无ack、unknown1而冻结；不是视觉入口或旧锁问题。MCP Documents.Add调用前未保护方法解析，且connect无文档时隐式新建后显式new_document可能再次新建；该分支存在，本次是否命中缺前态。只读观察已有空Drawing5，不能证明创建归属或无执行；须补原生阶段证据/有界只读就绪/单一新建入口，不能按错误文字解锁。完整证据见[审计](../validation/2026-11-23-new-drawing-add-audit.md)。
 
 REQ-039修复：BUG-039原生边界经离线、stdio及3次真实新建验证；旧未知不回溯。BUG-040：120秒主回合包含绘图/子视觉且继续自修，已改任务/API时限分离并交回Scheduler。BUG-041：普通插画自定图元上限/截断计划，已拒绝无依据上限、允许generic空端口及一次紧凑重试。BUG-042：质量全过但旧视觉格式错误污染总报告，已仅在当前必要条件全过时关联失败视觉的替代结果，不抹历史、不隐藏主模型失败。实测与CI见[记录](../validation/2026-11-23-native-document-create-fix.md)。
+
+BUG-043（REQ-040，#20，已证实未修复）：review后的snapshot失败绕过成功路径concludeTurn/reviewSubmitted，模型继续drawing阶段自修直到预算耗尽，round未计。BUG-044（设计缺口，未修复）：全局工具扁平计数100含Patch父/叶，缺整批预算预检与验证预留；最后32项中6已执行，非冻结但部分完成。BUG-045（空间口径风险已证实，历史蓝图原因待核）：全图ModelSpace、范围SelectionSets与ActiveLayout导出不一致，当前纸布局且导出蓝屏；不能以不完整图像缩放整图。原生snapshot失败详情亦未审计。见[证据及方案](../validation/2026-11-23-tool-budget-audit.md)。
+
+2026-11-24 REQ-041：BUG-043/044已在代码修复并经真实模型自动续轮/视觉通过和异常fixture复验；失败快照现有协议审计。首轮实测另证实“精确耗尽时模型自行结束而未续轮”，已改pre-step主动交接并复验。BUG-045仍未修复，真实Plot恢复COM拒绝产生的unknown保留。新增BUG-046（未修复）：save已ack但后读回失败，对账恢复后缺文件验收；同时计划把精确坐标/图层名设为视觉要求，缺确定性表达而保持待验证。真实10圆与DWG独立核对成功不能替代缺失的Harness证据。[记录](../validation/2026-11-24-budget-continuation.md)。

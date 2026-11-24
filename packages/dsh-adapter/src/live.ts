@@ -22,6 +22,8 @@ import FileSystem from '@deepseek-ai/dsh-fs-local';
 import type { ModelProfile, RuntimeConfig, McpConfig } from '@cader/config';
 import { parseVisualReport, visualReportSchema, requireCredential, loadSkills, mcpEnvironment, workspacePath, readReferenceImage,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema } from '@cader/config';
 import { ChildPool } from './pool.js';
+import { ExecutionBudget } from './budget.js';
+import type { BudgetStop } from './budget.js';
 import { capabilityCatalog } from './capabilities.js';
 import { prepareImageView, attachmentToSource } from './image-view.js';
 import type { ImageView } from './image-view.js';
@@ -31,7 +33,10 @@ export interface PublicEvent { type: string; agentId?: string; role?: string; [k
 export interface AgentResult {
   id: string; profile: string; status: 'succeeded' | 'failed' | 'cancelled';
   text: string; errorCode?: string; modelSteps: number; tools: string[]; recovered_by?:string;
+  handoff?: { kind: 'budget' | 'verification'; code: string; renewable?: boolean };
 }
+type PendingCall = { original_call_id: string; tool: string; arguments: unknown };
+const cadWrite = (name: string) => /^mcp__.+__(?:new_drawing|draw_\w+|create_layer|set_layer_properties|move_entity|rotate_entity|scale_entity|copy_entity|mirror_entity|delete_entity|save_drawing|add_dimension)$/.test(name);
 interface LiveOptions {
   root: string; runDirectory: string; profiles: ModelProfile[]; runtime: RuntimeConfig;
   mcp?: McpConfig; onEvent?: (event: PublicEvent) => void;
@@ -56,6 +61,9 @@ export async function createLiveRuntime(options: LiveOptions) {
   const completed: AgentResult[] = [];
   const emit = (event: PublicEvent) => options.onEvent?.({ at: new Date().toISOString(), ...event });
   let steps = 0, calls = 0, delegations = 0, visualReviews = 0;
+  const budget = new ExecutionBudget(options.runtime);
+  let scheduled = false;
+  let pending: PendingCall[] = [];
   const lifetime = new AbortController();
   const deadline = setTimeout(() => lifetime.abort(), options.runtime.timeout_ms);
   deadline.unref();
@@ -135,6 +143,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       controlledReview?: (question: string, signal?: AbortSignal) => Promise<unknown>;
       reviewEndsTurn?: boolean;
       harnessTask?: boolean;
+      continuePending?: boolean;
       sourceDetails?:{path:string;view:ImageView;label:string}[];
       history?: { role: 'user' | 'assistant'; content: string; status?: string }[]; summary?: string; domain?: string;
     } = {}): Promise<AgentResult> {
@@ -143,6 +152,13 @@ export async function createLiveRuntime(options: LiveOptions) {
       if (request.parent && (roles.get(request.parent) !== 'main' || profile.role === 'main'
         || !options.runtime.subagent_profiles.includes(profileId))) throw new Error('CHILD_DELEGATION_DENIED');
       if (request.image && !profile.input.includes('image')) throw new Error('UNSUPPORTED_IMAGE_INPUT');
+      let handoff: AgentResult['handoff'];
+      if (request.harnessTask && profile.role === 'main' && !request.parent) {
+        scheduled = true;
+        const stopped = budget.beginRound();
+        if (stopped) handoff = { kind: 'budget', code: stopped, renewable: false };
+        emit({ type: 'budget.round', ...budget.snapshot() });
+      }
       const selectedSkill = request.skill ? await skills.read(request.skill, profile.role) : undefined;
       if (selectedSkill) emit({ type: 'skill.loaded', name: request.skill, resource: null, role: profile.role,
         mode: 'selected', sha256: createHash('sha256').update(selectedSkill).digest('hex') });
@@ -155,6 +171,13 @@ export async function createLiveRuntime(options: LiveOptions) {
       let text = '', currentText = '', errorCode: string | undefined, agentSteps = 0, outputTruncated=false;
       const tools: string[] = [];
       let handle: AgentHandle | undefined;
+      const continuationResults: unknown[] = [];
+      const reservedLeaves = new Set<string>();
+      const queue = (call: PendingCall, code: BudgetStop) => {
+        if (!pending.some(item => item.original_call_id === call.original_call_id)) pending.push(structuredClone(call));
+        handoff = { kind: 'budget', code, renewable: code === 'EXECUTION_ROUND_EXHAUSTED' };
+        emit({ type: 'budget.handoff', ...handoff, pending_count: pending.length, ...budget.snapshot() });
+      };
       const abort = () => {
         errorCode ??= 'CANCELLED_OR_TIMEOUT';
         try { handle?.agent.cancel({ kind: 'hook', reason: errorCode }); }
@@ -182,14 +205,15 @@ export async function createLiveRuntime(options: LiveOptions) {
             }
             if(profile.role==='main'&&!request.onlyTools&&!options.disableTools&&options.executionTools){
               const patchNames=options.executionTools.map(t=>t.name).filter(name=>/^mcp__.+__(?:draw_\w+|create_layer|set_layer_properties|move_entity|rotate_entity|scale_entity|copy_entity|mirror_entity|delete_entity)$/.test(name));
-              if(patchNames.length){
+              const patchLimit=Math.min(32,options.runtime.max_cad_operations_per_round??64,options.runtime.max_tool_calls-(options.runtime.validation_tool_reserve??8)-1);
+              if(patchNames.length&&patchLimit>0){
                 const definitions=new Map(options.executionTools.map(tool=>[tool.name,tool]));
                 const variants=patchNames.map((name,index)=>({type:'object',properties:{tool:{type:'string',const:name},arguments:patchArgumentsSchema(definitions.get(name)!,`#/properties/operations/items${patchNames.length===1?'':`/oneOf/${index}`}/properties/arguments`)},required:['tool','arguments'],additionalProperties:false}));
-                const patch:ToolDefinition={name:'cader_apply_cad_patch',description:'Apply a model-generated local CAD patch in order, at most 32 operations. Each operation uses the original tool schema, permission checks and write journal. Stops at first failure; committed operations must never be replayed. New drawing, saving, file and Shell operations are excluded.',
-                  parameters:{type:'object',properties:{operations:{type:'array',minItems:1,maxItems:32,items:variants.length===1?variants[0]:{oneOf:variants}}},required:['operations'],additionalProperties:false},
+                const patch:ToolDefinition={name:'cader_apply_cad_patch',description:`Apply a model-generated local CAD patch in order, at most ${patchLimit} operations. Whole-patch budget admission precedes every leaf; round exhaustion yields to Scheduler. Original schemas, permissions and write journal apply. Stops at first failure; committed operations must never be replayed. New drawing, saving, file and Shell operations are excluded.`,
+                  parameters:{type:'object',properties:{operations:{type:'array',minItems:1,maxItems:patchLimit,items:variants.length===1?variants[0]:{oneOf:variants}}},required:['operations'],additionalProperties:false},
                   output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},isConcurrencySafe:()=>false,
                   async execute(args,exec){
-                    assertToolArguments({name:patch.name,parameters:{type:'object',properties:{operations:{type:'array',minItems:1,maxItems:32,items:{type:'object',properties:{tool:{type:'string',enum:patchNames},arguments:{type:'object'}},required:['tool','arguments'],additionalProperties:false}}},required:['operations'],additionalProperties:false}},args);
+                    assertToolArguments({name:patch.name,parameters:{type:'object',properties:{operations:{type:'array',minItems:1,maxItems:patchLimit,items:{type:'object',properties:{tool:{type:'string',enum:patchNames},arguments:{type:'object'}},required:['tool','arguments'],additionalProperties:false}}},required:['operations'],additionalProperties:false}},args);
                     const operations=(args as {operations:{tool:string;arguments:Record<string,unknown>}[]}).operations;
                     // Validate every leaf against the original schema before any patch mutation.
                     for(const op of operations){
@@ -197,7 +221,16 @@ export async function createLiveRuntime(options: LiveOptions) {
                       assertToolArguments(definitions.get(op.tool)!,op.arguments);
                     }
                     emit({type:'cad.patch_preflight',agentId:id,operations:operations.length,status:'passed'});
+                    if(scheduled){
+                      const stopped=budget.admit(operations.length,operations.length,false,1);
+                      if(stopped){
+                        queue({original_call_id:String(exec.callId),tool:patch.name,arguments:args},stopped);
+                        throw new Error(JSON.stringify({code:stopped,dispatched:false,not_dispatched:operations.length,no_replay:true}));
+                      }
+                      for(const index of operations.keys())reservedLeaves.add(`${exec.callId}:patch:${index}`);
+                    }
                     const results:unknown[]=[];
+                    try {
                     for(const [index,op]of operations.entries()){
                       exec.signal.throwIfAborted();
                       const batch=await agentCtx.tools.execute({agent,signal:exec.signal,toolSet:exec.toolSet,maxParallelToolCalls:1,
@@ -209,6 +242,9 @@ export async function createLiveRuntime(options: LiveOptions) {
                         not_dispatched:operations.slice(index+1).map((pending,offset)=>({index:index+offset+1,tool:pending.tool})),no_replay:true}));
                     }
                     return JSON.stringify({ok:true,results});
+                    } finally {
+                      for(const index of operations.keys())reservedLeaves.delete(`${exec.callId}:patch:${index}`);
+                    }
                   }};
                 agentCtx.tools.register(patch,{when:()=>options.toolAvailable?.(patch.name)??true});allowed.push(patch.name);
               }
@@ -222,11 +258,20 @@ export async function createLiveRuntime(options: LiveOptions) {
                   output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
                   isConcurrencySafe: () => false,
                   async execute(args, exec) {
-                    const result = await (request.controlledReview
-                      ? request.controlledReview(args.question, exec.signal)
-                      : reviewCadView(args.question, exec.signal, agent));
-                    if(request.controlledReview&&request.reviewEndsTurn)exec.concludeTurn();
-                    return JSON.stringify(result);
+                    try {
+                      const result = await (request.controlledReview
+                        ? request.controlledReview(args.question, exec.signal)
+                        : reviewCadView(args.question, exec.signal, agent));
+                      if(request.controlledReview&&request.reviewEndsTurn){handoff={kind:'verification',code:'VISUAL_REVIEW_SUBMITTED'};exec.concludeTurn();}
+                      return JSON.stringify(result);
+                    } catch(error) {
+                      if(!request.controlledReview||!request.reviewEndsTurn)throw error;
+                      // Control handoff succeeded; the visual review has NOT passed.
+                      handoff={kind:'verification',code:'VISUAL_REVIEW_FAILED'};
+                      emit({type:'task.review_handoff',...handoff,verification_pending:true});
+                      exec.concludeTurn();
+                      return JSON.stringify({review_valid:false,verification_pending:true,code:handoff.code});
+                    }
                   },
                 }), { when: () => options.toolAvailable?.('cader_review_cad_view') ?? true });
                 allowed.push('cader_review_cad_view');
@@ -310,7 +355,20 @@ export async function createLiveRuntime(options: LiveOptions) {
             agentCtx.tools.guard(exec => {
               if (!allowed.includes(exec.name) || options.toolAvailable?.(exec.name) === false || (exec.name === 'cader_delegate' && !profile.can_delegate))
                 return { reason: 'Tool is unavailable to this role', info: { name: 'CaderPolicyError', code: 'PERMISSION_DENIED' } };
-              if (++calls > options.runtime.max_tool_calls) {
+              if(handoff){
+                if(handoff.kind==='budget'&&handoff.renewable)queue({original_call_id:String(exec.callId),tool:exec.name,arguments:exec.arguments},'EXECUTION_ROUND_EXHAUSTED');
+                return {reason:'Control returned to Scheduler',info:{name:'CaderHandoff',code:handoff.code}};
+              }
+              if(scheduled){
+                if(reservedLeaves.delete(String(exec.callId)))return undefined;
+                const validation=profile.role!=='main'||exec.name==='cader_review_cad_view';
+                const stopped=budget.admit(1,cadWrite(exec.name)?1:0,validation);
+                if(stopped){
+                  if(profile.role==='main')queue({original_call_id:String(exec.callId),tool:exec.name,arguments:exec.arguments},stopped);
+                  else errorCode=stopped;
+                  return {reason:stopped,info:{name:'CaderBudgetError',code:stopped}};
+                }
+              } else if (++calls > options.runtime.max_tool_calls) {
                 errorCode = 'TOOL_BUDGET_EXCEEDED';
                 return { reason: errorCode, info: { name: 'CaderBudgetError', code: errorCode } };
               }
@@ -335,7 +393,9 @@ export async function createLiveRuntime(options: LiveOptions) {
                 skills: roleSkills,
                 selected_skill: request.skill ?? null,
                 remaining_model_steps: Math.max(0, options.runtime.max_model_steps - steps),
-                remaining_tool_calls: Math.max(0, options.runtime.max_tool_calls - calls),
+                remaining_tool_calls: scheduled?budget.snapshot().remaining_round_tools:Math.max(0, options.runtime.max_tool_calls - calls),
+                execution_budget: scheduled ? budget.snapshot() : null,
+                continuation_results: continuationResults,
                 model_request_timeout_ms:profile.timeout_ms,agent_turn_timeout_ms:turnTimeout,
                 max_parallel_subagents: profile.can_delegate ? pool.limit : 0,
                 worker_profiles: profile.can_delegate ? options.profiles.filter(worker => options.runtime.subagent_profiles.includes(worker.id))
@@ -348,8 +408,54 @@ export async function createLiveRuntime(options: LiveOptions) {
                 execution: options.executionTools ? 'Program-controlled tools available; request actions and obey approval results. New scratch drawings require no existing DWG or reference image.' : 'No dynamic execution session selected.',
                 document_identity_and_units: 'not verified; do not assume target identity or units',
               });} });
-            agentCtx.on('agent/pre-step', async (_payload, next) => {
-              if (++steps > options.runtime.max_model_steps) { errorCode = 'MODEL_STEP_BUDGET_EXCEEDED'; return { kind: 'reject' }; }
+            let continued=false;
+            agentCtx.on('agent/pre-step', async (payload, next) => {
+              if(handoff)return {kind:'reject'};
+              const taskStop=scheduled?budget.taskStop():undefined;
+              if(taskStop){
+                if(profile.role==='main')handoff={kind:'budget',code:taskStop,renewable:false};
+                else errorCode=taskStop;
+                return {kind:'reject'};
+              }
+              if(steps>=options.runtime.max_model_steps){
+                if(scheduled&&profile.role==='main')handoff={kind:'budget',code:'MODEL_STEP_BUDGET_EXCEEDED',renewable:false};
+                else errorCode='MODEL_STEP_BUDGET_EXCEEDED';
+                return {kind:'reject'};
+              }
+              if(request.continuePending&&!continued){
+                continued=true;
+                const queued=pending;pending=[];
+                const toolSet=await agentCtx.tools.resolve(payload);
+                try{
+                  for(const [index,call] of queued.entries()){
+                    const replayId=brandString<ToolCallId>(`continuation-${randomUUID()}`);
+                    emit({type:'budget.continue_dispatch',original_call_id:call.original_call_id,call_id:replayId,tool:call.tool});
+                    const batch=await agentCtx.tools.execute({agent,signal:payload.signal,toolSet,maxParallelToolCalls:1,
+                      calls:[{type:'tool-call',id:replayId,name:call.tool,arguments:JSON.stringify(call.arguments)}]});
+                    const result=batch.results[0]?.result;
+                    continuationResults.push({original_call_id:call.original_call_id,tool:call.tool,result});
+                    if(!result||result.isError){
+                      pending.push(...queued.slice(index+1));
+                      if(!handoff)errorCode='CONTINUATION_OPERATION_FAILED';
+                      return {kind:'reject'};
+                    }
+                    if(batch.concluded){
+                      pending.push(...queued.slice(index+1));
+                      return {kind:'reject'};
+                    }
+                  }
+                }finally{toolSet.dispose();}
+              }
+              if(request.harnessTask&&profile.role==='main'&&budget.roundExhausted()){
+                handoff={kind:'budget',code:'EXECUTION_ROUND_EXHAUSTED',renewable:true};
+                emit({type:'budget.handoff',...handoff,pending_count:pending.length,...budget.snapshot()});
+                return {kind:'reject'};
+              }
+              if (++steps > options.runtime.max_model_steps) {
+                if(scheduled&&profile.role==='main')handoff={kind:'budget',code:'MODEL_STEP_BUDGET_EXCEEDED',renewable:false};
+                else errorCode = 'MODEL_STEP_BUDGET_EXCEEDED';
+                return { kind: 'reject' };
+              }
               agentSteps++;
               emit({ type: 'model.step', agentId: id, role: profile.role, model: profile.model });
               return next();
@@ -372,8 +478,10 @@ export async function createLiveRuntime(options: LiveOptions) {
                 currentText += frame.chunk.text;
                 emit({ type: 'assistant.delta', agentId: id, role: profile.role, text: frame.chunk.text });
               }
-              if (frame.type === 'chunk' && frame.chunk.type === 'usage')
+              if (frame.type === 'chunk' && frame.chunk.type === 'usage') {
+                budget.recordTokens(frame.chunk.usage.totalTokens ?? frame.chunk.usage.inputTokens + frame.chunk.usage.outputTokens + (frame.chunk.usage.cacheReadTokens ?? 0) + (frame.chunk.usage.cacheWriteTokens ?? 0));
                 emit({ type: 'model.usage', agentId: id, role: profile.role, usage: frame.chunk.usage });
+              }
               if (frame.type === 'end') text = currentText;
             });
             agentCtx.on('tools/result', (exec, result) => {
@@ -425,10 +533,11 @@ export async function createLiveRuntime(options: LiveOptions) {
         handle.agent.followup(createUserMessage({ content, source: { kind: 'user' } }));
         await handle.agent.whenIdle();
         text = request.resultText?.() || text;
-        if(outputTruncated&&!request.resultText?.())errorCode??='OUTPUT_TRUNCATED';
+        if(handoff&&!errorCode)text=JSON.stringify({scheduler_handoff:handoff,task_complete:false});
+        if(outputTruncated&&!request.resultText?.()&&!handoff)errorCode??='OUTPUT_TRUNCATED';
         const status: AgentResult['status'] = signal.aborted ? 'cancelled' : errorCode || !text.trim() ? 'failed' : 'succeeded';
         emit({ type: 'agent.completed', agentId: id, role: profile.role, status });
-        const result = { id, profile: profileId, status, text, ...(errorCode ? { errorCode } : {}), modelSteps: agentSteps, tools };
+        const result = { id, profile: profileId, status, text, ...(errorCode ? { errorCode } : {}), ...(handoff?{handoff}:{}),modelSteps: agentSteps, tools };
         completed.push(result);
         return result;
       } finally {
@@ -517,7 +626,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       emit({ type: 'cad.review', ...result }); return result;
     }
 
-    return { ctx, run, inspectReference,reviewCadView:(question:string,signal?:AbortSignal,referenceImage?:string)=>reviewCadView(question,signal,undefined,referenceImage), pool, completed: () => completed.slice(), toolNames: () => ctx.tools.schemas().map(tool => tool.name),
+    return { ctx, run, enableTaskBudget:()=>{scheduled=true;},budgetState:()=>({...budget.snapshot(),pending:structuredClone(pending)}),inspectReference,reviewCadView:(question:string,signal?:AbortSignal,referenceImage?:string)=>reviewCadView(question,signal,undefined,referenceImage), pool, completed: () => completed.slice(), toolNames: () => ctx.tools.schemas().map(tool => tool.name),
       async dispose() { clearTimeout(deadline); lifetime.abort(); await ctx.fiber.dispose(); } };
   } catch (error) { clearTimeout(deadline); await ctx.fiber.dispose(); throw error; }
 }

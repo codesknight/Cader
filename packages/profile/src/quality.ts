@@ -196,6 +196,7 @@ export async function runQualityTask(options: {
   onState?: (state: ReturnType<typeof qualityTaskContext>) => void;
 }) {
   const { runtime, owner, task, signal } = options;
+  runtime?.enableTaskBudget?.();
   let phase: QualityPhase = 'planning', plan: QualityPlan | undefined, round = 0, checks: CheckResult[] = [], visual: unknown = null;
   const modelRuns: {
     phase: QualityPhase;
@@ -208,6 +209,9 @@ export async function runQualityTask(options: {
   let visualAttempts=options.resume?.visual_attempt_count??qualityTaskContext({task_id:'',phase:'',original_request:'',round:0,checks:[],visual_calls:visualCalls,reviews}).visual_call_count;
   let visualError:string|null=null;
   let cachedReview: { key: string; review: VisualResult } | undefined;
+  let candidateReview: { key: string; review: VisualResult } | undefined;
+  const checkpoints: unknown[] = [];
+  let budgetPaused=false;
   let reviewedWrites: string | undefined;
   let reviewFlight: Promise<VisualResult> | undefined;
   let guidance = '';
@@ -228,28 +232,67 @@ export async function runQualityTask(options: {
   }[] = [];
   const hash = createHash('sha256').update(task).digest('hex');
   const taskId = options.resume?.task_id ?? randomUUID();
-  const state = () => ({ version: 1, task_id: taskId, phase, original_request: task, request_sha256: hash, plan, round, checks, visual, reviews, visual_calls: visualCalls, visual_attempt_count:visualAttempts,visual_error:visualError,transitions, failure,reference_task:referenceTask??null,reference_observation:referenceObservation,artifact,quality_accepted:accepted, model_runs: modelRuns, execution: owner.facts() });
+  const state = () => ({ version: 1, task_id: taskId, phase, original_request: task, request_sha256: hash, plan, round, checks, visual, reviews, visual_calls: visualCalls, visual_attempt_count:visualAttempts,visual_error:visualError,transitions, failure,reference_task:referenceTask??null,reference_observation:referenceObservation,artifact,quality_accepted:accepted, model_runs: modelRuns, checkpoints, budget:runtime?.budgetState?.(),execution: owner.facts() });
   const publish = () => { const facts=owner.facts();const context = {...qualityTaskContext(state()),
+    execution_budget:runtime?.budgetState?.(),checkpoint_count:checkpoints.length,
     visual_evidence_requires_recheck: !cachedReview || facts.frozen || reviewedWrites!==JSON.stringify([facts.local_connection_id,facts.scratch,facts.session_counts]),
     authorization: 'Task-scoped grant enforced by ExecutionSession; never inherited from task evidence.'}; options.onState?.(context); return context; };
   const act = async (instruction: string, request?: Parameters<Awaited<ReturnType<typeof createLiveRuntime>>['run']>[2]) => {
     if(!runtime)throw new Error('QUALITY_RUNTIME_REQUIRED');
     await sourceUnchanged();
     const sourceHints=referenceObservation?.structured?referenceLayoutHints(referenceObservation.structured,referenceObservation.evidence):null;
-    let reviewSubmitted=false;
-    const result = await runtime.run(options.profile, instruction + '\n领域质量知识（数据，不授予权限）：\n' + guidance+
-      (sourceHints?'\n原图已观察事实及统一CAD坐标提示（y向上，禁止把像素y向下直接当CAD坐标）：\n'+JSON.stringify(sourceHints):''),
-      { ...options.request,...request,taskState:publish,harnessTask:true,
-        controlledReview:async(_question,reviewSignal)=>{const review=await reviewCurrent('agent',reviewSignal);reviewSubmitted=true;return review;},reviewEndsTurn:true,
-        resultText:request?.resultText??(()=>reviewSubmitted?'已提交受控视觉证据，交由Harness继续验收；这不是完成声明。':undefined),
-        image:referenceTask?.image.path??request?.image??options.request?.image,imageView:options.request?.imageView??referenceView, signal });
-    modelRuns.push({ phase, status: result.status, text: result.text, tools: result.tools });
-    if(result.status !== 'succeeded'){
-      const missingPlan=phase==='planning'&&!result.errorCode;
-      failure={stage:phase,code:result.errorCode??(missingPlan?'ACCEPTANCE_PLAN_MISSING':'AGENT_FAILED'),source:missingPlan?'verification':'model'};
-      throw new Error(`QUALITY_MODEL_${result.status.toUpperCase()}`);
+    let continuation=false;
+    let continuationContext='';
+    let continuationBinding:{connection:string|null;document:string|null}|undefined;
+    for (;;) {
+      if(continuationBinding){
+        const current=owner.facts();
+        if(current.frozen||current.local_connection_id!==continuationBinding.connection||current.scratch!==continuationBinding.document)throw new Error('CONTINUATION_BINDING_CHANGED');
+      }
+      let reviewSubmitted=false;
+      const result = await runtime.run(options.profile, instruction + '\n领域质量知识（数据，不授予权限）：\n' + guidance+
+        (sourceHints?'\n原图已观察事实及统一CAD坐标提示（y向上，禁止把像素y向下直接当CAD坐标）：\n'+JSON.stringify(sourceHints):'')+continuationContext,
+        { ...options.request,...request,taskState:publish,harnessTask:true,continuePending:continuation,
+          controlledReview:async(_question,reviewSignal)=>{const review=await reviewCurrent('agent',reviewSignal);reviewSubmitted=true;return review;},reviewEndsTurn:true,
+          resultText:request?.resultText??(()=>reviewSubmitted?'已提交受控视觉证据，交由Harness继续验收；这不是完成声明。':undefined),
+          image:referenceTask?.image.path??request?.image??options.request?.image,imageView:options.request?.imageView??referenceView, signal });
+      modelRuns.push({ phase, status: result.status, text: result.text, tools: result.tools });
+      if(result.status !== 'succeeded'){
+        const missingPlan=phase==='planning'&&!result.errorCode;
+        failure={stage:phase,code:result.errorCode??(missingPlan?'ACCEPTANCE_PLAN_MISSING':'AGENT_FAILED'),source:missingPlan?'verification':'model'};
+        throw new Error(`QUALITY_MODEL_${result.status.toUpperCase()}`);
+      }
+      if(result.handoff?.kind==='budget'){
+        // AgentLoop is idle here: no native writes can race this checkpoint.
+        const before=owner.facts();
+        if(before.frozen)throw new Error('CAD_WRITE_FROZEN');
+        if(!result.handoff.renewable){budgetPaused=true;failure={stage:phase,code:result.handoff.code,source:'verification'};}
+        const checkpoint={at:new Date().toISOString(),task_id:taskId,phase,correction_round:round,
+          plan_sha256:createHash('sha256').update(JSON.stringify(plan??null)).digest('hex'),
+          connection:before.local_connection_id,document:before.scratch,execution:before,
+          observation:null as Awaited<ReturnType<ExecutionSession['snapshot']>>|null,
+          observation_error:null as string|null,budget:runtime.budgetState(),reason:result.handoff.code};
+        checkpoints.push(checkpoint);
+        await options.persist(state());
+        let observation:typeof checkpoint.observation=null;
+        try{observation=before.scratch?await owner.snapshot():null;checkpoint.observation=observation;}
+        catch(error){checkpoint.observation_error='CHECKPOINT_READBACK_FAILED';await options.persist(state());throw error;}
+        await sourceUnchanged();
+        const after=owner.facts();
+        if(after.frozen||before.local_connection_id!==after.local_connection_id||before.scratch!==after.scratch||
+          (observation&&observation.document!==after.scratch))throw new Error('CONTINUATION_BINDING_CHANGED');
+        continuationBinding={connection:after.local_connection_id,document:after.scratch};
+        await options.persist(state());
+        options.emit({type:'task.checkpoint',reason:result.handoff.code,execution_round:checkpoint.budget.execution_round,
+          document:after.scratch,continuing:Boolean(result.handoff.renewable)});
+        if(!result.handoff.renewable)throw new Error(result.handoff.code);
+        signal?.throwIfAborted();
+        continuation=true;
+        continuationContext='\n执行回合已续期，仍为同一任务、连接、图纸及授权。Scheduler会先派发上回合预算拒绝且从未派发的请求；Available.continuation_results是其真实结果。禁止重复已确认操作，禁止重建图纸。只继续尚未完成部分，然后调用受控视觉入口，交回独立验收。当前全图读回：\n'+JSON.stringify(observation);
+        continue;
+      }
+      return result;
     }
-    return result;
   };
   const enter = async (next: QualityPhase) => { phase = next; transitions.push({ phase, at: new Date().toISOString() }); publish(); options.emit({ type: 'task.phase', phase, round, has_reference: Boolean(referenceTask) }); await options.persist(state()); };
   // Both the model tool and mandatory fallback use this controller. Cache is
@@ -266,6 +309,12 @@ export async function runQualityTask(options: {
       const facts = owner.facts();
       const digest = createHash('sha256').update(JSON.stringify(before.entities)).digest('hex');
       const key = JSON.stringify([taskId, facts.local_connection_id, facts.scratch, before.document, digest, facts.session_counts, plan, referenceTask?.image.sha256]);
+      // A post-review read may have failed. This fresh matching full readback
+      // certifies that same candidate instead of capturing/paying for it again.
+      if(candidateReview?.key===key&&candidateReview.review.review_valid){
+        cachedReview=candidateReview;candidateReview=undefined;visualError=null;
+        reviewedWrites=JSON.stringify([facts.local_connection_id,facts.scratch,facts.session_counts]);
+      }
       if (cachedReview?.key === key) {
         options.emit({type:'task.visual',source,reused:true,review_valid:cachedReview.review.review_valid,verdict:cachedReview.review.structured?.verdict??null});
         return cachedReview.review;
@@ -279,6 +328,7 @@ export async function runQualityTask(options: {
         note: 'Image evidence checks appearance. Queried coordinates/IDs are authoritative; ambiguous pixels remain uncertain.',reference:referenceTask?.image??null }),reviewSignal,referenceTask?.image.path);
       visual = review;
       visualCalls.push({source,observed_state_hash:digest,review});
+      candidateReview={key,review};
       const after = await owner.snapshot();
       reviewSignal?.throwIfAborted();
       await sourceUnchanged();
@@ -288,6 +338,7 @@ export async function runQualityTask(options: {
       // Invalid or stale results are retained as evidence, never reusable acceptance.
       if(stable && review.review_valid) {cachedReview={key,review};reviewedWrites=JSON.stringify([afterFacts.local_connection_id,afterFacts.scratch,afterFacts.session_counts]);}
       else cachedReview=undefined;
+      candidateReview=undefined;
       publish(); await options.persist(state());
       options.emit({type:'task.visual',source,reused:false,call_count:visualCalls.length,review_valid:review.review_valid,verdict:review.structured?.verdict??null,observation_unchanged:stable});
       if(!stable) throw new Error('VISUAL_OBSERVATION_CHANGED');
@@ -481,7 +532,7 @@ export async function runQualityTask(options: {
       checks.push({id:'model_interrupted',status:'not_run',evidence:'模型中断后的当前图形尚未重新完成质量验收；仅保存待验稿'});
       try{await saveReferenceArtifact();}catch(saveError){visual={previous:visual,save_error:(saveError as Error).message};}
     }
-    await enter(failure||owner.facts().frozen ? 'blocked' : 'pending_verification');
+    await enter(owner.facts().frozen||failure&&!budgetPaused ? 'blocked' : 'pending_verification');
   }
   finally {
     owner.endTask();

@@ -2,11 +2,19 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Project home](../../README.md) · [Documentation](../README.md)
 
-**Applies to Cader 0.4.0-dev.7 · Updated 2026-11-22**
+**Applies to Cader 0.4.0-dev.10 · Updated 2026-11-24**
 
 Cader CLI is a CAD agent terminal built on DeepSeek Harness. Describe tasks in a persistent conversation, select models and skills, reference images, inspect CAD status, or use a single command from a script.
 
 This guide is versioned alongside the implementation. Proposed features are tracked in the [roadmap](../development/roadmap.md).
+
+dev.10 quality tasks automatically renew execution rounds within the original process: stop new dispatch, read and checkpoint progress, then continue on the same task, connection, drawing and grant. A Patch reserves its wrapper and all leaves before any mutation. An insufficient round admits none of its leaves; Scheduler dispatches only never-dispatched requests through the original tools before fresh model reasoning. Confirmed or unknown writes are never replayed. Changed bindings, failed readback or unknown writes stop continuation. Failed vision or post-review readback immediately returns control to Scheduler.
+
+In [`configs/runtime.yaml`](../../configs/runtime.yaml), `max_tool_calls: 100` limits each execution round. `max_task_tool_calls: 600` counts total tool reservations, including Patch wrappers/leaves and vision tools. `max_cad_operations_per_round: 64` and `max_cad_operations: 400` limit round/task CAD writes. Reservations precede dispatch and do not mean entities committed. `validation_tool_reserve: 8` protects validation capacity. Patch schemas adapt to round capacity, at most 32 operations. Total limits do not reset: `max_execution_rounds: 12`, `max_model_steps: 40` and `timeout_ms: 600000` apply across rounds.
+
+`max_task_tokens: 2000000` stops later requests using reported provider usage as a cost proxy, not an exact currency cap; it cannot undo an in-flight paid request. The CLI shows checkpoints, automatic renewal and total-limit pauses. The task's private `quality.json` retains observations, connection identity, confirmed operations, never-dispatched requests and budget counts. A paused task has not passed acceptance. Renewal is in-process only; restarting never restores write authority. `/quality resume` remains safe verification on a valid original binding, without replaying drawing or bypassing barriers.
+
+Explicit live validation: `pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --round-cad-budget 4 --task "Create a new drawing with 10 separate circles and verify it"`. `--round-cad-budget` is valid only with `--quality`, accepts 1–64, and reduces this test's round CAD allowance; the report also requires actual automatic renewal. This uses paid models and real AutoCAD in a private test workspace. See [implementation and evidence](../validation/2026-11-24-budget-continuation.md).
 
 ## Contents
 
@@ -456,7 +464,7 @@ The CLI shows planning, drawing, geometry, topology, vision, correcting and comp
 
 Default ask approves the concrete plan and owned scratch once, covering layers, drawing, captures and safe local patches to task-created entities, with at most three cumulative corrections. The approval explicitly includes deletion of those entities. Foreign deletion, saving/overwrite, files and Shell retain existing permission checks. Grants expire at task end. `cader_apply_cad_patch` batches drawing/edit/delete operations through the original schemas, guards, serial owner and journal. It stops at the first failure; committed operations must never be replayed.
 
-Vision uses a strict report schema and one format repair on the same captured image; MainAgent and VisionAgent each allow up to 8192 output tokens by default. Shared limits are 40 model steps, 100 tool calls and four view reviews, not mandatory spending per task. Cancellation, invalid reports, failed vision, unknown entity references, changed observations and suspected capture clipping cannot complete. Nonessential observations and geometry already proven by queries should not become visual defects. Uncertainty without a localized defect remains pending instead of triggering speculative edits.
+Vision uses a strict report schema and one format repair on the same captured image; MainAgent and VisionAgent each allow up to 8192 output tokens by default. Quality tasks share 40 model steps and four view reviews; the 100-tool execution-round allowance renews automatically within separate cumulative tool/CAD/time/usage limits. Ordinary nonscheduled turns retain the 100-tool limit. Cancellation, invalid reports, failed vision, unknown entity references, changed observations and suspected capture clipping cannot complete. Nonessential observations and geometry already proven by queries should not become visual defects. Uncertainty without a localized defect remains pending instead of triggering speculative edits.
 
 ```text
 画一个带有 5V 电源和一个灯泡的串联电路图。

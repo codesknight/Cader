@@ -304,3 +304,11 @@ REQ-033手稿日志审计：读取用户原始附件及实际verification/events
 最终pnpm typecheck、pnpm test 112/112、pnpm smoke通过；实际stdio链路6项负测、原生故障注入8项、同图格式修复、视觉交接/父子时限与规划有限重试均分层验证。独立MCP pytest235 passed/33 skipped，已有uv环境isolated ruff I/F通过（conda无ruff）。手册links-only及diff检查通过，cader -v为dev.9。
 
 真实原生连续3次新建且只新增1图/绑定正确，测试图全部关闭，用户Drawing5保留。原始红屋顶/蓝墙/大树绘本需求最终整体ok=true，8/8、47确认/0unknown、12步骤、1轮修正、2次主动视觉且Harness复用。只关闭本轮自建图；未保存DWG。各早期超时/截断/质量与汇总矛盾原结果保留，不改成通过。运行ID、截图hash与证据范围见[完整记录](../validation/2026-11-23-native-document-create-fix.md)。远端以相关PR对应提交CI与Issue交付记录为准。
+
+2026-11-23 REQ-040只读审计：解析本次quality/events/execution，重建100次预算及最后Patch 6确认/1拒绝/25未派发，查看真实蓝色PNG，核对当前源代码与编译产物。独立GetActiveObject仅读取文档/布局/空间数量，未切换或改图；无模型调用、无恢复或重放。运行代码未变，本次未执行回归/真实绘图；此前112通过不覆盖此异常路径。[完整记录](../validation/2026-11-23-tool-budget-audit.md)。
+
+## 2026-11-24 REQ-041 / #20
+
+最终 `pnpm typecheck`、`pnpm test` 123/123、`pnpm smoke` 通过；CLI `cader -v` 为0.4.0-dev.10。手册links-only检查127个本地链接/22锚点通过，`git diff --check`通过。新增预算fixture、实际DSH续派/总限额/精确耗尽，以及原连接Scheduler异常交接测试；均不冒充真实模型/CAD。
+
+显式真实测试使用 `pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --round-cad-budget 4 --task <自然语言需求>`。第三例完整成功：自动续轮3次，同一Drawing16，12确认写入/unknown0，一次授权，10圆/视觉4项条件全过，独立原生核对10个不同ID绿色圆且互不重叠。第一例Plot恢复COM拒绝仍unknown，第二例实际10圆/DWG保存但文件/精确验收证据不完整仍pending，均保留失败。Python仅执行私有独立原生观察/文件核对/清理脚本，仓库Python代码未改、未重新声称Python回归或完整DSH app profile通过。[运行ID、图像hash、DWG证据与限制](../validation/2026-11-24-budget-continuation.md)。

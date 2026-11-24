@@ -12,6 +12,7 @@ export type { AgentResult, PublicEvent } from './live.js';
 export type { StreamChunk } from '@deepseek-ai/dsh-llm';
 export { LlmError } from '@deepseek-ai/dsh-llm';
 export { ChildPool } from './pool.js';
+export { ExecutionBudget } from './budget.js';
 export { createManagedClient, createMcpClient, MANAGED_TOOLS } from './managed-client.js';
 export { NativeCreateNotInvokedError } from './managed-client.js';
 export { nativeCreateRejection } from './native-create.js';
