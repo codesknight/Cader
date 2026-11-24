@@ -350,3 +350,5 @@ REQ-033手稿日志审计：读取用户原始附件及实际verification/events
 2026-11-25 BUG073：初始TS18048失败保留，明确guard后`pnpm typecheck`、201测试、`pnpm smoke`通过，fixed记录不覆盖失败。第37轮规划模型格式失败、CAD0写入，第38轮待执行。
 
 2026-11-25 BUG074：`pnpm typecheck`、`pnpm test`（203/203）、`pnpm smoke`通过，证据`.cader/circuit-20261125-*-verdict.txt`。第38轮全部清单pass但整体uncertain反复修正后总预算暂停；DWG20826字节保留，未算完整通过。第39轮待执行。
+
+2026-11-25 最终真实原稿回归：第39轮12/12、23语义单元、76committed/0unknown，964050tokens；两次真实MALFORMED响应安全续跑、一次轮预算续期，真实视觉pass。原生同SHA只读重开DWG20474字节、71实体匹配；独立8网/9标注/倒三角/10原生检查均通过，人工截图对照通过，5旧证据及原图hash未变。代码203测试/typecheck/DSH组件smoke及c9a17dd两套CI成功。原始证据私有保留，全部历史失败不回改。详见[完整记录](../validation/2026-11-24-reference-circuit-fix.md)。

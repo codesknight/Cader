@@ -1,8 +1,11 @@
 # Cader CLI User Guide
 
+
 **English** · [简体中文](README.zh-CN.md) · [Project home](../../README.md) · [Documentation](../README.md)
 
 **Applies to Cader 0.4.0-dev.12 · Updated 2026-11-25**
+
+2026-11-25 validation: the original complex reference circuit passed 12/12 checks with real models and AutoCAD, including safe response/budget continuation. Independent native DWG-copy reopening, eight nets, nine human-confirmed labels and source-symbol outline checks passed. This is one assisted reference case, not general OCR/physical-scale certification. Default CLI saving checks headers/hash/post-save CAD; native reopening was an additional regression check. [Evidence and limits](../validation/2026-11-24-reference-circuit-fix.md).
 
 dev.12: reference circuits use model-planned components, named pins and external netlists, including branches and three-terminal devices. Harness schedules component, net and label units with readback checkpoints; all units still require independent geometry, topology, source-image and DWG acceptance. A unit check-in is progress, never task acceptance. The terminal reports unit progress and truncation retries.
 
