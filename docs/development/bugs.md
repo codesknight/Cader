@@ -1,6 +1,6 @@
 # Bug 与排障记录
 
-2026-11-24 REQ-044/045 / #20：BUG-048～050已实施代码修复，最新173项离线测试通过；复杂原始手稿完整验收仍进行中，保持待验，不关闭Bug。
+2026-11-24 REQ-044/045 / #20：BUG-048～050已实施代码修复，最新174项离线测试通过；复杂原始手稿完整验收仍进行中，保持待验，不关闭Bug。
 
 - BUG-048：已实现截断/模型响应TIMEOUT后的两次有界账本检查恢复、语义单元、8项Patch及共享轮预算/能力收窄。真实触发过两次截断恢复无重放；后续实际完成21单元、95确认写入、0 unknown并生成待验DWG。初版仍截断及累计token暂停的失败保留。
 - BUG-049：已支持1～8具名端口/分支外部netlist、源端子映射/分组保持、真实符号端点、已证实同点直接接触和非连接交叉。原图明确分组冲突不猜测；不确定关系不得当成确定断开。专门源图拓扑视觉条件参与完成判定。真实完整通过待最新回归，旧同点误报保留。
@@ -11,6 +11,8 @@
 BUG-051（REQ-045回归新增，#20）：完整原图运行`quality-fff7f69d-1759-4649-8740-df0aa06d3017`续派Patch时，一条导线被WIRE_CROSSES_COMPONENT明确拒绝在派发前，前叶已确认、unknown0/frozen=false；适配器却将任何续派错误统一置为CONTINUATION_OPERATION_FAILED，无法让模型修正。本轮54确认并保存18781字节待验DWG，图与失败保留。现仅在原绑定、未冻结、增量账本全部为committed或dispatched=false的failed_before_dispatch且确有后者时，将真实部分结果及余下未派发请求返回模型重新规划，不重放原Patch。缺账本/变绑定/unknown仍停止，失败预留不退还；4个实际DSH路径回归通过（总172项）。同原图新一轮真实验收仍执行，未把fixture算完整绘图通过。
 
 BUG-052（REQ-045回归新增，#20）：`quality-4ac644e3-6d2b-4830-8e10-03bfd47603f0`源网复核工具多次漏索引/重复端子，最终无有效报告却泛称SOURCE_TOPOLOGY_UNCERTAIN。现动态Schema要求每个已有object:terminal为必填membership属性，每端只赋一组，程序生成groups；新增器件端子、未知组名/索引、漏端子仍严格校验，不修补猜图。错误区分SOURCE_NET_REPORT_INVALID与关系不确定。173项/typecheck/smoke通过，当前原图真实回归继续；不把Schema覆盖等同于像素识别已通过。
+
+BUG-053（REQ-045回归新增，#20）：`quality-91dc6619-d2e6-4c64-9bc3-2fe2c7c75eaa`计划文字及计数条件指定LABELS，逐项Scheduler仅传组件/网/源文字，未传这些封存条件；8个真实AcDbText均在TEXT，导致精确文字验收全部不匹配。不是MText缺字段或MCP未绘制。现每单元带去重required_layers及文字/计数/组件图层约束，setup和后续修正沿用，示例层名不覆盖计划；不放宽验证器。新增跨setup/组件/网络/标注的自定义层契约fixture，174项/typecheck/smoke通过，最新完整实机复验另记。
 
 2026-11-24 REQ-043 / #20 / MCP#43：BUG-045的Count/CopyFrom截图恢复分支及BUG-047视觉失败绿色勾号已修复，恢复后状态读回/备份清理/请求关联均强制，未知仍保护。实机发现非活动文档ActiveLayout可能指向活动文档，新增Layout.Document/ObjectID绑定检查，并用ModelSpace.Layout确认旧图未变。回归首轮还发现Layers.Add动态解析错误，复用只读就绪/单次调用修复；Drawing18旧unknown保留。两轮原始绘本整体通过、10次复杂图重复捕获恢复通过；另一次风格uncertain保持待验证，历史蓝图根因、文件验收和纸布局自动路由仍未宣称解决。[分层结果](../validation/2026-11-24-capture-restoration-fix.md)。
 

@@ -303,6 +303,32 @@ for(const kind of ['complete','pending','quota','source-uncertain','budget'])tes
   }finally{await chat.dispose();if(previous===undefined)delete process.env.CADER_REDRAW_FIXTURE;else process.env.CADER_REDRAW_FIXTURE=previous;await f.cleanup();}
 });
 
+test('semantic units receive sealed custom symbol and label layers rather than losing plan constraints',async()=>{
+  const f=await setup(),path=join(f.root,'reference.png'),sha256=createHash('sha256').update(await readFile(path)).digest('hex');
+  const task='复现参考图',rows:Record<string,any>[]=[],instructions:string[]=[];let target:string|null=null,committed=0;
+  const plan={version:1,domain:'electrical-schematic',wire_layer:'WIRE',visual_required:true,
+    components:[{id:'A',source_id:'source',source_terminals:[0],kind:'terminal',bounds:[[0,0],[1,1]],ports:[[0,0]],pin_names:['p']}],nets:[{id:'single',pins:[{component:'A',pin:'p'}]}],
+    requirements:[{id:'appearance',check:'visual',source_quote:task,description:'Synthetic appearance'},{id:'net',check:'netlist',source_quote:task,description:'External conductor partition'},{id:'through',check:'no_wire_through_component',source_quote:task,description:'No interior wires'},{id:'clearance',check:'text_clearance',source_quote:task,description:'No text intersections'},
+      {id:'text',check:'text',source_quote:task,description:'Source label',text:'R7',min:1,layer:'CUSTOM_LABELS'},{id:'symbol',check:'entity_count',entity_type:'AcDbLine',source_quote:task,description:'Observed symbol geometry',min:1,layer:'CUSTOM_SYMBOL'}]};
+  const source=parseReferenceObservation({...observation,drawing_kind:'schematic',objects:[{id:'source',kind:'terminal',category:'component',bounds:[[0,0],[1,1]],terminals:[[0,0]],certainty:'clear'}],nets:[{id:'single',pins:[{object:'source',terminal:0}]}],visible_text:[{text:'R7',bounds:[[0.2,0.2],[0.4,0.3]],certainty:'clear'}]});
+  const owner={workspace:f.root,facts:()=>({frozen:false,local_connection_id:'fixture',scratch:target,session_counts:{committed,unknown:0},operations:[]}),
+    taskScope:()=>({owned:Boolean(target),target,new_drawing_confirmed:Boolean(target),geometry_confirmed:rows.length,entity_ids:rows.map(r=>r.object_id)}),definitions:()=>[],async authorizeTask(){return true;},endTask(){},
+    async snapshot(){return {document:target,entities:structuredClone(rows)};},async saveTaskArtifact(){committed++;return {kind:'local-dwg',path:join(f.root,'fixture.dwg'),bytes:100,sha256:'fixture',document:target};}};
+  const runtime={completed:()=>[],async inspectReference(){return {valid:true,structured:source,evidence:{path,sha256,width:640,height:480}};},async run(_profile:string,instruction:string,request:any){
+    if(request.extraTools?.[0]?.name==='cader_submit_acceptance_plan'){await request.extraTools[0].execute(plan,{concludeTurn(){}});return {status:'succeeded',tools:[],text:'fixture plan'};}
+    instructions.push(instruction);const unit=request.taskState().active_drawing_unit;
+    if(unit==='setup'){assert.match(instruction,/CUSTOM_LABELS/);assert.match(instruction,/CUSTOM_SYMBOL/);target='fixture.dwg';committed++;}
+    if(unit==='component:A'){rows.push({object_id:1,type:'AcDbLine',layer:instruction.includes('"layer":"CUSTOM_SYMBOL"')?'CUSTOM_SYMBOL':'SYMBOL',start_point:[0,0,0],end_point:[1,1,0],bounding_box:{min:[0,0,0],max:[1,1,0]}});committed++;}
+    if(unit==='labels:0'){rows.push({object_id:2,type:'AcDbText',layer:instruction.includes('"layer":"CUSTOM_LABELS"')?'CUSTOM_LABELS':'TEXT',text_string:'R7',bounding_box:{min:[2,2,0],max:[3,3,0]}});committed++;}
+    await request.completeDrawingUnit();return {status:'succeeded',tools:[],text:'fixture unit checkpoint'};
+  },async reviewCadView(){return {review_valid:true,attempts:[],structured:{verdict:'pass',defects:[],uncertainties:[],checklist:[{requirement_id:'appearance',status:'pass',evidence:'Fixture only'}]},evidence:{document:target,reference:{path,sha256,width:640,height:480}}};}};
+  try{
+    const q=await runQualityTask({runtime,owner,task,profile:'fixture',emit(){},persist:async()=>{},referenceTask:{request:task,image:{path,sha256,width:640,height:480},outputPath:join(f.root,'fixture.dwg'),freshDrawing:true}} as never);
+    assert.equal(q.phase,'complete',JSON.stringify({failure:q.failure,checks:q.checks}));assert.equal(q.quality_accepted,true);assert.equal(instructions.length,4);assert.equal(q.drawing_units.length,4);
+    assert.ok(q.checks.every(c=>c.status==='pass'));
+  }finally{await f.cleanup();}
+});
+
 test('frozen-plan wire intersections are rejected before native dispatch without a write barrier',async()=>{
   const f=await setup();let lines=0;
   const names=['new_drawing','draw_line','draw_polyline','list_layers'];

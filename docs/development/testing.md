@@ -1,6 +1,6 @@
 # 测试记录
 
-2026-11-24 REQ-045：`pnpm typecheck`、`pnpm test` **173/173**、`pnpm smoke`通过；smoke为真实DSH组件/确定性模型，不冒充真实模型或CAD。原始电路手稿多次真实模型+AutoCAD记录已保留：一轮完成21单元、95 committed/0 unknown，DWG23071字节/83实体经原生同hash副本只读打开及几何/文字核对，但质量待验（不是完整通过）。最新质量回归仍执行，见[逐次实际结果](../validation/2026-11-24-reference-circuit-fix.md)。此轮未修改独立AutoCAD-MCP或Cader Python产品代码；不把以前Python结果冒充本轮新验收。
+2026-11-24 REQ-045：`pnpm typecheck`、`pnpm test` **174/174**、`pnpm smoke`通过；smoke为真实DSH组件/确定性模型，不冒充真实模型或CAD。原始电路手稿多次真实模型+AutoCAD记录已保留：一轮完成21单元、95 committed/0 unknown，DWG23071字节/83实体经原生同hash副本只读打开及几何/文字核对，但质量待验（不是完整通过）。最新质量回归仍执行，见[逐次实际结果](../validation/2026-11-24-reference-circuit-fix.md)。此轮未修改独立AutoCAD-MCP或Cader Python产品代码；不把以前Python结果冒充本轮新验收。
 
 2026-11-24 REQ-044只读审计：核对手稿重绘quality/events/verification、模型8192输出上限、目标DWG不存在、1个绘制模型步骤/0派发/0unknown及正常会话锁；源码验证多端/串联Schema缺口和首4标注覆盖。查看授权原图，未调用MCP/模型/原生CAD，未执行恢复或运行时变更；本轮不新增回归通过声明，原始失败保留。[记录](../validation/2026-11-24-reference-circuit-audit.md)。
 
