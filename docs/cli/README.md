@@ -16,6 +16,8 @@ Source-net review exposes a dynamic `membership` schema requiring every known te
 
 Explicit label clarifications may accompany the original request. The program records the submitted quote, source hash/position and original OCR reading; human confirmation is not reported as OCR success. An uncertain net is not a proven disconnection: a candidate may continue only when other clear terminal relations agree, and must pass the dedicated `source_topology_fidelity` image comparison. Clear conflicts or unresolved final vision still prevent completion. Final review includes relevant original-image details and coordinate transforms alongside the same CAD capture.
 
+When the request contains a clarification, planning must review every remaining uncertain label. Applicable values require exact user-quote bindings; uncovered indices need explicit `unconfirmed` reasons and remain pending. Source-inspection events are immutable snapshots. Image symbols do not imply a requirement for CAD block references; unrequested block-count gates are rejected before drawing.
+
 For circuit redraws, “hand-drawn” identifies the source medium. Rough strokes and handwritten fonts are output requirements only when explicitly requested. Independent final vision compares the actual source and CAD images; preliminary model opinions are withheld to reduce anchoring.
 
 If a queued Patch encounters a proven pre-dispatch rejection after budget renewal, the model receives its actual partial results and may replan missing operations. This requires the original connection/document and an unfrozen execution ledger; confirmed leaves are never replayed. Uncertain native outcomes still stop execution. Failed reservations remain spent.

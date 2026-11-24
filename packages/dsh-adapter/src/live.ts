@@ -686,7 +686,7 @@ export async function createLiveRuntime(options: LiveOptions) {
         }
       }
       const result={valid:structured!==null,structured,attempts,label_reviews:labelReviews,label_inventory:labelInventory,net_review:netReview,evidence:{path,sha256:createHash('sha256').update(source.data).digest('hex'),width:source.width,height:source.height}};
-      emit({type:'reference.inspected',...result});return result;
+      emit({type:'reference.inspected',...structuredClone(result)});return result;
     }
     async function reviewCadView(question: string, signal?: AbortSignal, parent?: Agent, referenceImage?:string,referenceDetails?:{path:string;view:ImageView;label:string}[]) {
       if(referenceDetails?.some(detail=>detail.path!==referenceImage))throw new Error('SOURCE_DETAIL_MISMATCH');

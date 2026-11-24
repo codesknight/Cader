@@ -234,6 +234,7 @@ export async function runQualityTask(options: {
   let accepted=false;
   let referenceObservation:Awaited<ReturnType<NonNullable<typeof runtime>['inspectReference']>>|null=null;
   const labelConfirmations:{index:number;text:string;source_quote:string;image_sha256:string;original_reading:unknown}[]=[];
+  const unconfirmedLabelReviews:{index:number;reason:string}[]=[];
   let referenceView:ImageView|undefined;
   const sourceUnchanged=async()=>{
     if(!referenceTask)return;
@@ -249,9 +250,9 @@ export async function runQualityTask(options: {
   const taskId = options.resume?.task_id ?? randomUUID();
   const state = () => ({ version: 1, task_id: taskId, phase, original_request: task, request_sha256: hash, plan, round, checks, visual, reviews, visual_calls: visualCalls, visual_attempt_count:visualAttempts,
     visual_model_call_count:runtime?.reviewStats?priorModelCalls+runtime.reviewStats().model_calls:visualCalls.reduce((sum,call)=>sum+(call.review.attempts?.length??1),0),
-    visual_error:visualError,transitions, failure,reference_task:referenceTask??null,reference_observation:referenceObservation,label_confirmations:labelConfirmations,artifact,quality_accepted:accepted, model_runs: modelRuns, checkpoints,drawing_units:drawingUnits,active_drawing_unit:activeUnit, budget:runtime?.budgetState?.(),execution: owner.facts() });
+    visual_error:visualError,transitions, failure,reference_task:referenceTask??null,reference_observation:referenceObservation,label_confirmations:labelConfirmations,unconfirmed_label_reviews:unconfirmedLabelReviews,artifact,quality_accepted:accepted, model_runs: modelRuns, checkpoints,drawing_units:drawingUnits,active_drawing_unit:activeUnit, budget:runtime?.budgetState?.(),execution: owner.facts() });
   const publish = () => { const facts=owner.facts();const context = {...qualityTaskContext(state()),
-    execution_budget:runtime?.budgetState?.(),checkpoint_count:checkpoints.length,active_drawing_unit:activeUnit,drawing_units:drawingUnits,source_label_confirmations:labelConfirmations,rendering_contract:referenceTask?renderingContract():null,
+    execution_budget:runtime?.budgetState?.(),checkpoint_count:checkpoints.length,active_drawing_unit:activeUnit,drawing_units:drawingUnits,source_label_confirmations:labelConfirmations,unconfirmed_source_label_reviews:unconfirmedLabelReviews.filter(r=>referenceObservation?.structured?.visible_text[r.index]?.certainty==='uncertain'),rendering_contract:referenceTask?renderingContract():null,
     visual_evidence_requires_recheck: !cachedReview || facts.frozen || reviewedWrites!==JSON.stringify([facts.local_connection_id,facts.scratch,facts.session_counts]),
     authorization: 'Task-scoped grant enforced by ExecutionSession; never inherited from task evidence.'}; options.onState?.(context); return context; };
   const act = async (instruction: string, request?: Parameters<Awaited<ReturnType<typeof createLiveRuntime>>['run']>[2]) => {
@@ -423,6 +424,11 @@ export async function runQualityTask(options: {
       if(options.alwaysVisual||requiresQuality(task)||parsed.requirements.some(r=>r.check==='visual')) parsed.visual_required = true;
       if(parsed.visual_required&&!parsed.requirements.some(r=>r.check==='visual'))throw new Error('VISUAL_ACCEPTANCE_REQUIRED: include an independently reviewable visual condition quoted from the original request');
       if(referenceTask){
+        if(/确认|clarification|confirm/i.test(task)){
+          const unreviewed=referenceObservation?.structured?.visible_text.flatMap((label,index)=>label.certainty==='uncertain'&&!unconfirmedLabelReviews.some(r=>r.index===index)?[{index,text:label.text,bounds:label.bounds}]:[])??[];
+          if(unreviewed.length)throw new Error('EXPLICIT_SOURCE_CLARIFICATIONS_UNREVIEWED: review the actual user clarification BEFORE submitting a plan. Use cader_confirm_source_labels for matching confirmed values; put genuinely uncovered indices in unconfirmed with a reason, never guess or ignore an applicable confirmation. '+JSON.stringify(unreviewed));
+        }
+        if(parsed.requirements.some(r=>r.check==='entity_count'&&r.entity_type==='AcDbBlockReference')&&!/图块|块引用|AcDbBlockReference|\bblocks?\b/i.test(task))throw new Error('UNREQUESTED_BLOCK_REPRESENTATION: source symbols are semantic components, not a request for block references or a fixed primitive implementation. Remove this count; use visual symbol coverage plus source terminals/netlist. Do not replace it with another arbitrary primitive count');
         if(referenceObservation?.structured?.drawing_kind==='schematic'&&!sourceStrokeRequested&&parsed.requirements.some(r=>/手绘风格|手写(?:风格|字体)|手绘笔触|铅笔(?:效果|纹理)|(?:原稿|原图).*笔触|sketch[- ]style|hand[- ]drawn style|handwritten font|pencil texture/i.test(r.description)))throw new Error('UNREQUESTED_SOURCE_STYLE: hand-drawn is the INPUT medium, not a request for rough CAD strokes or handwriting. Preserve component symbols, labels, topology and layout; remove invented stroke/font style gates unless the user explicitly requested them');
         parsed.visual_required=true;
         if(!parsed.requirements.some(r=>r.check==='visual'))throw new Error('REFERENCE_APPEARANCE_CHECK_REQUIRED');
@@ -449,15 +455,17 @@ export async function runQualityTask(options: {
       return JSON.stringify(plan);
     }
   };
-  const confirmLabels:ToolDefinition={name:'cader_confirm_source_labels',description:'Bind an explicit USER-provided label clarification to source-image indices. Preserve the original uncertain reading. source_quote must quote a confirmation from the actual user request and contain the confirmed literal value; never invent a confirmation or resolve uncertainty by inference.',parameters:{type:'object',properties:{labels:{type:'array',minItems:1,maxItems:32,items:{type:'object',properties:{index:{type:'integer',minimum:0},text:{type:'string',minLength:1,maxLength:80},source_quote:{type:'string',minLength:1,maxLength:800}},required:['index','text','source_quote'],additionalProperties:false}}},required:['labels'],additionalProperties:false},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args){
-    await sourceUnchanged();const labels=(args as {labels:{index:number;text:string;source_quote:string}[]}).labels;
-    if(!referenceTask||!referenceObservation?.structured||new Set(labels.map(l=>l.index)).size!==labels.length)throw new Error('SOURCE_CONFIRMATION_INVALID');
+  const confirmLabels:ToolDefinition={name:'cader_confirm_source_labels',description:'Review explicit USER label clarifications by source-image index before planning. labels binds exact applicable quotes/values and preserves original OCR. If a clarification does not cover an uncertain index, record it in unconfirmed with a reason; it stays pending. Never invent user confirmation or treat inference as OCR success.',parameters:{type:'object',properties:{labels:{type:'array',minItems:0,maxItems:32,items:{type:'object',properties:{index:{type:'integer',minimum:0},text:{type:'string',minLength:1,maxLength:80},source_quote:{type:'string',minLength:1,maxLength:800}},required:['index','text','source_quote'],additionalProperties:false}},unconfirmed:{type:'array',maxItems:32,items:{type:'object',properties:{index:{type:'integer',minimum:0},reason:{type:'string',minLength:1,maxLength:800}},required:['index','reason'],additionalProperties:false}}},required:['labels'],additionalProperties:false},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args){
+    await sourceUnchanged();const {labels,unconfirmed=[]}=args as {labels:{index:number;text:string;source_quote:string}[];unconfirmed?:{index:number;reason:string}[]};
+    const indices=[...labels,...unconfirmed].map(l=>l.index);
+    if(!referenceTask||!referenceObservation?.structured||!indices.length||new Set(indices).size!==indices.length||unconfirmed.some(r=>referenceObservation!.structured!.visible_text[r.index]?.certainty!=='uncertain'||!r.reason?.trim()))throw new Error('SOURCE_CONFIRMATION_INVALID');
     for(const label of labels){
       const observed=referenceObservation.structured.visible_text[label.index];
       if(!observed||labelConfirmations.some(c=>c.index===label.index)||!task.includes(label.source_quote)||/\.(?:png|jpe?g|dwg)\b/i.test(label.source_quote)||!/确认|clarification|confirm/i.test(label.source_quote)||!labelText(label.source_quote).includes(labelText(label.text)))throw new Error('EXPLICIT_USER_CONFIRMATION_REQUIRED: source indices not previously confirmed, exact user quote and confirmed literal value');
     }
     for(const label of labels){const observed=referenceObservation.structured.visible_text[label.index]!;labelConfirmations.push({...label,image_sha256:referenceTask.image.sha256,original_reading:structuredClone(observed)});observed.text=label.text;observed.certainty='clear';}
-    await options.persist(state());options.emit({type:'reference.labels_confirmed',count:labels.length,image_sha256:referenceTask.image.sha256,source:'explicit_user_quote'});return JSON.stringify({confirmed:labels,source:'user_confirmation',not_ocr_success:true});
+    unconfirmedLabelReviews.push(...unconfirmed);
+    await options.persist(state());options.emit({type:'reference.labels_confirmed',count:labels.length,unconfirmed:unconfirmed.length,image_sha256:referenceTask.image.sha256,source:'explicit_user_quote'});return JSON.stringify({confirmed:labels,unconfirmed,source:'user_confirmation',not_ocr_success:true});
   }};
   try {
     if(owner.facts().frozen){await enter('blocked');return state();}

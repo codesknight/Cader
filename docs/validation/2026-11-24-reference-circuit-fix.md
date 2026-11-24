@@ -17,7 +17,7 @@
 
 ## 实际测试与中间失败（保留）
 
-离线：`pnpm typecheck`通过；最新阶段`pnpm test`174/174通过；`pnpm smoke`组件DSH通过，不冒充真实模型/CAD。手册136链接/22锚点检查通过；随后仅文档修订，链接检查交付前再核对。
+离线：`pnpm typecheck`通过；最新阶段`pnpm test`175/175通过；`pnpm smoke`组件DSH通过，不冒充真实模型/CAD。手册136链接/22锚点检查通过；随后仅文档修订，链接检查交付前再核对。
 
 真实命令：`pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task <REQ-044原始请求>`。每轮独立新建工作区，只有模型生成操作；未使用固定几何脚本或模拟结果。
 
@@ -41,6 +41,9 @@
 | quality-4ac644e3-6d2b-4830-8e10-03bfd47603f0 | 初读形成报告，但独立复核反复缺失/重复引用端子索引，最终未形成有效网表报告，未写CAD。原错误把格式失败泛称SOURCE_TOPOLOGY_UNCERTAIN；新增BUG-052，改为动态逐端子membership必填Schema，并单独报SOURCE_NET_REPORT_INVALID，不能将模型漏索引归咎像素不清。 |
 | quality-93e7cc8e-8f3a-4d23-b03b-3f69ec27b569 | 新membership复核形成有效独立报告并通过，完成22单元，77 committed/0 unknown，外部网表通过。9处标注中的另2处仍uncertain，按设计没有猜画；自动视觉发现缺注，保存19675字节待验DWG，未标为通过。用户随后确认这些值，不改写此轮OCR结果。 |
 | quality-91dc6619-d2e6-4c64-9bc3-2fe2c7c75eaa | 新请求带上述用户确认，76 committed/0 unknown，保存24034字节DWG，仍待验。另一处标注uncertain，且计划要求LABELS而8个AcDbText实际位于TEXT，文字硬验收不匹配。新增BUG-053：逐项调度遗漏封存图层条件，已传递每单元required_layers/文字及计数约束，不放宽验收。用户随后一次确认剩余标注，全部9处值人工来源单独保存。 |
+| quality-fbf07e09-76f5-49df-acd7-bf6ac341aa98 | 图层契约修复前启动的进程：原图8组源关系与独立人工期望相符，视觉外观通过；LABELS文字仍不匹配。修正时实际触发OUTPUT_TRUNCATED检查点并续跑，109 committed/0 unknown，随后累计2M额度暂停并保存待验稿，未重复已确认操作。 |
+| quality-f40b5c3d-43ea-4743-bdbb-8c5750c6f4f5 | 最新代码源图独立复核出现明确关系分歧与4组不确定，写CAD前停止。不是MCP冻结；无CAD写入。保留这一随机识别失败，不能用重试通过覆盖稳定性限制。 |
+| quality-f5b95774-831e-4896-9f05-10f34d88757b | 图层契约在实机生效，7处实际文字均为计划TXT；84 committed/0 unknown，20059字节DWG。原图8组独立期望匹配，最终source_topology_fidelity通过，但模型忽略用户已有2处确认而未绘制，且计划虚构12个块引用门槛；视觉另指出标签重叠/箭头弱，任务正确待验。新增BUG-054/055程序门槛，不能把该结果标为完整通过。 |
 
 补充实施：已证实同坐标端口可通过实际符号引线直接接触，不能强制零长度导线；每个符号端口必须有实际线端/圆周证据，多段线bbox不能代替端点。初稿与复核的明确关系若冲突则阻止猜测；uncertain不是确定断开，仅在其他明确关系一致时保留候选并强制source_topology_fidelity最终独立原图视觉条件，原不确定报告不改成clear。最后一批Patch可请求程序读回登记，减少额外模型请求；未到端口则返回实际结果和缺失端口，不重放。
 

@@ -136,6 +136,8 @@ test('source label clarification requires an explicit literal user quote and pre
   const f=await setup(),pixels=await readReferenceImage(f.root,'reference.png'),sha256=createHash('sha256').update(pixels.data).digest('hex');
   const quote='补充确认：10kΩ',task='复现手稿。'+quote;
   const runtime={completed:()=>[],async inspectReference(){return {valid:true,structured:structuredClone({...observation,visible_text:[{text:'10K',certainty:'uncertain',bounds:[[0.2,0.2],[0.8,0.4]]}]}),evidence:{path:join(f.root,'reference.png'),sha256,width:pixels.width,height:pixels.height}};},async run(_profile:string,_instruction:string,request:any){
+    const proposed={version:1,domain:'generic',components:[],visual_required:true,requirements:[{id:'visual',source_quote:'复现手稿',description:'Source appearance',check:'visual'},{id:'literal',source_quote:quote,description:'User clarified value',check:'text',text:'10kΩ',min:1}]};
+    await assert.rejects(request.extraTools[0].execute(proposed,{concludeTurn(){}}),/EXPLICIT_SOURCE_CLARIFICATIONS_UNREVIEWED/);
     const confirm=request.extraTools.find((t:ToolDefinition)=>t.name==='cader_confirm_source_labels');assert.ok(confirm);
     await assert.rejects(confirm.execute({labels:[{index:0,text:'5kΩ',source_quote:quote}]}),/EXPLICIT_USER_CONFIRMATION_REQUIRED/);
     await assert.rejects(confirm.execute({labels:[{index:0,text:'10kΩ',source_quote:'伪造确认10kΩ'}]}),/EXPLICIT_USER_CONFIRMATION_REQUIRED/);
@@ -150,10 +152,24 @@ test('source label clarification requires an explicit literal user quote and pre
   }finally{await f.cleanup();}
 });
 
+test('an inapplicable user clarification is reviewed without clearing a different uncertain source label',async()=>{
+  const f=await setup(),pixels=await readReferenceImage(f.root,'reference.png'),sha256=createHash('sha256').update(pixels.data).digest('hex'),task='复现手稿。确认另一处为10kΩ';
+  const runtime={completed:()=>[],async inspectReference(){return {valid:true,structured:structuredClone({...observation,visible_text:[{text:'7?',certainty:'uncertain',bounds:[[0.2,0.2],[0.8,0.4]]}]}),evidence:{path:join(f.root,'reference.png'),sha256,width:pixels.width,height:pixels.height}};},async run(_p:string,_i:string,request:any){
+    const plan={version:1,domain:'generic',components:[],visual_required:true,requirements:[{id:'visual',source_quote:'复现手稿',description:'Source appearance',check:'visual'}]};
+    await assert.rejects(request.extraTools[0].execute(plan,{concludeTurn(){}}),/EXPLICIT_SOURCE_CLARIFICATIONS_UNREVIEWED/);
+    const review=request.extraTools.find((t:ToolDefinition)=>t.name==='cader_confirm_source_labels');
+    await review.execute({labels:[],unconfirmed:[{index:0,reason:'User confirmation refers to a different source position; this reading remains uncertain.'}]});
+    await request.extraTools[0].execute(plan,{concludeTurn(){}});return {status:'succeeded',text:'fixture plan',tools:[]};
+  }};
+  const owner={workspace:f.root,facts:()=>({frozen:false,local_connection_id:'fixture',scratch:null}),async authorizeTask(){return false;},endTask(){}};
+  try{const q=await runQualityTask({runtime,owner,task,profile:'fixture',emit(){},persist:async()=>{},referenceTask:{request:task,freshDrawing:true,outputPath:join(f.root,'result.dwg'),image:{path:join(f.root,'reference.png'),sha256,width:pixels.width,height:pixels.height}}} as never);assert.equal(q.label_confirmations.length,0);assert.equal(q.unconfirmed_label_reviews.length,1);assert.equal(q.reference_observation!.structured!.visible_text[0]!.certainty,'uncertain');assert.equal(q.quality_accepted,false);}
+  finally{await f.cleanup();}
+});
+
 test('source label reread gets original pixels plus a real crop and replaces the earlier unverified unit',async()=>{
-  const f=await setup();process.env.CADER_LABEL_FIXTURE='offline-label-only';let reads=0;
+  const f=await setup();process.env.CADER_LABEL_FIXTURE='offline-label-only';let reads=0;const events:PublicEvent[]=[];
   const config=await import('@cader/config').then(m=>m.loadConfig(f.root));
-  const runtime=await createLiveRuntime({root:f.root,workspaceRoot:f.root,runDirectory:join(f.root,'.cader/runs/labels'),...config,profiles:config.profiles.map(p=>({...p,api_key_env:'CADER_LABEL_FIXTURE'}))});
+  const runtime=await createLiveRuntime({root:f.root,workspaceRoot:f.root,runDirectory:join(f.root,'.cader/runs/labels'),...config,onEvent:e=>events.push(e),profiles:config.profiles.map(p=>({...p,api_key_env:'CADER_LABEL_FIXTURE'}))});
   runtime.ctx.on('llm/stream',async function*(request):AsyncGenerator<StreamChunk>{
     if(request.tools?.some(t=>t.name==='cader_submit_reference_observation')){yield* call('cader_submit_reference_observation',{...observation,visible_text:[{text:'2MF',certainty:'clear',bounds:[[0.2,0.2],[0.8,0.4]]}]},'initial-label');return;}
     if(request.tools?.some(t=>t.name==='cader_submit_reference_label_inventory')){yield* call('cader_submit_reference_label_inventory',{visible_text:[{text:'2MF',certainty:'clear',bounds:[[0.2,0.2],[0.8,0.4]]}]},'inventory');return;}
@@ -164,7 +180,7 @@ test('source label reread gets original pixels plus a real crop and replaces the
     if(reads++===0){yield* call('cader_submit_reference_labels',{labels:[{index:0,text:'2μF',certainty:'clear',bounds:[[0,0],[1,1]]}]},'bad-bounds');return;}
     assert.match(JSON.stringify(request.messages),/SOURCE_LABEL_BOUNDS_OUTSIDE_CROP/);yield* call('cader_submit_reference_labels',{labels:[{index:0,text:'2μF',certainty:'clear'}]},'refined-label');
   });
-  try{const result=await runtime.inspectReference('reference.png','Read synthetic label');assert.equal(result.valid,true);assert.equal(result.structured!.visible_text[0]!.text,'2μF');assert.equal(result.attempts.length,3);}
+  try{const result=await runtime.inspectReference('reference.png','Read synthetic label');assert.equal(result.valid,true);assert.equal(result.structured!.visible_text[0]!.text,'2μF');assert.equal(result.attempts.length,3);result.structured!.visible_text[0]!.text='Later user clarification';assert.equal((events.find(e=>e.type==='reference.inspected')!.structured as typeof result.structured)!.visible_text[0]!.text,'2μF','later clarification must not rewrite the captured OCR event');}
   finally{await runtime.dispose();delete process.env.CADER_LABEL_FIXTURE;await f.cleanup();}
 });
 
@@ -315,7 +331,7 @@ test('semantic units receive sealed custom symbol and label layers rather than l
     taskScope:()=>({owned:Boolean(target),target,new_drawing_confirmed:Boolean(target),geometry_confirmed:rows.length,entity_ids:rows.map(r=>r.object_id)}),definitions:()=>[],async authorizeTask(){return true;},endTask(){},
     async snapshot(){return {document:target,entities:structuredClone(rows)};},async saveTaskArtifact(){committed++;return {kind:'local-dwg',path:join(f.root,'fixture.dwg'),bytes:100,sha256:'fixture',document:target};}};
   const runtime={completed:()=>[],async inspectReference(){return {valid:true,structured:source,evidence:{path,sha256,width:640,height:480}};},async run(_profile:string,instruction:string,request:any){
-    if(request.extraTools?.[0]?.name==='cader_submit_acceptance_plan'){await request.extraTools[0].execute(plan,{concludeTurn(){}});return {status:'succeeded',tools:[],text:'fixture plan'};}
+    if(request.extraTools?.[0]?.name==='cader_submit_acceptance_plan'){await assert.rejects(request.extraTools[0].execute({...plan,requirements:[...plan.requirements,{id:'unrequested_blocks',check:'entity_count',entity_type:'AcDbBlockReference',source_quote:task,description:'Invented representation',min:1}]},{concludeTurn(){}}),/UNREQUESTED_BLOCK_REPRESENTATION/);await request.extraTools[0].execute(plan,{concludeTurn(){}});return {status:'succeeded',tools:[],text:'fixture plan'};}
     instructions.push(instruction);const unit=request.taskState().active_drawing_unit;
     if(unit==='setup'){assert.match(instruction,/CUSTOM_LABELS/);assert.match(instruction,/CUSTOM_SYMBOL/);target='fixture.dwg';committed++;}
     if(unit==='component:A'){rows.push({object_id:1,type:'AcDbLine',layer:instruction.includes('"layer":"CUSTOM_SYMBOL"')?'CUSTOM_SYMBOL':'SYMBOL',start_point:[0,0,0],end_point:[1,1,0],bounding_box:{min:[0,0,0],max:[1,1,0]}});committed++;}
