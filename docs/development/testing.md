@@ -342,3 +342,5 @@ REQ-033手稿日志审计：读取用户原始附件及实际verification/events
 显式真实测试使用 `pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --round-cad-budget 4 --task <自然语言需求>`。第三例完整成功：自动续轮3次，同一Drawing16，12确认写入/unknown0，一次授权，10圆/视觉4项条件全过，独立原生核对10个不同ID绿色圆且互不重叠。第一例Plot恢复COM拒绝仍unknown，第二例实际10圆/DWG保存但文件/精确验收证据不完整仍pending，均保留失败。Python仅执行私有独立原生观察/文件核对/清理脚本，仓库Python代码未改、未重新声称Python回归或完整DSH app profile通过。[运行ID、图像hash、DWG证据与限制](../validation/2026-11-24-budget-continuation.md)。
 
 远端实施提交8dfe3ae：[push CI 45324012147](https://github.com/codesknight/Cader/actions/runs/45324012147)、[PR CI 45324019005](https://github.com/codesknight/Cader/actions/runs/45324019005)均success，各4项Windows/Ubuntu DSH及Cader Python MCP检查全过。CI为无付费API/真实CAD的回归，与上述显式真实测试分开记。
+
+2026-11-25 BUG071：`pnpm typecheck`、`pnpm test`（201/201）、`pnpm smoke`通过；本轮测试约28秒。证据`.cader/circuit-20261125-*-unit-recovery.txt`。真实第35轮失败保留，第36轮待执行。

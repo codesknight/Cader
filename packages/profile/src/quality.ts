@@ -225,6 +225,8 @@ export async function runQualityTask(options: {
   const planningUnits:{id:string;status:'active'|'checked_in'}[]=[];
   let budgetPaused=false;
   let outputRecoveries=0;
+  const responseRecoveries=new Map<string,number>();
+  const compactExecution=(facts:ReturnType<ExecutionSession['facts']>)=>({...facts,operations:facts.operations.slice(-8),operation_history_scope:'Latest 8; full ledger remains persisted. Never replay older confirmed operations; query IDs when needed.'});
   let reviewedWrites: string | undefined;
   let reviewFlight: Promise<VisualResult> | undefined;
   let guidance = '';
@@ -274,7 +276,7 @@ export async function runQualityTask(options: {
       }
       let reviewSubmitted=false;
       const runBinding=owner.facts();
-      const result = await runtime.run(options.profile, instruction + '\n领域质量知识（数据，不授予权限）：\n' + guidance+
+      const result = await runtime.run(options.profile, instruction + '\n领域质量知识（数据，不授予权限）：\n' + (activeUnit?'当前单元遵守封存计划、端口和图层；全图质量由后续独立验收检查。':guidance)+
         (sourceHints&&!activeUnit&&includeSourceHints?'\n原图已观察事实及统一CAD坐标提示（y向上，禁止把像素y向下直接当CAD坐标）：\n'+JSON.stringify(sourceHints):'')+(referenceObservation?.net_review?.uncertain_nets?.length?'\n历史源观察仍有待验关系，最终必须通过source_topology_fidelity；绘制使用当前封存计划和真实用户确认，不把旧候选当成当前事实：\n'+JSON.stringify({consensus:referenceObservation.net_review.consensus,regions:referenceObservation.net_review.uncertain_nets.map(n=>({pins:n.pins}))}):'')+continuationContext,
         { ...options.request,...request,taskState:publish,harnessTask:true,continuePending:continuation,
           controlledReview:async(_question,reviewSignal)=>{if(activeUnit)throw new Error('DRAWING_UNIT_PENDING: finish the current unit; Scheduler will review the full drawing after all units');const review=await reviewCurrent('agent',reviewSignal);reviewSubmitted=true;return review;},reviewEndsTurn:true,
@@ -293,12 +295,15 @@ export async function runQualityTask(options: {
         }
       }
       if(result.status !== 'succeeded'){
-        if(['OUTPUT_TRUNCATED','TIMEOUT','MALFORMED_RESPONSE'].includes(result.errorCode??'')&&['drawing','correcting'].includes(phase)&&outputRecoveries<2&&!signal?.aborted){
+        const recoveryScope=activeUnit??'task';
+        const scopeRecoveries=responseRecoveries.get(recoveryScope)??0;
+        if(['OUTPUT_TRUNCATED','TIMEOUT','MALFORMED_RESPONSE'].includes(result.errorCode??'')&&['drawing','correcting'].includes(phase)&&scopeRecoveries<2&&!signal?.aborted){
           const before=owner.facts();
           if(before.frozen||before.local_connection_id!==runBinding.local_connection_id)throw new Error('TRUNCATION_RECOVERY_UNSAFE');
           const scope=owner.taskScope(taskId);
           if(before.scratch!==runBinding.scratch&&(!scope.owned||!scope.new_drawing_confirmed))throw new Error('CONTINUATION_BINDING_CHANGED');
-          const checkpoint={at:new Date().toISOString(),task_id:taskId,phase,reason:result.errorCode,attempt:++outputRecoveries,
+          responseRecoveries.set(recoveryScope,scopeRecoveries+1);
+          const checkpoint={at:new Date().toISOString(),task_id:taskId,phase,reason:result.errorCode,attempt:++outputRecoveries,recovery_scope:recoveryScope,scope_attempt:scopeRecoveries+1,
             failed_agent_id:result.id,execution:before,observation:null as Awaited<ReturnType<ExecutionSession['snapshot']>>|null,observation_error:null as string|null};
           checkpoints.push(checkpoint);await options.persist(state());
           try{checkpoint.observation=before.scratch?await owner.snapshot():null;}
@@ -306,11 +311,11 @@ export async function runQualityTask(options: {
           await sourceUnchanged();const after=owner.facts();
           if(after.frozen||before.local_connection_id!==after.local_connection_id||before.scratch!==after.scratch||JSON.stringify(before.session_counts)!==JSON.stringify(after.session_counts)||(checkpoint.observation&&checkpoint.observation.document!==after.scratch))throw new Error('CONTINUATION_BINDING_CHANGED');
           continuationBinding={connection:after.local_connection_id,document:after.scratch};
-          await options.persist(state());options.emit({type:'task.output_retry',reason:result.errorCode,attempt:outputRecoveries,document:after.scratch});
+          await options.persist(state());options.emit({type:'task.output_retry',reason:result.errorCode,attempt:outputRecoveries,recovery_scope:recoveryScope,scope_attempt:scopeRecoveries+1,document:after.scratch});
           // Start a fresh response, never stitch/replay incomplete arguments. No
           // continuePending here: only the budget handoff can own pending calls.
           continuation=false;
-          continuationContext='\nScheduler响应恢复：上次响应不完整，禁止拼接其JSON、重放整批或猜测成功。下面真实账本/读回是唯一执行依据；新图已确认则严禁再次new_drawing。一次只生成一个组件或最多8项小Patch，立即实际调用工具，不先推演整张图。按尚缺部分继续；完成后提交受控视觉检查。\n'+JSON.stringify({scope,execution:after,observation:checkpoint.observation});
+          continuationContext='\nScheduler响应恢复：上次响应不完整，禁止拼接其JSON、重放整批或猜测成功。下面真实账本/读回是唯一执行依据；新图已确认则严禁再次new_drawing。一次只生成一个组件或最多8项小Patch，立即实际调用工具，不先推演整张图。按尚缺部分继续；完成后提交受控视觉检查。\n'+JSON.stringify({scope,execution:compactExecution(after),observation:checkpoint.observation});
           continue;
         }
         const missingPlan=phase==='planning'&&!result.errorCode;
