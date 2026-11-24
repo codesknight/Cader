@@ -20,7 +20,7 @@ import * as mcpClient from '@deepseek-ai/dsh-mcp-client';
 import Attachments from '@deepseek-ai/dsh-attachment-local';
 import FileSystem from '@deepseek-ai/dsh-fs-local';
 import type { ModelProfile, RuntimeConfig, McpConfig } from '@cader/config';
-import { parseVisualReport, visualReportSchema, requireCredential, loadSkills, mcpEnvironment, workspacePath, readReferenceImage,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema,parseReferenceLabelInventory,referenceLabelInventorySchema,parseReferenceNets,reconcileSourceNets,referenceMembershipSchema,parseReferenceMembership,mergeConfirmedSourceConnections,parseSourceConnectionReview } from '@cader/config';
+import { parseVisualReport, visualReportSchema, requireCredential, loadSkills, mcpEnvironment, workspacePath, readReferenceImage,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema,parseReferenceLabelInventory,referenceLabelInventorySchema,parseReferenceNets,reconcileSourceNets,referenceMembershipSchema,parseReferenceMembership,mergeConfirmedSourceConnections,parseSourceConnectionReview,referenceComponentInventorySchema,parseReferenceComponentInventory,reconcileSourceComponents } from '@cader/config';
 import { ChildPool } from './pool.js';
 import { ExecutionBudget } from './budget.js';
 import type { BudgetStop } from './budget.js';
@@ -596,7 +596,7 @@ export async function createLiveRuntime(options: LiveOptions) {
         await handle?.dispose();
       }
     }
-    async function inspectReference(path:string,task:string,signal?:AbortSignal):Promise<{valid:boolean;structured:ReturnType<typeof parseReferenceObservation>|null;attempts:{id:string;status:string;valid:boolean}[];label_reviews:{id:string;indices:number[];valid:boolean;pass:number}[];label_inventory?:{id:string;valid:boolean}|null;net_review?:{id:string;valid:boolean;changed:boolean;consensus?:boolean;report_valid?:boolean;uncertain_nets?:{id:string;evidence?:string;pins:{object:string;terminal:number}[]}[]}|null;evidence:{path:string;sha256:string;width:number;height:number}}>{
+    async function inspectReference(path:string,task:string,signal?:AbortSignal):Promise<{valid:boolean;structured:ReturnType<typeof parseReferenceObservation>|null;attempts:{id:string;status:string;valid:boolean}[];label_reviews:{id:string;indices:number[];valid:boolean;pass:number}[];label_inventory?:{id:string;valid:boolean}|null;component_inventory?:{id:string;valid:boolean;added:string[]}|null;net_review?:{id:string;valid:boolean;changed:boolean;consensus?:boolean;report_valid?:boolean;uncertain_nets?:{id:string;evidence?:string;pins:{object:string;terminal:number}[]}[]}|null;evidence:{path:string;sha256:string;width:number;height:number}}>{
       const vision=options.profiles.find(p=>p.role==='vision'&&p.input.includes('image'));
       if(!vision)throw new Error('VISION_PROFILE_UNAVAILABLE');
       const source=await readReferenceImage(options.workspaceRoot??options.root,path);
@@ -616,7 +616,17 @@ export async function createLiveRuntime(options: LiveOptions) {
       }
       const observation=structured as ReturnType<typeof parseReferenceObservation>|null;
       let netReview:{id:string;valid:boolean;changed:boolean;consensus?:boolean;report_valid?:boolean;uncertain_nets?:{id:string;evidence?:string;pins:{object:string;terminal:number}[]}[]}|null=null;
+      let componentInventory:{id:string;valid:boolean;added:string[]}|null=null;
       if(observation?.drawing_kind==='schematic'){
+        signal?.throwIfAborted();if(++delegations>options.runtime.max_delegations)throw new Error('DELEGATION_BUDGET_EXCEEDED');
+        let inventoried:ReturnType<typeof reconcileSourceComponents>|null=null;
+        const inventoryTool:ToolDefinition={name:'cader_submit_reference_component_inventory',description:'Inventory every actual component from the entire original image, independently of an earlier list. Include symbols without labels and single-pin reference symbols; wires and labels are not devices.',parameters:referenceComponentInventorySchema,output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args,exec){const parsed=parseReferenceComponentInventory(args),merged=reconcileSourceComponents(observation.objects,parsed);if(merged.unmatched_prior_ids.length)throw new Error('SOURCE_COMPONENT_INVENTORY_DISAGREEMENT: independently recheck positions/port counts; prior components not matched: '+JSON.stringify(merged.unmatched_prior_ids));inventoried=merged;exec.concludeTurn();return JSON.stringify({objects:parsed.objects,added:merged.additions.map(o=>o.id)});}};
+        const reading=await pool.run('main',()=>run(vision.id,'独立扫描整幅原图，必须调用cader_submit_reference_component_inventory列出所有实际器件。逐区域清点，不依赖任何先前器件清单，不用常见电路补全；无文字的圆形源、接地/参考符号也须列入。每个实际符号独立id、原图归一化bounds及全部terminal，三端器件不能压为两端。category只允许component；导线、标签不是器件。保留具体轮廓、填充、极性、箭头与方向，不把不同制式统称标准符号。只清点器件，不追网、不规划、不省略无标注符号。用户请求及确认：'+task,{image:path,signal,onlyTools:[inventoryTool.name],extraTools:[inventoryTool],resultText:()=>inventoried?JSON.stringify(inventoried):undefined}));
+        const merged=inventoried as ReturnType<typeof reconcileSourceComponents>|null;componentInventory={id:reading.id,valid:Boolean(merged),added:merged?.additions.map(o=>o.id)??[]};attempts.push({id:reading.id,status:reading.status,valid:Boolean(merged)});
+        if(!merged)structured=null;
+        else{observation.objects=merged.objects;const ids=new Set(observation.nets?.map(n=>n.id));for(const object of merged.additions)for(let terminal=0;terminal<object.terminals.length;terminal++){let id='inventory_'+ids.size;while(ids.has(id))id+='x';ids.add(id);(observation.nets??=[]).push({id,pins:[{object:object.id,terminal}],certainty:'uncertain',evidence:'Inventory-only terminal; connectivity not yet observed. Must be independently traced before drawing.'});}}
+      }
+      if(structured&&observation?.drawing_kind==='schematic'){
         signal?.throwIfAborted();if(++delegations>options.runtime.max_delegations)throw new Error('DELEGATION_BUDGET_EXCEEDED');
         let checked:ReturnType<typeof parseReferenceNets>|null=null;
         const submit:ToolDefinition={name:'cader_submit_reference_nets',description:'Independently trace actual source conductors. membership maps EVERY object:terminal key to exactly one net ID. nets supplies evidence/certainty, without pin arrays. Do not invent return/ground connections.',parameters:referenceMembershipSchema(observation),output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args,exec){const parsed=parseReferenceMembership(args,observation);if(parsed.missing_objects?.some(o=>o.category!=='component'))throw new Error('SOURCE_DEVICES_ONLY');parseReferenceObservation({...observation,objects:[...observation.objects,...parsed.missing_objects??[]],nets:parsed.nets});if(parsed.nets.some(n=>!n.evidence||!n.certainty))throw new Error('SOURCE_NET_EVIDENCE_REQUIRED');checked=parsed;exec.concludeTurn();return JSON.stringify(parsed);}};
@@ -691,7 +701,7 @@ export async function createLiveRuntime(options: LiveOptions) {
           }
         }
       }
-      const result={valid:structured!==null,structured,attempts,label_reviews:labelReviews,label_inventory:labelInventory,net_review:netReview,evidence:{path,sha256:createHash('sha256').update(source.data).digest('hex'),width:source.width,height:source.height}};
+      const result={valid:structured!==null,structured,attempts,label_reviews:labelReviews,label_inventory:labelInventory,component_inventory:componentInventory,net_review:netReview,evidence:{path,sha256:createHash('sha256').update(source.data).digest('hex'),width:source.width,height:source.height}};
       emit({type:'reference.inspected',...structuredClone(result)});return result;
     }
     async function reviewCadView(question: string, signal?: AbortSignal, parent?: Agent, referenceImage?:string,referenceDetails?:{path:string;view:ImageView;label:string}[]) {

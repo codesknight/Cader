@@ -8,6 +8,7 @@ const hints: Record<string, string> = {
   REFERENCE_INSPECTION_FAILED:'参考图未形成有效且匹配原图哈希的结构观察；尚未允许绘图。检查视觉模型响应和格式修复记录。',
   SOURCE_NET_REPORT_INVALID:'源图连接复核未提交有效结构报告（缺失/重复端子、错误索引或格式/响应失败），尚未允许绘图；这不等于已经证明原图接线不清楚。查看复核工具错误。',
   SOURCE_TOPOLOGY_UNCERTAIN:'原图外部连接经独立复核仍不确定，尚未允许绘图；查看net_review及原图局部证据，不按电路常识猜接线。',
+  SOURCE_COMPONENT_INVENTORY_FAILED:'原图独立器件清点未形成完整且位置/端子一致的报告，尚未允许绘图；查看源图清点工具记录。不要用增加输出上限替代补齐源器件。',
   SOURCE_LABEL_INVENTORY_FAILED:'原图整图标注清点未形成有效结果，尚未允许绘图；查看源图清点调用记录。',
   DRAWING_UNIT_NOT_CLOSED:'当前绘图单元未提交有效读回检查点，已停止后续单元；现有确认操作保留，不能重放整图。',
   CHECKPOINT_READBACK_FAILED:'续跑检查点读回失败，已停止自动续写；保留执行账本及原图，先核对当前文档。',

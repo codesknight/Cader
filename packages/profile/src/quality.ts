@@ -493,7 +493,7 @@ export async function runQualityTask(options: {
       await enter('reference');
       referenceObservation=await runtime.inspectReference(referenceTask.image.path,task,signal);
       if(!referenceObservation.valid||referenceObservation.evidence.sha256!==referenceTask.image.sha256||!referenceObservation.structured?.objects.length){
-        failure={stage:'reference',code:referenceObservation.net_review&&!referenceObservation.net_review.valid?(referenceObservation.net_review.report_valid===false?'SOURCE_NET_REPORT_INVALID':'SOURCE_TOPOLOGY_UNCERTAIN'):referenceObservation.label_inventory&&!referenceObservation.label_inventory.valid?'SOURCE_LABEL_INVENTORY_FAILED':'REFERENCE_INSPECTION_FAILED',source:'verification'};await enter('blocked');return state();
+        failure={stage:'reference',code:referenceObservation.component_inventory&&!referenceObservation.component_inventory.valid?'SOURCE_COMPONENT_INVENTORY_FAILED':referenceObservation.net_review&&!referenceObservation.net_review.valid?(referenceObservation.net_review.report_valid===false?'SOURCE_NET_REPORT_INVALID':'SOURCE_TOPOLOGY_UNCERTAIN'):referenceObservation.label_inventory&&!referenceObservation.label_inventory.valid?'SOURCE_LABEL_INVENTORY_FAILED':'REFERENCE_INSPECTION_FAILED',source:'verification'};await enter('blocked');return state();
       }
       const [a,b]=referenceObservation.structured.content_bounds,w=referenceObservation.evidence.width,h=referenceObservation.evidence.height;
       const margin=Math.max(b[0]-a[0],b[1]-a[1])*0.03;

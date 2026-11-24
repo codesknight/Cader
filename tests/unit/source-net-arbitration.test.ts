@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseReferenceObservation,parseReferenceNets,reconcileSourceNets,referenceMembershipSchema,parseReferenceMembership,mergeConfirmedSourceConnections} from '@cader/config';
+import {parseReferenceObservation,parseReferenceNets,reconcileSourceNets,referenceMembershipSchema,parseReferenceMembership,mergeConfirmedSourceConnections,parseReferenceComponentInventory,reconcileSourceComponents} from '@cader/config';
 const source=parseReferenceObservation({version:1,drawing_kind:'schematic',summary:'Synthetic reference only',coordinate_system:'normalized-image-top-left-y-down',content_bounds:[[0,0],[1,1]],objects:[{id:'Q',kind:'three-pin',category:'component',bounds:[[0,0],[1,1]],terminals:[[0,0],[1,0],[1,1]],certainty:'clear'}],visible_text:[],connections:[],unknowns:[],nets:[{id:'original',pins:[0,1,2].map(terminal=>({object:'Q',terminal})),certainty:'clear'}]});
 const net=(terminal:number,certainty:'clear'|'uncertain')=>({id:`n${terminal}`,pins:[{object:'Q',terminal}],certainty,evidence:'Synthetic confidence fixture only'});
 
@@ -50,4 +50,13 @@ test('explicit source connection merges resolve only covered uncertainty and pre
   assert.throws(()=>mergeConfirmedSourceConnections(groups,[{...confirmation,pins:[{object:'Q',terminal:0},{object:'missing',terminal:0}]}]),/UNKNOWN_PIN/);
   const bridge=parseReferenceNets({nets:[net(0,'clear'),{...net(1,'uncertain'),pins:[{object:'Q',terminal:1},{object:'Q',terminal:2}]},net(3,'clear')]}).nets;
   const unproven=mergeConfirmedSourceConnections(bridge,[confirmation,{...confirmation,pins:[{object:'Q',terminal:2},{object:'Q',terminal:3}]}]);assert.equal(unproven[0]!.certainty,'uncertain','two separate confirmations cannot prove an uncertain bridge between them');
+});
+
+test('independent component coverage adds unlabelled symbols without renumbering existing pins or dropping unmatched objects',()=>{
+  const original=JSON.stringify(source.objects);
+  const inventory=parseReferenceComponentInventory({objects:[{...source.objects[0],id:'independent-Q'},{id:'Q',kind:'unlabelled circle',category:'component',bounds:[[0.1,0.1],[0.2,0.2]],terminals:[[0.15,0.1],[0.15,0.2]],certainty:'clear'}]});
+  const merged=reconcileSourceComponents(source.objects,inventory);assert.equal(merged.objects.length,2);assert.deepEqual(merged.unmatched_prior_ids,[]);assert.equal(merged.objects[0]!.id,'Q');assert.deepEqual(merged.objects[0]!.terminals,source.objects[0]!.terminals);assert.notEqual(merged.additions[0]!.id,'Q');assert.equal(JSON.stringify(source.objects),original);
+  const missing=reconcileSourceComponents(source.objects,{objects:[inventory.objects[1]!]});assert.deepEqual(missing.unmatched_prior_ids,['Q']);assert.equal(missing.objects[0]!.id,'Q');
+  assert.throws(()=>parseReferenceComponentInventory({objects:[{...inventory.objects[0],category:'wire'}]}));
+  assert.throws(()=>parseReferenceComponentInventory({objects:[inventory.objects[0],inventory.objects[0]]}));
 });

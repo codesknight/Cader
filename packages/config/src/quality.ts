@@ -25,6 +25,20 @@ export const referenceLabelInventorySchema=JSON.parse(JSON.stringify(z.toJSONSch
 export function parseReferenceLabelInventory(value:unknown){return ReferenceLabelInventory.parse(value);}
 const ObservedNet=z.object({id:z.string().min(1).max(64),pins:z.array(z.object({object:z.string().max(32),terminal:z.number().int().min(0).max(7)}).strict()).min(1).max(64),evidence:z.string().min(1).max(400).optional(),certainty:z.enum(['clear','uncertain']).optional()}).strict();
 const SourceObject=z.object({id:z.string().regex(/^[a-zA-Z0-9_-]{1,32}$/),kind:Text,category:z.enum(['component','wire','annotation']).optional(),bounds:NormalBox,terminals:z.array(NormalPoint).max(8),certainty:z.enum(['clear','uncertain'])}).strict();
+const ReferenceComponentInventory=z.object({objects:z.array(SourceObject).min(1).max(32)}).strict().superRefine((v,ctx)=>{
+  if(new Set(v.objects.map(o=>o.id)).size!==v.objects.length||v.objects.some(o=>o.category!=='component'))ctx.addIssue({code:'custom',message:'Inventory unique actual components, not wires or labels'});
+});
+export const referenceComponentInventorySchema=JSON.parse(JSON.stringify(z.toJSONSchema(ReferenceComponentInventory)));
+export function parseReferenceComponentInventory(value:unknown){return ReferenceComponentInventory.parse(value);}
+export function reconcileSourceComponents(prior:z.infer<typeof SourceObject>[],inventory:z.infer<typeof ReferenceComponentInventory>){
+  const used=new Set<number>(),matched=new Set<string>(),additions:z.infer<typeof SourceObject>[]=[];
+  for(const item of inventory.objects){
+    const candidates=prior.map((p,i)=>{const a=p.bounds,b=item.bounds,area=Math.max(0,Math.min(a[1][0],b[1][0])-Math.max(a[0][0],b[0][0]))*Math.max(0,Math.min(a[1][1],b[1][1])-Math.max(a[0][1],b[0][1]));return {i,p,score:area/Math.min((a[1][0]-a[0][0])*(a[1][1]-a[0][1]),(b[1][0]-b[0][0])*(b[1][1]-b[0][1]))};}).filter(v=>!used.has(v.i)&&v.p.terminals.length===item.terminals.length&&v.score>=0.35).sort((a,b)=>b.score-a.score);
+    if(candidates.length){used.add(candidates[0]!.i);matched.add(candidates[0]!.p.id);}
+    else{let id=item.id,n=0;while([...prior,...additions].some(o=>o.id===id))id=`source_extra_${++n}`;additions.push({...item,id});}
+  }
+  return {objects:[...prior,...additions],additions,unmatched_prior_ids:prior.filter(p=>!matched.has(p.id)).map(p=>p.id)};
+}
 const ReferenceNets=z.object({nets:z.array(ObservedNet).min(1).max(64),missing_objects:z.array(SourceObject).max(8).optional()}).strict();
 export const referenceNetsSchema=JSON.parse(JSON.stringify(z.toJSONSchema(ReferenceNets)));
 export function parseReferenceNets(value:unknown){return ReferenceNets.parse(value);}
