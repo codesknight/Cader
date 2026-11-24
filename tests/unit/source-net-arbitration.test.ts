@@ -23,6 +23,14 @@ test('known clear contradictions cannot be hidden by uncertainty elsewhere',()=>
   const result=reconcileSourceNets(source,parseReferenceNets({nets:[net(0,'clear'),net(1,'clear'),net(2,'uncertain')]}));
   assert.equal(result.valid,false);assert.equal(result.clear_consistent,false);
 });
+test('clear rereading corrects initial uncertainty without resolving an unrelated uncertain group',()=>{
+  const original=parseReferenceObservation({...source,nets:[{id:'tentative',pins:[{object:'Q',terminal:0},{object:'Q',terminal:1}],certainty:'uncertain'},net(2,'clear')]});
+  const result=reconcileSourceNets(original,parseReferenceNets({nets:[net(0,'clear'),net(1,'clear'),net(2,'uncertain')]}));
+  assert.equal(result.valid,true);assert.equal(result.report.nets.length,3);
+  assert.equal(result.report.nets.find(n=>n.pins.some(p=>p.terminal===0))!.certainty,'clear');
+  assert.equal(result.report.nets.find(n=>n.pins.some(p=>p.terminal===2))!.certainty,'uncertain');
+  assert.equal(original.nets![0]!.pins.length,2,'the original observation is not rewritten');
+});
 test('independently clear new-device connection extends a compatible candidate without inventing a wire component',()=>{
   const review=parseReferenceNets({missing_objects:[{id:'X',kind:'合法连接符号，描述中提及邻近导线',category:'component',bounds:[[0.1,0.1],[0.2,0.2]],terminals:[[0.15,0.1]],certainty:'clear'}],nets:[{...net(0,'clear'),pins:[{object:'Q',terminal:0},{object:'X',terminal:0}]},net(1,'uncertain'),net(2,'uncertain')]});
   const result=reconcileSourceNets(source,review);assert.equal(result.valid,true);assert.equal(result.report.nets[0]!.pins.length,4);assert.equal(result.report.nets[0]!.certainty,'uncertain');

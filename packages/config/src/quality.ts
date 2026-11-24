@@ -103,7 +103,8 @@ export function reconcileSourceNets(source:ReferenceObservationData,review:Retur
   const original=new Map(source.nets?.flatMap(n=>n.pins.map(p=>[address(p),n.id] as const))??[]);
   const reviewed=new Map(review.nets.flatMap(n=>n.pins.map(p=>[address(p),n.id] as const)));
   const unknown=new Set(uncertain.flatMap(n=>n.pins.map(address)));
-  const known=old.filter(p=>!unknown.has(address(p)));
+  const originallyUnknown=new Set(source.nets?.filter(n=>n.certainty!=='clear').flatMap(n=>n.pins.map(address))??[]);
+  const known=old.filter(p=>!unknown.has(address(p))&&!originallyUnknown.has(address(p)));
   let consistent=Boolean(source.nets?.length);
   for(let i=0;i<known.length;i++)for(let j=i+1;j<known.length;j++)if((original.get(address(known[i]!))===original.get(address(known[j]!)))!==(reviewed.get(address(known[i]!))===reviewed.get(address(known[j]!))))consistent=false;
   if(!uncertain.length)return {valid:true,report:review,clear_consistent:consistent};
@@ -111,7 +112,11 @@ export function reconcileSourceNets(source:ReferenceObservationData,review:Retur
   const pins=[...old,...(review.missing_objects??[]).flatMap(o=>o.terminals.map((_,terminal)=>({object:o.id,terminal})))];
   const parent=pins.map((_,i)=>i),indices=new Map(pins.map((p,i)=>[address(p),i]));
   const root=(i:number):number=>parent[i]===i?i:(parent[i]=root(parent[i]!));
-  for(const net of [...source.nets??[],...review.nets.filter(n=>n.certainty==='clear')]){
+  // A clear rereading can replace an initially uncertain relation, even while
+  // another group stays unresolved. Retain old candidate relations only where
+  // the rereading is still uncertain; never bridge two newly clear groups.
+  const retained=(source.nets??[]).filter(n=>n.pins.some(p=>unknown.has(address(p)))&&new Set(n.pins.filter(p=>!unknown.has(address(p))).map(p=>reviewed.get(address(p)))).size<=1);
+  for(const net of [...retained,...review.nets.filter(n=>n.certainty==='clear')]){
     const ids=net.pins.map(p=>indices.get(address(p))!);for(const i of ids)parent[root(i)]=root(ids[0]!);
   }
   const groups=new Map<number,typeof pins>();pins.forEach((p,i)=>{const id=root(i);groups.set(id,[...groups.get(id)??[],p]);});
