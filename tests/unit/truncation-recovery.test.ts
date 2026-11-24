@@ -6,20 +6,20 @@ import {loadConfig} from '@cader/config';
 import type {StreamChunk} from '@cader/dsh-adapter';
 import {resolve} from 'node:path';
 const plan={version:1,domain:'generic',components:[],visual_required:true,requirements:[{id:'appearance',source_quote:'画图',description:'fixture',check:'visual'}]};
-for(const scenario of ['no-dispatch','committed','unknown','connection-change','read-failed','exhausted','response-timeout'] as const)test(`truncation recovery preserves ledger and fails closed: ${scenario}`,async()=>{
+for(const scenario of ['no-dispatch','committed','unknown','connection-change','read-failed','exhausted','response-timeout','malformed-committed','malformed-unknown','malformed-exhausted'] as const)test(`truncation recovery preserves ledger and fails closed: ${scenario}`,async()=>{
   let drawingRuns=0,committed=0,frozen=false,connection='original',approvals=0;
   const complete:any[]=[],saved:any[]=[];
   const runtime={completed:()=>complete,async run(_profile:string,instruction:string,request:any){
     if(request.onlyTools){await request.extraTools[0].execute(plan,{concludeTurn(){}});return {status:'succeeded',tools:[],text:'plan'};}
     drawingRuns++;
-    if(drawingRuns===1||scenario==='exhausted'){
-      if(scenario==='committed')committed=1;
-      if(scenario==='unknown')frozen=true;
+    if(drawingRuns===1||['exhausted','malformed-exhausted'].includes(scenario)){
+      if(['committed','malformed-committed'].includes(scenario))committed=1;
+      if(['unknown','malformed-unknown'].includes(scenario))frozen=true;
       if(scenario==='connection-change')connection='foreign';
-      const result={id:`truncated-${drawingRuns}`,status:'failed',errorCode:scenario==='response-timeout'?'TIMEOUT':'OUTPUT_TRUNCATED',text:'',tools:[]};complete.push(result);return result;
+      const result={id:`truncated-${drawingRuns}`,status:'failed',errorCode:scenario.startsWith('malformed')?'MALFORMED_RESPONSE':scenario==='response-timeout'?'TIMEOUT':'OUTPUT_TRUNCATED',text:'',tools:[]};complete.push(result);return result;
     }
-    assert.match(instruction,/Scheduler截断恢复/);assert.equal(request.continuePending,false);
-    assert.equal(committed,scenario==='committed'?1:0); // no replay of acknowledged operation
+    assert.match(instruction,/Scheduler响应恢复/);assert.equal(request.continuePending,false);
+    assert.equal(committed,['committed','malformed-committed'].includes(scenario)?1:0); // no replay of acknowledged operation
     committed=1;const result={id:'recovery',status:'succeeded',text:'draft',tools:[]};complete.push(result);return result;
   },async reviewCadView(){return {review_valid:true,attempts:[],structured:{verdict:'pass',defects:[],uncertainties:[],checklist:[{requirement_id:'appearance',status:'pass',evidence:'fixture'}]},evidence:{}};}};
   const owner={workspace:process.cwd(),facts:()=>({frozen,local_connection_id:connection,scratch:'fixture.dwg',session_counts:{committed,unknown:frozen?1:0},operations:committed?[{operation_id:'keep',outcome:'committed'}]:[]}),
@@ -27,12 +27,12 @@ for(const scenario of ['no-dispatch','committed','unknown','connection-change','
     async authorizeTask(){approvals++;return true;},endTask(){},async snapshot(){if(scenario==='read-failed')throw new Error('read failed');return {document:'fixture.dwg',entities:committed?[{object_id:1,type:'AcDbCircle'}]:[]};}};
   const result=await runQualityTask({runtime,owner,task:'画图',profile:'fixture',emit(){},persist:async (state:unknown)=>{saved.push(structuredClone(state));}} as unknown as Parameters<typeof runQualityTask>[0]);
   assert.equal(approvals,1);
-  if(['no-dispatch','committed','response-timeout'].includes(scenario)){
+  if(['no-dispatch','committed','response-timeout','malformed-committed'].includes(scenario)){
     assert.equal(result.phase,'complete');assert.equal(drawingRuns,2);assert.equal(result.checkpoints.length,1);assert.equal(complete[0].status,'failed');assert.equal(complete[0].recovered_by,'recovery');
     assert.ok(saved.some(s=>s.checkpoints.length&&s.phase==='drawing'));
   }else{
-    assert.equal(result.quality_accepted,false);assert.equal(drawingRuns,scenario==='exhausted'?3:1);
-    if(scenario==='exhausted')assert.equal(result.failure?.code,'OUTPUT_TRUNCATED');
+    assert.equal(result.quality_accepted,false);assert.equal(drawingRuns,['exhausted','malformed-exhausted'].includes(scenario)?3:1);
+    if(['exhausted','malformed-exhausted'].includes(scenario))assert.equal(result.failure?.code,scenario==='malformed-exhausted'?'MALFORMED_RESPONSE':'OUTPUT_TRUNCATED');
     if(scenario==='read-failed')assert.equal((result.checkpoints[0] as any).observation_error,'CHECKPOINT_READBACK_FAILED');
   }
 });

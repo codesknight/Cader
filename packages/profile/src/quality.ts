@@ -293,7 +293,7 @@ export async function runQualityTask(options: {
         }
       }
       if(result.status !== 'succeeded'){
-        if(['OUTPUT_TRUNCATED','TIMEOUT'].includes(result.errorCode??'')&&['drawing','correcting'].includes(phase)&&outputRecoveries<2&&!signal?.aborted){
+        if(['OUTPUT_TRUNCATED','TIMEOUT','MALFORMED_RESPONSE'].includes(result.errorCode??'')&&['drawing','correcting'].includes(phase)&&outputRecoveries<2&&!signal?.aborted){
           const before=owner.facts();
           if(before.frozen||before.local_connection_id!==runBinding.local_connection_id)throw new Error('TRUNCATION_RECOVERY_UNSAFE');
           const scope=owner.taskScope(taskId);
@@ -310,7 +310,7 @@ export async function runQualityTask(options: {
           // Start a fresh response, never stitch/replay incomplete arguments. No
           // continuePending here: only the budget handoff can own pending calls.
           continuation=false;
-          continuationContext='\nScheduler截断恢复：上次响应不完整，禁止拼接其JSON、重放整批或猜测成功。下面真实账本/读回是唯一执行依据；新图已确认则严禁再次new_drawing。一次只生成一个组件或最多8项小Patch，立即实际调用工具，不先推演整张图。按尚缺部分继续；完成后提交受控视觉检查。\n'+JSON.stringify({scope,execution:after,observation:checkpoint.observation});
+          continuationContext='\nScheduler响应恢复：上次响应不完整，禁止拼接其JSON、重放整批或猜测成功。下面真实账本/读回是唯一执行依据；新图已确认则严禁再次new_drawing。一次只生成一个组件或最多8项小Patch，立即实际调用工具，不先推演整张图。按尚缺部分继续；完成后提交受控视觉检查。\n'+JSON.stringify({scope,execution:after,observation:checkpoint.observation});
           continue;
         }
         const missingPlan=phase==='planning'&&!result.errorCode;
@@ -542,7 +542,7 @@ export async function runQualityTask(options: {
         tool.description+=' For a reference schematic prefer {source_layout:true,requirements:[...],wire_layer?:...}: reuse the already model-observed and independently reviewed source layout/net groups. The program normalizes boundary ports and runs the same plan checks before approval; never submit operation sequences or duplicate the whole graph.';
         const focused=async(id:string,instruction:string,selected:ToolDefinition,includeHints:boolean)=>{
           activePlanningUnit=id;const progress:{id:string;status:'active'|'checked_in'}={id,status:'active'};planningUnits.push(progress);await options.persist(state());
-          const request={signal,maxImageViews:0,onlyTools:[selected.name],extraTools:[tool,selected],resultText:()=> '当前源信息确认阶段已保存，等待后续验收规划。'};
+          const request={signal,keepExecutionRound:true,maxImageViews:0,onlyTools:[selected.name],extraTools:[tool,selected],resultText:()=> '当前源信息确认阶段已保存，等待后续验收规划。'};
           try{await act(instruction,request,includeHints);}catch(error){const failed=runtime.completed().filter(r=>r.profile===options.profile).at(-1);if(signal?.aborted||failed?.errorCode!=='OUTPUT_TRUNCATED')throw error;failure=null;options.emit({type:'task.planning_retry',reason:'OUTPUT_TRUNCATED',attempt:1,unit_id:id});await act('上次本阶段输出截断；只提交当前确认，不规划或绘图。'+instruction,request,includeHints);const recovered=runtime.completed().filter(r=>r.profile===options.profile).at(-1);if(recovered?.status==='succeeded')failed.recovered_by=recovered.id;}
           progress.status='checked_in';activePlanningUnit=null;await options.persist(state());
         };
@@ -558,7 +558,7 @@ export async function runQualityTask(options: {
           await focused('connections','使用中文。当前仅绑定用户明确的连接确认，立即调用cader_confirm_source_connections；按源对象id和端子索引映射，引用含确认语义的真实原文。不能推演绘图或验收计划，不补其他关系；无法映射记unconfirmed。用户请求：'+task,limited,true);
         }
       }
-      const planningRequest={ signal,maxImageViews:2, onlyTools: [tool.name,'cader_view_image',...(canConfirm?[confirmLabels.name]:[]),...(canConfirmConnections?[confirmConnections.name]:[])], extraTools: [tool,...(canConfirm?[confirmLabels]:[]),...(canConfirmConnections?[confirmConnections]:[])], resultText: () => plan ? JSON.stringify(plan) : undefined };
+      const planningRequest={ signal,keepExecutionRound:true,maxImageViews:2, onlyTools: [tool.name,'cader_view_image',...(canConfirm?[confirmLabels.name]:[]),...(canConfirmConnections?[confirmConnections.name]:[])], extraTools: [tool,...(canConfirm?[confirmLabels]:[]),...(canConfirmConnections?[confirmConnections]:[])], resultText: () => plan ? JSON.stringify(plan) : undefined };
       try {
       await act('用中文规划以下绘图任务。'+(referenceObservation?.structured?.drawing_kind==='schematic'?'参考手绘电路是输入资料，目标是可编辑CAD；没有明确要求手绘/手写输出风格时，不增加笔触、手写字体或纸张纹理验收，只核对图形、标签、连接和相对布局。':'')+'标注和连接确认按当前任务状态已审定；不能从图片或常见值编造确认。必须调用cader_submit_acceptance_plan，只提交紧凑需求验收清单；参考电路优先使用source_layout:true引用既有源布局和网表，不抄写全部components/nets，不生成操作序列。普通插画的components可为空，勿虚构连接端口。仅拓扑任务需要组件布局/端口；参考电路必须用netlist，components带source_id、source_terminals（按ports顺序的原图端子索引）、pin_names及全部端口；nets必须保持观察的原图端子分组，不能把分支/三端器件改成series_cycle。组件bounds可包含引线，端口在边界；此阶段不能绘图。若有参考图片，必须先观察实际像素；可用cader_view_image裁看原图。识别可读符号、文字与连接，示意图使用布局坐标，不因缺少物理比例尺全局拒绝；不可读的值单独标未知。source_quote必须原样引用用户请求，图片中数值可在description/text写出并用“参考图”等请求原文作source_quote。独立列出数量、文字、布局及源图外观匹配条件。极性+/−、箭头等属于符号细节，未明确请求文字实体时用visual验，不增加纯标点的text数量门槛。新建文档与保存由程序验证，不能用任意实体数代替。entity_count必须是可测的实际AcDb类型；COM draw_polyline/rectangle生成AcDb2dPolyline，不是AcDbPolyline。组件语义使用visual检查。参考图的符号数量不能随意变成全部圆/线实体的硬上限（还可能有接点小圆和符号内部线）；需要实体计数时可用layer限定其语义图层，或以visual验符号。电路使用真实组件边界端口和适合的拓扑检查，不强加电路条件到普通图。标注以text检查，禁止导线穿组件或短接其端口。不得把本阶段的“只做规划”误写为整任务不准绘图。\n' + task,
         planningRequest);

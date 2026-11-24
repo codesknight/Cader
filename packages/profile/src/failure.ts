@@ -14,7 +14,7 @@ const hints: Record<string, string> = {
   CHECKPOINT_READBACK_FAILED:'续跑检查点读回失败，已停止自动续写；保留执行账本及原图，先核对当前文档。',
   CHECKPOINT_PERSIST_FAILED:'检查点未能写入运行记录，已停止后续绘图单元；已确认操作不得重放。',
   CONTINUATION_BINDING_CHANGED:'续跑连接或图纸绑定发生变化，已停止；不能接管新连接或重放原写入。',
-  TRUNCATION_RECOVERY_UNSAFE:'截断后存在冻结或连接变化，不满足自动续跑条件；未知写入不得重放。',
+  TRUNCATION_RECOVERY_UNSAFE:'响应中断后存在冻结或连接变化，不满足自动续跑条件；未知写入不得重放。',
   REFERENCE_CHANGED_RESELECT_REQUIRED:'已授权的参考图快照发生变化；请重新选择原图，旧任务不会自动重放。',
   REFERENCE_TASK_MISMATCH:'恢复请求的原图或DWG目标与封存任务不一致；未重放绘图。请显式发起新的任务。',
   DWG_SAVE_FAILED:'DWG未完成保存或文件校验；查看保存操作的原始错误。未知保存结果不得重放或宣称交付。',

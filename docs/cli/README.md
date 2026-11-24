@@ -2,7 +2,7 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Project home](../../README.md) · [Documentation](../README.md)
 
-**Applies to Cader 0.4.0-dev.12 · Updated 2026-11-24**
+**Applies to Cader 0.4.0-dev.12 · Updated 2026-11-25**
 
 dev.12: reference circuits use model-planned components, named pins and external netlists, including branches and three-terminal devices. Harness schedules component, net and label units with readback checkpoints; all units still require independent geometry, topology, source-image and DWG acceptance. A unit check-in is progress, never task acceptance. The terminal reports unit progress and truncation retries.
 
@@ -14,7 +14,9 @@ Each component also receives its original `source_appearance` and sealed `appear
 
 Every drawing unit receives the sealed measurable requirements and required layer names. Setup creates those layers; symbol/label work follows the plan's explicit layer constraints. Example names such as TEXT or SYMBOL do not override the accepted plan.
 
-The per-response output limit remains 8192 tokens. Drawing/correction truncation or model-response timeout permits at most two task-wide recovery attempts: persist the ledger, verify the original connection/document and read back entities, then generate only missing short batches (at most eight operations per quality-task Patch). Native CAD timeouts are not replayed. Unknown writes, failed readback, changed bindings or exhausted total budgets stop continuation. Units share round allowances instead of resetting them. Internal source inspection has separate reservations bounded by its existing stages (at most 46: two initial reads, one component inventory, two net reads, one label inventory, eight first-pass batches and 32 single-label retries). These are not Agent delegation slots. Final visual review retains its own capture/format limits, while all phases share the same task token/time/cost budget. Controlled visual exceptions save only a pending draft when the original binding, known writes, fresh guarded readback and file protection permit; unknown writes still stop saving.
+The per-response output limit remains 8192 tokens. Drawing/correction truncation, malformed model responses or model-response timeout permit at most two task-wide recovery attempts: persist the ledger, verify the original connection/document and read back entities, then generate only missing short batches (at most eight operations per quality-task Patch). Native CAD timeouts are not replayed. Unknown writes, failed readback, changed bindings or exhausted total budgets stop continuation. Units share round allowances instead of resetting them. Internal source inspection has separate reservations bounded by its existing stages (at most 46: two initial reads, one component inventory, two net reads, one label inventory, eight first-pass batches and 32 single-label retries). These are not Agent delegation slots. Final visual review retains its own capture/format limits, while all phases share the same task token/time/cost budget. Controlled visual exceptions save only a pending draft when the original binding, known writes, fresh guarded readback and file protection permit; unknown writes still stop saving.
+
+Planning confirmation units share execution-round allowances instead of resetting them. CAD visual reports have at most two formatting attempts with up to four model requests each, reusing the same capture; a still-invalid report remains pending.
 
 Default task limits are 100 model steps, 30 minutes and 16 explicit Agent delegations; cumulative tool/CAD/token limits and individual API timeouts still apply. Continuation is in-process only; `/quality resume` remains verification-only.
 

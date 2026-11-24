@@ -41,3 +41,11 @@ for(const mode of ['verified-cad-pixel-gap','different-original','uncertain-orig
     if(human){assert.equal(report.source_topology_evidence!.confirmations.length,1);assert.equal(report.source_topology_evidence!.raw_report.nets.length,3);assert.ok(report.source_topology_evidence!.raw_report.nets.some(n=>n.certainty==='uncertain'));assert.equal(report.source_topology_evidence!.report.nets.length,2);assert.ok(report.source_topology_evidence!.report.nets.every(n=>n.certainty==='clear'));}
   }finally{await runtime.dispose();delete process.env.CADER_SOURCE_REVIEW_FIXTURE;}
 });
+
+test('CAD visual schema repair has bounded model requests and never accepts invalid reports',async()=>{
+  process.env.CADER_VISUAL_REPAIR_FIXTURE='offline-visual-repair';const c=await loadConfig(process.cwd()),path=resolve('benchmark/fixtures/vision-calibration.png');let steps=0;
+  const runtime=await createLiveRuntime({...c,root:process.cwd(),runDirectory:resolve('.cader/tests/visual-repair-budget'),profiles:c.profiles.map(p=>({...p,api_key_env:'CADER_VISUAL_REPAIR_FIXTURE'})),captureCadView:async()=>({path,evidence:{document:'fixture.dwg'}})});
+  runtime.ctx.on('llm/stream',async function*():AsyncGenerator<StreamChunk>{steps++;const id=`invalid-${steps}` as Extract<StreamChunk,{type:'tool-call-delta'}>['id'],args=JSON.stringify({verdict:'pass',defects:[],checklist:[],uncertainties:['Unresolved evidence, so pass must be rejected']});yield {type:'block-start',index:0,blockType:'tool-call'};yield {type:'tool-call-delta',index:0,id,name:'cader_submit_visual_report',argumentsDelta:args};yield {type:'block-end',index:0,block:{type:'tool-call',id,name:'cader_submit_visual_report',arguments:args}};yield {type:'finish',reason:{kind:'tool-calls'}};});
+  try{const report=await runtime.reviewCadView('Synthetic schema budget');assert.equal(report.review_valid,false);assert.equal(report.structured,null);assert.equal(report.attempts.length,2);assert.equal(steps,8);assert.equal(runtime.reviewStats().model_calls,8);assert.equal(runtime.reviewStats().capture_attempts,1);assert.equal(runtime.completed().filter(r=>r.errorCode==='INVOCATION_MODEL_STEP_BUDGET_EXCEEDED').length,2);assert.equal(runtime.completed().some(r=>r.recovered_by),false);}
+  finally{await runtime.dispose();delete process.env.CADER_VISUAL_REPAIR_FIXTURE;}
+});

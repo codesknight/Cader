@@ -769,16 +769,16 @@ export async function createLiveRuntime(options: LiveOptions) {
         const review = await pool.run('main', () => run(vision.id,
           '用中文审查实际CAD图片与原始需求。若有Image A/B，A是原始用户手稿，B是本任务CAD结果：必须比较符号、可读标注、连接和布局，不能只说结果好看或拿旧图当参考。没有真实依据的条件标uncertain。必须调用cader_submit_visual_report提交；不要输出长篇解释。每条证据与建议保持简短，最多8个缺陷。checklist逐项核验要求的视觉条件；程序几何/拓扑事实不要求通过像素重复证实，不得仅凭图像推翻实体坐标。uncertainties仅记录影响必要视觉条件的未解决问题，不记录用户未要求的特征、无关观察或程序已证明的几何精度。' +
           (needsSourceTopology?'\nsource_topology报告原图A的外部连接读数；source_connection_confirmations是程序核对过的真实用户确认，优先于相应模糊笔触，程序仅合并已确认端子并保留原读数，不能伪装纯视觉成功。按每个源端子键提交membership及每组evidence/certainty；不要从CAD图片B的像素重证接点/微小间隙，也不要求T接点额外实心圆点。程序将原图分组与已读回验证的CAD分组比较。源图轻微笔触抖动或同路径叠笔不是断路证明，确实不清则在对应源net标uncertain。':'')+(attempt ? '\n上次未提交有效报告或输出被截断。请按工具schema简短重报，不要增加自定义字段。' : '') + '\n需求与程序证据：\n' + question,
-          { parent, cadReview:true,image: referenceImage??capture.path, comparisonImage:referenceImage?capture.path:undefined,sourceDetails:referenceDetails, signal, onlyTools: [submit.name], extraTools: [submit], resultText: () => structured ? JSON.stringify(structured) : undefined }));
+          { parent, cadReview:true,maxModelSteps:4,image: referenceImage??capture.path, comparisonImage:referenceImage?capture.path:undefined,sourceDetails:referenceDetails, signal, onlyTools: [submit.name], extraTools: [submit], resultText: () => structured ? JSON.stringify(structured) : undefined }));
         if (!structured && review.status === 'succeeded') {
           try { structured=validateReport(JSON.parse(review.text.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''))); } catch { /* Format repair is bounded and never constitutes acceptance. */ }
         }
         attempts.push({ id:review.id,status: review.status, text: review.text, valid: structured !== null });
         if(structured)for(const previous of attempts.slice(0,-1)){
           const failed=completed.find(result=>result.id===previous.id);
-          if(failed&&['OUTPUT_TRUNCATED','MALFORMED_RESPONSE'].includes(failed.errorCode??''))failed.recovered_by=review.id;
+          if(failed&&['OUTPUT_TRUNCATED','MALFORMED_RESPONSE','INVOCATION_MODEL_STEP_BUDGET_EXCEEDED'].includes(failed.errorCode??''))failed.recovered_by=review.id;
         }
-        if (structured || (review.status !== 'succeeded'&&!['OUTPUT_TRUNCATED','MALFORMED_RESPONSE'].includes(review.errorCode??'')) || signal?.aborted) break;
+        if (structured || (review.status !== 'succeeded'&&!['OUTPUT_TRUNCATED','MALFORMED_RESPONSE','INVOCATION_MODEL_STEP_BUDGET_EXCEEDED'].includes(review.errorCode??'')) || signal?.aborted) break;
       }
       const result = { image_ref: ref, evidence: {...capture.evidence as Record<string,unknown>,reference:reference?{path:referenceImage,sha256:createHash('sha256').update(reference.data).digest('hex'),width:reference.width,height:reference.height}:null}, requirements: question, review_valid: structured !== null, structured,source_topology_evidence:sourceTopologyEvidence as SourceTopologyEvidence|null, attempts };
       emit({ type: 'cad.review', ...result }); return result;
