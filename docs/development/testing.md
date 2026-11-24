@@ -2,6 +2,8 @@
 
 ## 2026-11-24 REQ-043：截图恢复与视觉状态
 
+实现提交043fc93 / 736d40b远端CI：[Cader push 45334340149](https://github.com/codesknight/Cader/actions/runs/45334340149)、[PR 45334346010](https://github.com/codesknight/Cader/actions/runs/45334346010)及[MCP push 45334329245](https://github.com/codesknight/AutoCAD-MCP/actions/runs/45334329245)、[PR 45334339162](https://github.com/codesknight/AutoCAD-MCP/actions/runs/45334339162)全部success。CI不调用付费模型/真实CAD，另与下列显式实机结果分记。
+
 最终本地 `pnpm typecheck`、`pnpm test` **139/139**、`pnpm smoke` 通过，`cader -v` 为0.4.0-dev.11；手册131本地链接/22锚点与diff检查通过。新增真实DSH业务结果×/!/✓、截图失败不计模型请求、真实stdio关联/错文档/错nonce/状态不一致/legacy冻结与未识别文档的无变更预检证明；fixture不冒充真实CAD。MCP独立全量pytest **246 passed/33 skipped**，5个改动Python文件isolated ruff I/F通过，发现基线仅export_current_view更新；Cader自身Python未改。
 
 4轮均用显式`pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task "新建画布，画一个房子，红屋顶蓝墙，旁边有棵大树，儿童绘本风格。"`，无固定绘图计划。两轮完整成功5/5、8/8，36/35确认/unknown0；一轮先遇Layers.Add，保留unknown后修复方法解析；另一轮截图全部恢复正常，视觉仍风格uncertain，3轮修正后pending，未标为通过。两张复杂图共10次独立原生导出全部恢复/清理核对通过，不当成10次完整模型验收。仅关闭自建无unknown图，Drawing17及失败Drawing18和旧屏障/审计保留。[运行ID、hash、代码与限制](../validation/2026-11-24-capture-restoration-fix.md)。CI/提交后续补记；完整DSH app profile、任意任务和旧图解冻均未宣称通过。

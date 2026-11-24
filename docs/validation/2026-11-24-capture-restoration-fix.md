@@ -44,3 +44,5 @@ Drawing17始终51实体，ObjectID集合hash `848e42ed740abcdeddbcb72d8929d43968
 实际执行typecheck、Node全量测试139/139、Harness smoke及MCP全量pytest246通过/33跳过、5个改动Python文件ruff I/F，均通过；手册131链接/22锚点通过，CI另见[测试记录](../development/testing.md)。此前发现测试fixture未响应可选MCP方法导致超时，已补Method-not-found响应；旧状态查询断言随新输出同步，并非跳过断言。原生byref初次只读探测暴露参数个数错误，修正后真实捕获通过，未修改旧图。
 
 本次修复Count/CopyFrom截图恢复与BUG-047展示；旧unknown、保存后文件验收缺口、纸布局自动路由及风格评审不确定性仍不宣称解决。没有本机实测的模型、任意图纸或完整DSH app profile不标为通过。
+
+实现提交Cader043fc93 / MCP736d40b的push及PR CI均通过；[当日日志](../development/logs/2026-11-24.md)记录四个工作流链接。两PR仍draft未合并，旧图及历史unknown不因新代码或CI通过而解除。
