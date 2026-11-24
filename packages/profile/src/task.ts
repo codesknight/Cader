@@ -178,7 +178,7 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
     selectedSkill: input.skill ?? null, imageProvided: Boolean(input.image),
     text: qualityEnabled&&writeBlocked?`${!runtime?'任务未开始：工作区写屏障已存在，未调用模型规划。':'绘图执行中断：尚未通过验收。'}\n${input.executionOwner?.diagnosticSummary()??''}\n${!runtime?'/mcp barrier 可查看旧缺参屏障复核资格。':'请保留原图和执行证据；不得重放未知写入。'}` : qualityEnabled&&quality?.failure?`任务在${quality.failure.stage==='planning'?'规划':quality.failure.stage}阶段失败，${quality.failure.stage==='planning'?'尚未允许绘图。':'未通过验收。'}\n原因：${failure?.errorCode??quality.failure.code}。详细证据：${join(directory,'quality.json')}` : qualityEnabled ? `${quality?.phase==='complete'?'任务验收通过。':'任务尚未完成，质量验证待通过。'}\n`+
       (quality?.plan?quality.checks.map(check=>`${check.status==='pass'?'✓':'×'} ${quality?.plan?.requirements.find(r=>r.id===check.id)?.description??check.id}：${check.evidence}`).join('\n'):'验收计划未建立，未允许绘图。')+
-      `\n阶段：${quality?.phase??'pending_verification'}；视觉调用：${quality?.visual_attempt_count??0}；修正轮次：${quality?.round??0}/3。详细证据：${join(directory,'quality.json')}`+
+      `\n阶段：${quality?.phase??'pending_verification'}；截图尝试：${quality?.visual_attempt_count??0}；视觉模型请求：${quality?.visual_model_call_count??0}；修正轮次：${quality?.round??0}/3。详细证据：${join(directory,'quality.json')}`+
       (quality?.artifact?`\nDWG已生成并校验：${quality.artifact.path}${quality.phase==='complete'?'':'（待验稿，未通过全部质量条件）'}`:'') : result?.text ?? '', ...failure, cleanupError, runDirectory: directory };
   if(quality?.failure&&quality.artifact)report.text+=`\nDWG已生成并校验：${quality.artifact.path}（待验稿，模型中断，未通过全部质量条件）`;
   const redact = (text: string) => cleanEnvironment(redactSecrets(text, config.profiles));

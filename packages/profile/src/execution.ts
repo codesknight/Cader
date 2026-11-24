@@ -1,7 +1,7 @@
 import { mkdir, open, readFile, writeFile, unlink, lstat, readdir } from 'node:fs/promises';
 import { resolve, relative, dirname, basename, extname, matchesGlob } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { createMcpClient, defineTool, inspectCadImageBorder, assertToolArguments, ToolArgumentsError, NativeCreateNotInvokedError, createToolRuntime, invokeTool } from '@cader/dsh-adapter';
+import { createMcpClient, defineTool, inspectCadImageBorder, assertToolArguments, ToolArgumentsError, NativeCreateNotInvokedError, NativeCaptureSafeError, captureEvidence,createToolRuntime, invokeTool } from '@cader/dsh-adapter';
 import type { ToolDefinition } from '@cader/dsh-adapter';
 import { loadMcp, workspacePath, readReferenceImage } from '@cader/config';
 import { runUserShell } from './interactive-shell.js';
@@ -186,21 +186,36 @@ export class ExecutionSession {
       const captureStarted = Date.now();
       await this.audit({ phase: 'capture_prepared', operation_id: operationId, target: this.scratch, path });
       let acknowledged = false;
+      let receipt:ReturnType<typeof captureEvidence>;
       try {
         const result = await this.client.call('export_current_view', { file_path: path }, operationId);
         acknowledged = true;
-        if (resolve(String(result)) !== path) throw new Error('CAD_CAPTURE_PATH_MISMATCH');
+        const structured=result as {result?:unknown;capture?:unknown};
+        if(structured&&typeof structured==='object'&&structured.capture){
+          receipt=captureEvidence(structured.capture,operationId,path,this.scratch);
+          if(!receipt||receipt.stage!=='complete')throw new Error('CAD_CAPTURE_RECEIPT_INVALID');
+        }
+        if (resolve(String(receipt?structured.result:result)) !== path) throw new Error('CAD_CAPTURE_PATH_MISMATCH');
         const image = await readReferenceImage(this.workspace, path);
         const evidence = { source: 'AutoCAD export_current_view', document: this.scratch, captured_at: new Date().toISOString(),
           sha256: createHash('sha256').update(image.data).digest('hex'), width: image.width, height: image.height,
-          image_bounds:await inspectCadImageBorder(path),
+          image_bounds:await inspectCadImageBorder(path),capture_receipt:receipt??null,
           document_revision: null, view: 'backend extents plot', pixel_to_cad: null, mapping_note: 'No authoritative pixel-to-CAD transform; locate defects using entity queries before editing.' };
         await this.audit({ phase: 'capture_completed', operation_id: operationId, duration_ms: Date.now() - captureStarted, ...evidence });
         return { path, evidence };
       } catch (error) {
+        const safe=receipt??(error instanceof NativeCaptureSafeError?captureEvidence(error.evidence,operationId,path,this.scratch):undefined);
         const record: CadOperationRecord = { operation_id: operationId, tool: 'export_current_view', target: this.scratch,
           dispatched: true, stage: acknowledged ? 'capture_artifact' : 'capture_dispatch',
           outcome: acknowledged ? 'committed_observation_failed' : 'unknown', duration_ms: Date.now() - captureStarted, error: this.diagnostic(error) };
+        if(safe){
+          record.stage=safe.capture_mutations_started?'capture_restored':'capture_preflight';
+          record.outcome=safe.capture_mutations_started?'committed_observation_failed':'failed_before_dispatch';
+          record.dispatched=safe.capture_mutations_started;record.transport_dispatched=true;record.native_dispatched=safe.capture_mutations_started;
+          this.operations.push(record);
+          await this.audit({...record,phase:'capture_failed_verified_safe',capture_receipt:safe});
+          throw new Error('CAD_CAPTURE_PENDING_VERIFICATION: native receipt proves no plot mutation or complete restoration; image review has not passed');
+        }
         if(!acknowledged&&error instanceof ToolArgumentsError){
           record.dispatched=false;record.stage='capture_preflight';record.outcome='failed_before_dispatch';this.operations.push(record);
           await this.audit({...record,phase:'not_dispatched'});throw error;

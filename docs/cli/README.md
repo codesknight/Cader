@@ -2,11 +2,15 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Project home](../../README.md) · [Documentation](../README.md)
 
-**Applies to Cader 0.4.0-dev.10 · Updated 2026-11-24**
+**Applies to Cader 0.4.0-dev.11 · Updated 2026-11-24**
 
 Cader CLI is a CAD agent terminal built on DeepSeek Harness. Describe tasks in a persistent conversation, select models and skills, reference images, inspect CAD status, or use a single command from a script.
 
 This guide is versioned alongside the implementation. Proposed features are tracked in the [roadmap](../development/roadmap.md).
+
+dev.11 separates visual business results from control handoff: `× cader_review_cad_view` means visual defects; `!` means capture/readback failure, an invalid report, clipping or uncertainty. Only a valid pass report receives `✓`, and independent Harness task acceptance still applies. `/quality` and historical status distinguish capture attempts from admitted vision-model request steps; failed captures do not count as vision calls, and these counters are not billing receipts.
+
+With the updated independent AutoCAD-MCP, capture preflights before changing plot state and verifies restoration by readback. Only complete evidence matching this request, drawing and path can classify an unchanged/fully restored failure as pending without freezing. Other outcomes remain protected. Capture currently requires the model layout; paper layouts are rejected before changes, without switching user layouts. Restart the CLI and its MCP child process to load the update. Historic unknown barriers remain intact and old drawings are never automatically adopted. See [real original-house regression](../validation/2026-11-24-capture-restoration-fix.md).
 
 dev.10 quality tasks automatically renew execution rounds within the original process: stop new dispatch, read and checkpoint progress, then continue on the same task, connection, drawing and grant. A Patch reserves its wrapper and all leaves before any mutation. An insufficient round admits none of its leaves; Scheduler dispatches only never-dispatched requests through the original tools before fresh model reasoning. Confirmed or unknown writes are never replayed. Changed bindings, failed readback or unknown writes stop continuation. Failed vision or post-review readback immediately returns control to Scheduler.
 

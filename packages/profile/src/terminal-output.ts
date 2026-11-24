@@ -20,7 +20,11 @@ export function toolResultLine(event: PublicEvent) {
     reason?: string;
   }|undefined;
   const refused=business?.status==='refused';
-  return `\n  ${event.isError? '×':refused? '!':'✓'} ${String(event.tool)}`+
+  const visual=event.tool==='cader_review_cad_view';
+  const failed=business?.status==='failed';
+  const pending=business?.status==='pending'||(visual&&!failed&&business?.status!=='succeeded');
+  return `\n  ${event.isError||failed? '×':refused||pending? '!':'✓'} ${String(event.tool)}`+
     (failure? ` · ${failure.code} · ${failure.stage} · ${failure.transport_dispatched&&failure.native_dispatched===false?'MCP已送达，原生未调用':failure.dispatched? '已派发':'未派发'}`:'')+
-    (refused? ` · 未恢复（${business?.reason??'REFUSED'}）`:'')+'\n';
+    (refused? ` · 未恢复（${business?.reason??'REFUSED'}）`:'')+
+    (visual?pending?` · 视觉待验证（${business?.reason}）`:failed?' · 视觉未通过':business?.status==='succeeded'?' · 视觉报告通过，等待任务验收':' · 视觉未完成':'')+'\n';
 }

@@ -35,7 +35,7 @@ export async function runTerminal(options: { workspace?: string; stdio?: boolean
     '  ╚██████╗██║  ██║██████╔╝███████╗██║  ██║',
     '   ╚═════╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝',
   ].map((line, index) => paint(index < 3 ? '1;36' : '1;34', line)).join('\n') + '\n');
-  output.write(paint('1', '  Cader 0.4.0-dev.10') + '  ·  DeepSeek Harness  ·  CAD terminal\n'
+  output.write(paint('1', '  Cader 0.4.0-dev.11') + '  ·  DeepSeek Harness  ·  CAD terminal\n'
     + paint('2;36', '─'.repeat(Math.max(20, Math.min((output.columns ?? 80) - 2, 90)))) + '\n');
   write(`  ${session.model.model} · ${session.state.permission} · ${basename(workspace)}\n  ${session.startupStatus}\n  /help 命令  ·  @图片/图纸  ·  !Shell  ·  Tab 补全  ·  Esc 中断\n\n`);
   if (tty && process.env.TERM === 'dumb') write('当前终端声明TERM=dumb，使用简化输入。支持VT的终端可设置TERM=xterm-256color以启用完整编辑/补全。\n');

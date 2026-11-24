@@ -23,6 +23,7 @@ export interface QualityResume {
   visual_calls?: VisualCall[];
   reviews?: unknown[];
   visual_attempt_count?: number;
+  visual_model_call_count?:number;
   reference_task?:ReferenceTask|null;
   execution: {
     local_connection_id: string | null;
@@ -41,12 +42,13 @@ type VisualCall = { source: 'agent' | 'harness'; observed_state_hash: string; re
 /** Compact evidence for model steps and status queries. Saved evidence is
  * historical, never a fresh native revision or authority to resume writes. */
 export function qualityTaskContext(saved: { task_id: string; phase: string; original_request: string; round: number;
-  checks: CheckResult[]; visual_calls?: VisualCall[]; reviews?: unknown[]; plan?: QualityPlan; visual_attempt_count?: number; visual_error?: string | null }) {
+  checks: CheckResult[]; visual_calls?: VisualCall[]; reviews?: unknown[]; plan?: QualityPlan; visual_attempt_count?: number;visual_model_call_count?:number;visual_error?: string | null }) {
   const legacy = saved.reviews?.at(-1) as { image_evidence?: unknown; visual_report?: unknown } | undefined;
   const last = saved.visual_calls?.at(-1)?.review;
   const clipped=Boolean((last?.evidence as {image_bounds?:{possible_clipping?:boolean}}|undefined)?.image_bounds?.possible_clipping);
   return { task_id: saved.task_id, phase: saved.phase, original_request: saved.original_request,
-    correction_round: saved.round, visual_call_count: saved.visual_attempt_count ?? Math.max(saved.visual_calls?.length ?? 0, saved.reviews?.filter(r => Boolean((r as { image_evidence?: unknown }).image_evidence)).length ?? 0),
+    correction_round: saved.round, visual_call_count:saved.visual_model_call_count??Math.max(saved.visual_calls?.reduce((sum,call)=>sum+(call.review.attempts?.length??1),0)??0,saved.reviews?.filter(r=>Boolean((r as {image_evidence?:unknown}).image_evidence)).length??0),
+    capture_attempt_count:saved.visual_attempt_count??Math.max(saved.visual_calls?.length??0,saved.reviews?.filter(r=>Boolean((r as {image_evidence?:unknown}).image_evidence)).length??0),
     visual_error: saved.visual_error ?? null,
     pending_reasons: [...new Set([...saved.checks.filter(c=>c.status!=='pass').map(c=>c.id),
       ...(clipped?['capture_bounds']:[]),...(saved.visual_error?[saved.visual_error]:[]),...(last&&!last.review_valid?['visual_report_invalid']:[])])],
@@ -207,6 +209,7 @@ export async function runQualityTask(options: {
   const reviews: unknown[] = [...options.resume?.reviews ?? []];
   const visualCalls: VisualCall[] = [...options.resume?.visual_calls ?? []];
   let visualAttempts=options.resume?.visual_attempt_count??qualityTaskContext({task_id:'',phase:'',original_request:'',round:0,checks:[],visual_calls:visualCalls,reviews}).visual_call_count;
+  const priorModelCalls=options.resume?.visual_model_call_count??qualityTaskContext({task_id:'',phase:'',original_request:'',round:0,checks:[],visual_calls:visualCalls,reviews}).visual_call_count;
   let visualError:string|null=null;
   let cachedReview: { key: string; review: VisualResult } | undefined;
   let candidateReview: { key: string; review: VisualResult } | undefined;
@@ -232,7 +235,9 @@ export async function runQualityTask(options: {
   }[] = [];
   const hash = createHash('sha256').update(task).digest('hex');
   const taskId = options.resume?.task_id ?? randomUUID();
-  const state = () => ({ version: 1, task_id: taskId, phase, original_request: task, request_sha256: hash, plan, round, checks, visual, reviews, visual_calls: visualCalls, visual_attempt_count:visualAttempts,visual_error:visualError,transitions, failure,reference_task:referenceTask??null,reference_observation:referenceObservation,artifact,quality_accepted:accepted, model_runs: modelRuns, checkpoints, budget:runtime?.budgetState?.(),execution: owner.facts() });
+  const state = () => ({ version: 1, task_id: taskId, phase, original_request: task, request_sha256: hash, plan, round, checks, visual, reviews, visual_calls: visualCalls, visual_attempt_count:visualAttempts,
+    visual_model_call_count:runtime?.reviewStats?priorModelCalls+runtime.reviewStats().model_calls:visualCalls.reduce((sum,call)=>sum+(call.review.attempts?.length??1),0),
+    visual_error:visualError,transitions, failure,reference_task:referenceTask??null,reference_observation:referenceObservation,artifact,quality_accepted:accepted, model_runs: modelRuns, checkpoints, budget:runtime?.budgetState?.(),execution: owner.facts() });
   const publish = () => { const facts=owner.facts();const context = {...qualityTaskContext(state()),
     execution_budget:runtime?.budgetState?.(),checkpoint_count:checkpoints.length,
     visual_evidence_requires_recheck: !cachedReview || facts.frozen || reviewedWrites!==JSON.stringify([facts.local_connection_id,facts.scratch,facts.session_counts]),

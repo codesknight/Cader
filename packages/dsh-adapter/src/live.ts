@@ -60,7 +60,7 @@ export async function createLiveRuntime(options: LiveOptions) {
   const images = new Map(Object.entries(options.images ?? {}));
   const completed: AgentResult[] = [];
   const emit = (event: PublicEvent) => options.onEvent?.({ at: new Date().toISOString(), ...event });
-  let steps = 0, calls = 0, delegations = 0, visualReviews = 0;
+  let steps = 0, calls = 0, delegations = 0, visualReviews = 0, visualModelCalls = 0;
   const budget = new ExecutionBudget(options.runtime);
   let scheduled = false;
   let pending: PendingCall[] = [];
@@ -144,6 +144,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       reviewEndsTurn?: boolean;
       harnessTask?: boolean;
       continuePending?: boolean;
+      cadReview?: boolean;
       sourceDetails?:{path:string;view:ImageView;label:string}[];
       history?: { role: 'user' | 'assistant'; content: string; status?: string }[]; summary?: string; domain?: string;
     } = {}): Promise<AgentResult> {
@@ -457,6 +458,7 @@ export async function createLiveRuntime(options: LiveOptions) {
                 return { kind: 'reject' };
               }
               agentSteps++;
+              if(request.cadReview&&profile.role==='vision')visualModelCalls++;
               emit({ type: 'model.step', agentId: id, role: profile.role, model: profile.model });
               return next();
             });
@@ -490,6 +492,18 @@ export async function createLiveRuntime(options: LiveOptions) {
               let businessOutcome:unknown;
               if(!result.isError&&exec.name==='cader_cad_recover'){
                 try{const value=JSON.parse(String(result.value));businessOutcome={status:value.recovered?'succeeded':'refused',reason:value.recovery?.reason??value.reason};}catch{/* Canonical recovery output remains authoritative. */}
+              }
+              if(exec.name==='cader_review_cad_view'){
+                businessOutcome={status:'pending',reason:'VISUAL_RESULT_UNVERIFIED'};
+                if(!result.isError)try{
+                  const value=JSON.parse(String(result.value));
+                  const verdict=value.structured?.verdict;
+                  businessOutcome=value.verification_pending?{status:'pending',reason:value.code??'VISUAL_REVIEW_PENDING'}:
+                    value.evidence?.image_bounds?.possible_clipping?{status:'pending',reason:'CAPTURE_BOUNDS_PENDING'}:
+                    !value.review_valid?{status:'pending',reason:'VISUAL_REPORT_INVALID'}:
+                    verdict==='pass'?{status:'succeeded',reason:'VISUAL_REPORT_PASS'}:
+                    verdict==='fail'?{status:'failed',reason:'VISUAL_DEFECTS_FOUND'}:{status:'pending',reason:'VISUAL_UNCERTAIN'};
+                }catch{/* Transport/control success is never visual acceptance. */}
               }
               if (result.isError) {
                 try {
@@ -610,7 +624,7 @@ export async function createLiveRuntime(options: LiveOptions) {
         const review = await pool.run('main', () => run(vision.id,
           '用中文审查实际CAD图片与原始需求。若有Image A/B，A是原始用户手稿，B是本任务CAD结果：必须比较符号、可读标注、连接和布局，不能只说结果好看或拿旧图当参考。没有真实依据的条件标uncertain。必须调用cader_submit_visual_report提交；不要输出长篇解释。每条证据与建议保持简短，最多8个缺陷。checklist逐项核验要求的视觉条件；程序几何/拓扑事实不要求通过像素重复证实，不得仅凭图像推翻实体坐标。uncertainties仅记录影响必要视觉条件的未解决问题，不记录用户未要求的特征、无关观察或程序已证明的几何精度。' +
           (attempt ? '\n上次未提交有效报告或输出被截断。请按工具schema简短重报，不要增加自定义字段。' : '') + '\n需求与程序证据：\n' + question,
-          { parent, image: referenceImage??capture.path, comparisonImage:referenceImage?capture.path:undefined, signal, onlyTools: [submit.name], extraTools: [submit], resultText: () => structured ? JSON.stringify(structured) : undefined }));
+          { parent, cadReview:true,image: referenceImage??capture.path, comparisonImage:referenceImage?capture.path:undefined, signal, onlyTools: [submit.name], extraTools: [submit], resultText: () => structured ? JSON.stringify(structured) : undefined }));
         if (!structured && review.status === 'succeeded') {
           try { structured=validateReport(JSON.parse(review.text.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''))); } catch { /* Format repair is bounded and never constitutes acceptance. */ }
         }
@@ -626,7 +640,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       emit({ type: 'cad.review', ...result }); return result;
     }
 
-    return { ctx, run, enableTaskBudget:()=>{scheduled=true;},budgetState:()=>({...budget.snapshot(),pending:structuredClone(pending)}),inspectReference,reviewCadView:(question:string,signal?:AbortSignal,referenceImage?:string)=>reviewCadView(question,signal,undefined,referenceImage), pool, completed: () => completed.slice(), toolNames: () => ctx.tools.schemas().map(tool => tool.name),
+    return { ctx, run, reviewStats:()=>({capture_attempts:visualReviews,model_calls:visualModelCalls}),enableTaskBudget:()=>{scheduled=true;},budgetState:()=>({...budget.snapshot(),pending:structuredClone(pending)}),inspectReference,reviewCadView:(question:string,signal?:AbortSignal,referenceImage?:string)=>reviewCadView(question,signal,undefined,referenceImage), pool, completed: () => completed.slice(), toolNames: () => ctx.tools.schemas().map(tool => tool.name),
       async dispose() { clearTimeout(deadline); lifetime.abort(); await ctx.fiber.dispose(); } };
   } catch (error) { clearTimeout(deadline); await ctx.fiber.dispose(); throw error; }
 }

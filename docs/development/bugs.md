@@ -1,5 +1,9 @@
 # Bug 与排障记录
 
+2026-11-24 REQ-043 / #20 / MCP#43：BUG-045的Count/CopyFrom截图恢复分支及BUG-047视觉失败绿色勾号已修复，恢复后状态读回/备份清理/请求关联均强制，未知仍保护。实机发现非活动文档ActiveLayout可能指向活动文档，新增Layout.Document/ObjectID绑定检查，并用ModelSpace.Layout确认旧图未变。回归首轮还发现Layers.Add动态解析错误，复用只读就绪/单次调用修复；Drawing18旧unknown保留。两轮原始绘本整体通过、10次复杂图重复捕获恢复通过；另一次风格uncertain保持待验证，历史蓝图根因、文件验收和纸布局自动路由仍未宣称解决。[分层结果](../validation/2026-11-24-capture-restoration-fix.md)。
+
+2026-11-24 REQ-042 / #20：BUG-045原生截图/恢复故障在用户Drawing17复现，48次绘图确认、预算充足，export Count异常及CopyFrom/COM拒绝使恢复状态未知；无PNG或实际VisionAgent调用。保留冻结，未修复。新增BUG-047：视觉失败的控制交接isError=false导致CLI绿色勾号，visual_attempt_count还包含截图失败，需拆分业务结果及真实视觉次数。dev.10异常交接本次确已生效。[证据](../validation/2026-11-24-house-capture-audit.md)。
+
 ## BUG-001：真实 AutoCAD 只读调用超时（Open）
 
 - 来源：CADER-003，GitHub Issue #1；历史 smoke 记录。

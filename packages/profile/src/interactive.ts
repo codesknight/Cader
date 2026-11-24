@@ -20,7 +20,7 @@ export const SLASH_COMMANDS = [
   ['/status', '工作区与CAD状态'], ['/model', '查看或切换配置模型'], ['/mcp', 'list / use <配置> / tools / doctor / recover / barrier / resolve / off'],
   ['/skills', 'list / use <技能> / off'], ['/domain', '查看或切换专业'], ['/context', '上下文统计'],
   ['/compact', '用模型总结上下文，保留原始对话'], ['/clear', '保存并新建空白会话'], ['/resume', '列出或恢复会话ID'],
-  ['/quality','查看质量/视觉次数与证据；resume 安全重验，不重放绘图'],
+  ['/quality','查看质量、截图尝试/视觉请求与证据；resume 安全重验，不重放绘图'],
   ['/undo', '检查受控撤销能力'], ['/checkpoint', '创建会话与工程引用检查点'], ['/permissions', 'read-only | ask | workspace-write | full-access；shell ask|deny'], ['/exit', '保存并退出'],
 ] as const;
 const Domains = z.object({ version: z.literal(1), domains: z.array(z.object({ id: z.string().regex(/^[a-z][a-z0-9-]*$/),
@@ -289,7 +289,7 @@ export class InteractiveSession {
       return remember(negative?'质量验收不能通过规则说明关闭。现有检查策略保留；未创建绘图任务、未调用CAD。':`已记录：${automatic?'按任务复杂度自动检查，必要视觉验收仍强制执行':'本会话后续绘图均要求视觉检查'}，恢复会话后仍保留。主Agent可主动调用，遗漏时Harness补验；未创建绘图任务、未调用CAD。`);
     }
     if(intent==='status'&&/视觉|vision/i.test(line)&&/是否|有没有|几次|多少|结果|状态|之前|此前|做过|用过|调用过|使用过|检查过|验证过|校验过|了吗|have you|did you|status/i.test(line)){
-      return remember(priorQuality?`当前任务视觉检查已调用 ${qualityTaskContext(priorQuality).visual_call_count} 次。以下为已保存的任务证据，不代表当前图纸的实时状态：\n${JSON.stringify(qualityTaskContext(priorQuality),null,2)}`:'当前会话没有已记录的质量任务；不能据此判断其他会话是否执行过视觉检查。');
+      return remember(priorQuality?`当前任务视觉模型请求 ${qualityTaskContext(priorQuality).visual_call_count} 次，截图尝试 ${qualityTaskContext(priorQuality).capture_attempt_count} 次。以下为已保存的任务证据，不代表当前图纸的实时状态：\n${JSON.stringify(qualityTaskContext(priorQuality),null,2)}`:'当前会话没有已记录的质量任务；不能据此判断其他会话是否执行过视觉检查。');
     }
     if(intent==='continue'&&!this.state.redrawTask&&priorQuality){
       if(priorQuality.phase==='complete')return remember('当前任务已验收通过，未重复绘图。请明确描述新的绘图需求。');

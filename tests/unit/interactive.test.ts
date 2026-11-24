@@ -109,8 +109,8 @@ test('visual preferences and historical status bypass models/CAD; continuation b
     const saved={task_id:'fixture-task',phase:'pending_verification',original_request:'画图',round:0,checks:[{id:'capture_bounds',status:'not_run',evidence:'fixture clipping warning'}],plan:{version:1},reviews:[{image_evidence:{sha256:'fixture-image'},visual_report:{verdict:'pass'}}],execution:{local_connection_id:'fixture',scratch:'fixture.dwg'}};
     chat.state.qualityRun=join(directory,'quality.json');await writeFile(chat.state.qualityRun,JSON.stringify(saved));
     const status=await chat.execute('是否使用了视觉验证？');
-    assert.match(status.text,/已调用 1 次/);assert.match(status.text,/fixture-image/);assert.match(status.text,/capture_bounds/);assert.equal(calls,0);
-    assert.match((await chat.execute('你做过视觉校验吗？')).text,/已调用 1 次/);assert.equal(calls,0);
+    assert.match(status.text,/视觉模型请求 1 次，截图尝试 1 次/);assert.match(status.text,/fixture-image/);assert.match(status.text,/capture_bounds/);assert.equal(calls,0);
+    assert.match((await chat.execute('你做过视觉校验吗？')).text,/视觉模型请求 1 次/);assert.equal(calls,0);
     await assert.rejects(chat.execute('继续'),/CONTINUATION_ROUTED/);
     assert.equal(captured?.originalTask,'画图');assert.equal(captured?.qualityResume?.task_id,'fixture-task');
   }finally{await f.cleanup();}

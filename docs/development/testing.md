@@ -1,5 +1,13 @@
 # 测试记录
 
+## 2026-11-24 REQ-043：截图恢复与视觉状态
+
+最终本地 `pnpm typecheck`、`pnpm test` **139/139**、`pnpm smoke` 通过，`cader -v` 为0.4.0-dev.11；手册131本地链接/22锚点与diff检查通过。新增真实DSH业务结果×/!/✓、截图失败不计模型请求、真实stdio关联/错文档/错nonce/状态不一致/legacy冻结与未识别文档的无变更预检证明；fixture不冒充真实CAD。MCP独立全量pytest **246 passed/33 skipped**，5个改动Python文件isolated ruff I/F通过，发现基线仅export_current_view更新；Cader自身Python未改。
+
+4轮均用显式`pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task "新建画布，画一个房子，红屋顶蓝墙，旁边有棵大树，儿童绘本风格。"`，无固定绘图计划。两轮完整成功5/5、8/8，36/35确认/unknown0；一轮先遇Layers.Add，保留unknown后修复方法解析；另一轮截图全部恢复正常，视觉仍风格uncertain，3轮修正后pending，未标为通过。两张复杂图共10次独立原生导出全部恢复/清理核对通过，不当成10次完整模型验收。仅关闭自建无unknown图，Drawing17及失败Drawing18和旧屏障/审计保留。[运行ID、hash、代码与限制](../validation/2026-11-24-capture-restoration-fix.md)。CI/提交后续补记；完整DSH app profile、任意任务和旧图解冻均未宣称通过。
+
+2026-11-24 REQ-042只读排障：读取用户附件、quality/events/execution/锁及相关源码，核对6模型步骤、48确认CAD操作、51读回实体、402ms导出失败、视觉启动/图片请求/报告均0、预算未耗尽、无目标PNG。未运行模型/原生CAD、未重放或恢复；运行时代码未变，本轮未新增回归/真实绘图验收，旧123通过不覆盖本次导出异常。屏障SHA256为BD0DCFD61D19571427BB16C9528170EACA3E7FAE9A5C6071339417B27DC36045，未改写。[审计](../validation/2026-11-24-house-capture-audit.md)。
+
 ## 2026-11-18：DSH 切换
 
 环境：Windows；便携 Node 24.9.0、pnpm 11.28.5、DSH 0.2.2-rc.4、Cordis 4.1.0；

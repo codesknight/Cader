@@ -9,6 +9,8 @@ import { invokeTool } from './tool-call.js';
 import { assertToolArguments, ToolArgumentsError } from './tool-validation.js';
 import { randomUUID } from 'node:crypto';
 import { nativeCreateRejection } from './native-create.js';
+import { captureEvidence } from './capture-evidence.js';
+import type { CaptureReceipt } from './capture-evidence.js';
 
 /** Preserve protocol failure evidence. Owners redact this before displaying/persisting. */
 export class McpCallError extends Error {
@@ -21,6 +23,11 @@ export class NativeCreateNotInvokedError extends McpCallError {
   constructor(readonly requestId:string, readonly evidence:Record<string,unknown>) {
     super('new_drawing',{error:{message:'Native new-document preflight failed; MCP received the request, but Documents.Add was not invoked.'},native_create:evidence});
     this.name='NativeCreateNotInvokedError';
+  }
+}
+export class NativeCaptureSafeError extends McpCallError {
+  constructor(readonly evidence:CaptureReceipt){
+    super('export_current_view',{native_capture:evidence});this.name='NativeCaptureSafeError';
   }
 }
 
@@ -44,13 +51,19 @@ export async function createMcpClient(config: McpConfig) {
         const definition = ctx.tools.get(`mcp__${config.server_name}__${name}`);
         if (!definition) throw new ToolArgumentsError(name,[{path:'/',keyword:'tool',message:'Tool is absent from this local registry; no request sent'}]);
         const properties=(definition.parameters as {properties?:Record<string,unknown>}).properties;
-        const requestId=name==='new_drawing'&&properties?.request_id ? callId??randomUUID():undefined;
+        const requestId=['new_drawing','export_current_view'].includes(name)&&properties?.request_id ? callId??randomUUID():undefined;
         const payload=requestId?{...args,request_id:requestId}:args;
         assertToolArguments(definition, payload);
         const result = await invokeTool(ctx, `mcp__${config.server_name}__${name}`, payload, undefined, callId);
-        if(result.isError&&requestId){
+        if(result.isError&&requestId&&name==='new_drawing'){
           const evidence=nativeCreateRejection(result.error.message,requestId);
           if(evidence)throw new NativeCreateNotInvokedError(requestId,evidence);
+        }
+        if(result.isError&&requestId&&name==='export_current_view'){
+          try{
+            const evidence=captureEvidence(JSON.parse(result.error.message),requestId,String(args.file_path));
+            if(evidence)throw new NativeCaptureSafeError(evidence);
+          }catch(error){if(error instanceof NativeCaptureSafeError)throw error;}
         }
         if (result.isError) throw new McpCallError(name, { error: result.error,
           content: result.content.filter(block => block.type === 'text') });
