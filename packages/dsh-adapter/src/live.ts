@@ -20,7 +20,7 @@ import * as mcpClient from '@deepseek-ai/dsh-mcp-client';
 import Attachments from '@deepseek-ai/dsh-attachment-local';
 import FileSystem from '@deepseek-ai/dsh-fs-local';
 import type { ModelProfile, RuntimeConfig, McpConfig } from '@cader/config';
-import { parseVisualReport, visualReportSchema, requireCredential, loadSkills, mcpEnvironment, workspacePath, readReferenceImage,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema,parseReferenceLabelInventory,referenceLabelInventorySchema,parseReferenceNets,reconcileSourceNets,referenceMembershipSchema,parseReferenceMembership } from '@cader/config';
+import { parseVisualReport, visualReportSchema, requireCredential, loadSkills, mcpEnvironment, workspacePath, readReferenceImage,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema,parseReferenceLabelInventory,referenceLabelInventorySchema,parseReferenceNets,reconcileSourceNets,referenceMembershipSchema,parseReferenceMembership,mergeConfirmedSourceConnections,parseSourceConnectionReview } from '@cader/config';
 import { ChildPool } from './pool.js';
 import { ExecutionBudget } from './budget.js';
 import type { BudgetStop } from './budget.js';
@@ -627,7 +627,7 @@ export async function createLiveRuntime(options: LiveOptions) {
         for(let pass=0;pass<2;pass++){
           if(pass){signal?.throwIfAborted();if(++delegations>options.runtime.max_delegations)throw new Error('DELEGATION_BUDGET_EXCEEDED');}
           const previousNets=checked;checked=null;
-        const result=await pool.run('main',()=>run(vision.id,'手稿线条可有轻微抖动、叠笔或浓淡变化，追踪可辨的连续路径，不把轻微笔触差异误判为多处断路；仍不可辨则uncertain，不用电路常识补线。'+(pass?'上次存在未确认连接；本轮附原图四个局部区域，以实际像素复核这些不确定处：'+JSON.stringify((previousNets as ReturnType<typeof parseReferenceNets>|null)?.nets.filter(n=>n.certainty!=='clear')):'')+'先独立核对整图器件覆盖，再沿原图像素导线追踪外部net，调用cader_submit_reference_nets。若初始objects漏掉可见器件或接地/连接符号，在missing_objects补报真实器件、bounds和端子索引（不可补假导线组件），并在membership包含新旧全部端子；缺失符号不能静默忽略。给定器件与端子索引只是位置索引，不能当作已验证连接。使用membership逐端子赋组：每个“object:terminal”必须作为一个属性键，值为net ID；nets仅列id、evidence及certainty，不再列pins数组。原有每个端子的属性在schema中均必填，新补器件也须加入全部端子键。给出可见导线路径evidence和certainty。禁止按常见电路知识补全：一个接地符号不自动连接到另一条未标地、且像素上断开的回路线；T接点或折线端点直接相接无需圆点，不能仅因缺少圆点就标uncertain；两条线的内部交叉才需判断接点。真正可见的断线/无接点内部跨越分别分组。器件内部各端不短接；各电源极性端独立，三端器件保留全部端子。无法追清则uncertain，不猜闭环；不确定表示尚不能确认关系，不等于默认断开可见导线。按最可能的像素路径分组，真正的疑问留在certainty/evidence，后续仍需独立对照验收。只提交membership、nets及必要missing_objects，不规划。原图端子索引：'+JSON.stringify(observation.objects.map(o=>({...o,terminals:o.terminals.map((position,terminal)=>({terminal,position}))}))),{image:path,sourceDetails:pass?quadrants:undefined,signal,onlyTools:[submit.name,'cader_view_image'],extraTools:[submit],resultText:()=>checked?JSON.stringify(checked):undefined}));
+        const result=await pool.run('main',()=>run(vision.id,'手稿线条可有轻微抖动、叠笔或浓淡变化，追踪可辨的连续路径，不把轻微笔触差异误判为多处断路；仍不可辨则uncertain，不用电路常识补线。'+(pass?'上次存在未确认连接；本轮附原图四个局部区域，以实际像素复核这些不确定处：'+JSON.stringify((previousNets as ReturnType<typeof parseReferenceNets>|null)?.nets.filter(n=>n.certainty!=='clear')):'')+'先独立核对整图器件覆盖，再沿原图像素导线追踪外部net，调用cader_submit_reference_nets。若初始objects漏掉可见器件或接地/连接符号，在missing_objects补报真实器件、bounds和端子索引（不可补假导线组件），并在membership包含新旧全部端子；缺失符号不能静默忽略。给定器件与端子索引只是位置索引，不能当作已验证连接。使用membership逐端子赋组：每个“object:terminal”必须作为一个属性键，值为net ID；nets仅列id、evidence及certainty，不再列pins数组。原有每个端子的属性在schema中均必填，新补器件也须加入全部端子键。给出可见导线路径evidence和certainty。禁止按常见电路知识补全：一个接地符号不自动连接到另一条未标地、且像素上断开的回路线；T接点或折线端点直接相接无需圆点，不能仅因缺少圆点就标uncertain；两条线的内部交叉才需判断接点。真正可见的断线/无接点内部跨越分别分组。器件内部各端不短接；各电源极性端独立，三端器件保留全部端子。无法追清则uncertain，不猜闭环；不确定表示尚不能确认关系，不等于默认断开可见导线。按最可能的像素路径分组，真正的疑问留在certainty/evidence，后续仍需独立对照验收。只提交membership、nets及必要missing_objects，不规划。用户原始请求及明确澄清：'+task+'。明确的用户连接确认优先于模糊笔触，但证据须注明来自用户确认，不能伪装纯像素识别。原图端子索引：'+JSON.stringify(observation.objects.map(o=>({...o,terminals:o.terminals.map((position,terminal)=>({terminal,position}))}))),{image:path,sourceDetails:pass?quadrants:undefined,signal,onlyTools:[submit.name,'cader_view_image'],extraTools:[submit],resultText:()=>checked?JSON.stringify(checked):undefined}));
         const revised=checked as ReturnType<typeof parseReferenceNets>|null;
         const canonical=(nets:NonNullable<typeof observation.nets>)=>nets.map(n=>n.pins.map(p=>`${p.object}:${p.terminal}`).sort().join('|')).sort().join(';');
         const arbitration=revised?reconcileSourceNets(observation,revised):null;
@@ -712,7 +712,8 @@ export async function createLiveRuntime(options: LiveOptions) {
       const needsSourceTopology=requirementIds?.has('source_topology_fidelity')??false;
       let sourceFrame:ReturnType<typeof parseReferenceObservation>|undefined;
       let expectedSourceGroups:string[][]=[];
-      type SourceTopologyEvidence={report:ReturnType<typeof parseReferenceNets>;all_clear:boolean;matches_cad_groups:boolean;native_verified:boolean;source_sha256:string};
+      let trustedConnections:ReturnType<typeof parseSourceConnectionReview>['connections']=[];
+      type SourceTopologyEvidence={raw_report:ReturnType<typeof parseReferenceNets>;confirmations:ReturnType<typeof parseSourceConnectionReview>['connections'];report:ReturnType<typeof parseReferenceNets>;all_clear:boolean;matches_cad_groups:boolean;native_verified:boolean;source_sha256:string};
       let sourceTopologyEvidence:SourceTopologyEvidence|null=null;
       const reportSchema=structuredClone(visualReportSchema);
       if(needsSourceTopology){
@@ -720,6 +721,8 @@ export async function createLiveRuntime(options: LiveOptions) {
         if(!reference||source?.sha256!==createHash('sha256').update(reference.data).digest('hex')||!Array.isArray(source?.objects)||!Array.isArray(cad?.components)||!Array.isArray(cad?.nets))throw new Error('SOURCE_TOPOLOGY_BINDINGS_REQUIRED');
         sourceFrame=parseReferenceObservation({version:1,drawing_kind:'schematic',summary:'Source terminal locations only; no prior connectivity opinions.',coordinate_system:'normalized-image-top-left-y-down',content_bounds:[[0,0],[1,1]],objects:source.objects.map((o:any)=>({...o,kind:'Source component location',category:'component',certainty:'clear'})),visible_text:[],connections:[],unknowns:[]});
         expectedSourceGroups=cad.nets.map((net:any)=>net.pins.map((pin:any)=>{const c=cad.components.find((c:any)=>c.id===pin.component),index=c?.pin_names?.indexOf(pin.pin);if(!c?.source_id||index===undefined||index<0||c.source_terminals?.[index]===undefined)throw new Error('SOURCE_TOPOLOGY_BINDINGS_INVALID');return `${c.source_id}:${c.source_terminals[index]}`;}));
+        trustedConnections=parseSourceConnectionReview({connections:evidenceInput.source_connection_confirmations??[]}).connections;
+        if(trustedConnections.some(c=>!evidenceInput.original_request?.includes(c.source_quote)||!/确认|confirm/i.test(c.source_quote)))throw new Error('SOURCE_CONNECTION_CONFIRMATION_QUOTE_INVALID');
         reportSchema.properties.source_topology=referenceMembershipSchema(sourceFrame);reportSchema.required.push('source_topology');
       }
       const validateReport=(value:unknown)=>{
@@ -728,14 +731,16 @@ export async function createLiveRuntime(options: LiveOptions) {
         if(knownIds&&parsed.defects.some(d=>d.entity_ids.some(id=>!knownIds!.has(id))))throw new Error('UNKNOWN_REVIEW_ENTITY_ID: use only IDs from entity_snapshot, or [] when uncertain');
         if(requirementIds&&(parsed.checklist.length!==requirementIds.size||new Set(parsed.checklist.map(c=>c.requirement_id)).size!==requirementIds.size||parsed.checklist.some(c=>!requirementIds!.has(c.requirement_id))))throw new Error('REVIEW_CHECKLIST_MISMATCH: report each supplied visual requirement ID exactly once; do not invent IDs or report geometry-only conditions');
         if(needsSourceTopology){
-          const report=parseReferenceMembership(source_topology,sourceFrame!);
+          const rawReport=parseReferenceMembership(source_topology,sourceFrame!);
+          const confirmations=trustedConnections;
+          const report=confirmations.length?{...rawReport,nets:mergeConfirmedSourceConnections(rawReport.nets,confirmations)}:rawReport;
           if(report.nets.some(net=>!net.evidence||!net.certainty))throw new Error('SOURCE_NET_EVIDENCE_REQUIRED');
           const canonical=(groups:string[][])=>groups.map(p=>p.sort().join('|')).sort().join(';');
           const matches=canonical(report.nets.map(n=>n.pins.map(p=>`${p.object}:${p.terminal}`)))===canonical(expectedSourceGroups);
           const allClear=report.nets.every(net=>net.certainty==='clear'),nativeVerified=evidenceInput.cad_external_netlist.verified===true;
           const status=allClear?(matches?(nativeVerified?'pass':'uncertain'):'fail'):'uncertain';
-          if(parsed.checklist.find(c=>c.requirement_id==='source_topology_fidelity')?.status!==status)throw new Error('SOURCE_TOPOLOGY_REPORT_CONFLICT: independently trace Image A in source_topology.membership. The program compares those groups with CAD. Expected checklist status='+status+'. CAD T contacts and microscopic gaps are determined by native coordinates, not extra visible dots. Uncertainty must concern the ORIGINAL source path, not re-proving verified CAD contacts.');
-          sourceTopologyEvidence={report,all_clear:allClear,matches_cad_groups:matches,native_verified:nativeVerified,source_sha256:evidenceInput.source_terminal_index.sha256};
+          if(parsed.checklist.find(c=>c.requirement_id==='source_topology_fidelity')?.status!==status)throw new Error('SOURCE_TOPOLOGY_REPORT_CONFLICT: independently trace Image A in source_topology.membership. The program compares those groups with CAD. Expected checklist status='+status+'. Actual source_connection_confirmations, when present, resolve ONLY their explicitly confirmed connectivity; raw uncertain pixel readings remain in evidence. CAD T contacts and microscopic gaps are determined by native coordinates, not extra visible dots. Uncertainty must concern the ORIGINAL source path, not re-proving verified CAD contacts.');
+          sourceTopologyEvidence={raw_report:rawReport,confirmations,report,all_clear:allClear,matches_cad_groups:matches,native_verified:nativeVerified,source_sha256:evidenceInput.source_terminal_index.sha256};
         }else if(source_topology!==undefined)throw new Error('UNREQUESTED_SOURCE_TOPOLOGY_REPORT');
         return parsed;
       };
@@ -747,7 +752,7 @@ export async function createLiveRuntime(options: LiveOptions) {
           async execute(args, exec) { structured=validateReport(args);exec.concludeTurn();return JSON.stringify(structured); } };
         const review = await pool.run('main', () => run(vision.id,
           '用中文审查实际CAD图片与原始需求。若有Image A/B，A是原始用户手稿，B是本任务CAD结果：必须比较符号、可读标注、连接和布局，不能只说结果好看或拿旧图当参考。没有真实依据的条件标uncertain。必须调用cader_submit_visual_report提交；不要输出长篇解释。每条证据与建议保持简短，最多8个缺陷。checklist逐项核验要求的视觉条件；程序几何/拓扑事实不要求通过像素重复证实，不得仅凭图像推翻实体坐标。uncertainties仅记录影响必要视觉条件的未解决问题，不记录用户未要求的特征、无关观察或程序已证明的几何精度。' +
-          (needsSourceTopology?'\nsource_topology只追踪原图A的外部连接，按每个源端子键提交membership及每组evidence/certainty；不要从CAD图片B的像素重证接点/微小间隙，也不要求T接点额外实心圆点。程序将原图分组与已读回验证的CAD分组比较。源图轻微笔触抖动或同路径叠笔不是断路证明，确实不清则在对应源net标uncertain。':'')+(attempt ? '\n上次未提交有效报告或输出被截断。请按工具schema简短重报，不要增加自定义字段。' : '') + '\n需求与程序证据：\n' + question,
+          (needsSourceTopology?'\nsource_topology报告原图A的外部连接读数；source_connection_confirmations是程序核对过的真实用户确认，优先于相应模糊笔触，程序仅合并已确认端子并保留原读数，不能伪装纯视觉成功。按每个源端子键提交membership及每组evidence/certainty；不要从CAD图片B的像素重证接点/微小间隙，也不要求T接点额外实心圆点。程序将原图分组与已读回验证的CAD分组比较。源图轻微笔触抖动或同路径叠笔不是断路证明，确实不清则在对应源net标uncertain。':'')+(attempt ? '\n上次未提交有效报告或输出被截断。请按工具schema简短重报，不要增加自定义字段。' : '') + '\n需求与程序证据：\n' + question,
           { parent, cadReview:true,image: referenceImage??capture.path, comparisonImage:referenceImage?capture.path:undefined,sourceDetails:referenceDetails, signal, onlyTools: [submit.name], extraTools: [submit], resultText: () => structured ? JSON.stringify(structured) : undefined }));
         if (!structured && review.status === 'succeeded') {
           try { structured=validateReport(JSON.parse(review.text.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''))); } catch { /* Format repair is bounded and never constitutes acceptance. */ }

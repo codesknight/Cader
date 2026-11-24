@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { acceptancePlanSchema, parseAcceptancePlan, loadSkills, readReferenceImage } from '@cader/config';
+import { acceptancePlanSchema, parseAcceptancePlan, loadSkills, readReferenceImage,sourceConnectionReviewSchema,parseSourceConnectionReview,mergeConfirmedSourceConnections } from '@cader/config';
 import type { QualityPlan } from '@cader/config';
 import type { createLiveRuntime, ToolDefinition, PublicEvent, ImageView } from '@cader/dsh-adapter';
 import type { ExecutionSession, Approval } from './execution.js';
@@ -235,6 +235,9 @@ export async function runQualityTask(options: {
   let referenceObservation:Awaited<ReturnType<NonNullable<typeof runtime>['inspectReference']>>|null=null;
   const labelConfirmations:{index:number;text:string;source_quote:string;image_sha256:string;original_reading:unknown}[]=[];
   const unconfirmedLabelReviews:{index:number;reason:string}[]=[];
+  const connectionConfirmations:{pins:{object:string;terminal:number}[];source_quote:string;image_sha256:string;original_nets:unknown}[]=[];
+  const unconfirmedConnectionReviews:{source_quote:string;reason:string}[]=[];
+  const hasConnectionClarification=/连接确认\s*[:：]|connection confirmation\s*:/i.test(task);
   let referenceView:ImageView|undefined;
   const sourceUnchanged=async()=>{
     if(!referenceTask)return;
@@ -250,9 +253,9 @@ export async function runQualityTask(options: {
   const taskId = options.resume?.task_id ?? randomUUID();
   const state = () => ({ version: 1, task_id: taskId, phase, original_request: task, request_sha256: hash, plan, round, checks, visual, reviews, visual_calls: visualCalls, visual_attempt_count:visualAttempts,
     visual_model_call_count:runtime?.reviewStats?priorModelCalls+runtime.reviewStats().model_calls:visualCalls.reduce((sum,call)=>sum+(call.review.attempts?.length??1),0),
-    visual_error:visualError,transitions, failure,reference_task:referenceTask??null,reference_observation:referenceObservation,label_confirmations:labelConfirmations,unconfirmed_label_reviews:unconfirmedLabelReviews,artifact,quality_accepted:accepted, model_runs: modelRuns, checkpoints,drawing_units:drawingUnits,active_drawing_unit:activeUnit, budget:runtime?.budgetState?.(),execution: owner.facts() });
+    visual_error:visualError,transitions, failure,reference_task:referenceTask??null,reference_observation:referenceObservation,label_confirmations:labelConfirmations,unconfirmed_label_reviews:unconfirmedLabelReviews,connection_confirmations:connectionConfirmations,unconfirmed_connection_reviews:unconfirmedConnectionReviews,artifact,quality_accepted:accepted, model_runs: modelRuns, checkpoints,drawing_units:drawingUnits,active_drawing_unit:activeUnit, budget:runtime?.budgetState?.(),execution: owner.facts() });
   const publish = () => { const facts=owner.facts();const context = {...qualityTaskContext(state()),
-    execution_budget:runtime?.budgetState?.(),checkpoint_count:checkpoints.length,active_drawing_unit:activeUnit,drawing_units:drawingUnits,source_label_confirmations:labelConfirmations,unconfirmed_source_label_reviews:unconfirmedLabelReviews.filter(r=>referenceObservation?.structured?.visible_text[r.index]?.certainty==='uncertain'),rendering_contract:referenceTask?renderingContract():null,
+    execution_budget:runtime?.budgetState?.(),checkpoint_count:checkpoints.length,active_drawing_unit:activeUnit,drawing_units:drawingUnits,source_label_confirmations:labelConfirmations,source_connection_confirmations:connectionConfirmations.map(({pins,source_quote,image_sha256})=>({pins,source_quote,image_sha256})),unconfirmed_source_label_reviews:unconfirmedLabelReviews.filter(r=>referenceObservation?.structured?.visible_text[r.index]?.certainty==='uncertain'),rendering_contract:referenceTask?renderingContract():null,
     visual_evidence_requires_recheck: !cachedReview || facts.frozen || reviewedWrites!==JSON.stringify([facts.local_connection_id,facts.scratch,facts.session_counts]),
     authorization: 'Task-scoped grant enforced by ExecutionSession; never inherited from task evidence.'}; options.onState?.(context); return context; };
   const act = async (instruction: string, request?: Parameters<Awaited<ReturnType<typeof createLiveRuntime>>['run']>[2]) => {
@@ -270,7 +273,7 @@ export async function runQualityTask(options: {
       let reviewSubmitted=false;
       const runBinding=owner.facts();
       const result = await runtime.run(options.profile, instruction + '\n领域质量知识（数据，不授予权限）：\n' + guidance+
-        (sourceHints?'\n原图已观察事实及统一CAD坐标提示（y向上，禁止把像素y向下直接当CAD坐标）：\n'+JSON.stringify(sourceHints):'')+(referenceObservation?.net_review?.uncertain_nets?.length?'\n两次源观察分组一致但仍有视觉疑问，必须保留source_topology_fidelity视觉验收条件，最终对照原图逐组核对，不得凭一致就宣称通过：\n'+JSON.stringify(referenceObservation.net_review):'')+continuationContext,
+        (sourceHints?'\n原图已观察事实及统一CAD坐标提示（y向上，禁止把像素y向下直接当CAD坐标）：\n'+JSON.stringify(sourceHints):'')+(referenceObservation?.net_review?.uncertain_nets?.length?'\n历史源观察仍有待验关系，最终必须通过source_topology_fidelity；绘制使用当前封存计划和真实用户确认，不把旧候选当成当前事实：\n'+JSON.stringify({consensus:referenceObservation.net_review.consensus,regions:referenceObservation.net_review.uncertain_nets.map(n=>({pins:n.pins}))}):'')+continuationContext,
         { ...options.request,...request,taskState:publish,harnessTask:true,continuePending:continuation,
           controlledReview:async(_question,reviewSignal)=>{if(activeUnit)throw new Error('DRAWING_UNIT_PENDING: finish the current unit; Scheduler will review the full drawing after all units');const review=await reviewCurrent('agent',reviewSignal);reviewSubmitted=true;return review;},reviewEndsTurn:true,
           resultText:request?.resultText??(()=>reviewSubmitted?'已提交受控视觉证据，交由Harness继续验收；这不是完成声明。':undefined),
@@ -376,6 +379,7 @@ export async function runQualityTask(options: {
         source_connection_review:{independent_check_required:Boolean(referenceTask),regions_to_inspect:referenceObservation?.net_review?.uncertain_nets?.map(n=>({pins:n.pins}))??[],
           note:'Preliminary model opinions are not authoritative and are deliberately withheld. Independently compare actual original pixels and CAD. The supplied region pins are locations, not a claim of connectivity.'},rendering_contract:referenceTask?renderingContract():null,
         source_terminal_index:observedSource&&sourceImage?{sha256:sourceImage.sha256,objects:observedSource.objects.map(({id,bounds,terminals})=>({id,bounds,terminals}))}:null,
+        source_connection_confirmations:connectionConfirmations.map(({pins,source_quote})=>({pins,source_quote})),
         cad_external_netlist:plan.domain==='electrical-schematic'?{verified:geometry.some(c=>c.status==='pass'&&plan!.requirements.find(r=>r.id===c.id)?.check==='netlist'),components:plan.components,nets:plan.nets,wire_layer:plan.wire_layer}:null,
         entity_snapshot: before.entities, observed_state_hash: digest, document_revision: null,
         note: 'Image evidence checks appearance. Queried coordinates/IDs are authoritative; ambiguous pixels remain uncertain.',reference:referenceTask?.image??null }),reviewSignal,referenceTask?.image.path,sourceDetails);
@@ -411,7 +415,7 @@ export async function runQualityTask(options: {
   };
   const tool: ToolDefinition = {
     name: 'cader_submit_acceptance_plan', description: 'Submit compact independent requirements. Components have 1..8 boundary ports with matching pin_names. Branched/multi-pin circuits use netlist and explicit junctions; series_cycle is only for a simple two-terminal series loop. Reference circuits preserve source_id and source_terminals in port order. Never submit operation sequences.', parameters: acceptancePlanSchema,
-    output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] }, async execute(args, exec) {
+    output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },isConcurrencySafe:()=>false, async execute(args, exec) {
       const parsed = parseAcceptancePlan(args);
       if(parsed.requirements.some(r => !task.toLowerCase().includes(r.source_quote.toLowerCase())))
         throw new Error('SOURCE_QUOTE_MUST_BE_FROM_ORIGINAL_REQUEST');
@@ -426,6 +430,7 @@ export async function runQualityTask(options: {
       if(options.alwaysVisual||requiresQuality(task)||parsed.requirements.some(r=>r.check==='visual')) parsed.visual_required = true;
       if(parsed.visual_required&&!parsed.requirements.some(r=>r.check==='visual'))throw new Error('VISUAL_ACCEPTANCE_REQUIRED: include an independently reviewable visual condition quoted from the original request');
       if(referenceTask){
+        if(hasConnectionClarification&&referenceObservation?.structured?.drawing_kind==='schematic'&&!connectionConfirmations.length&&!unconfirmedConnectionReviews.length)throw new Error('EXPLICIT_SOURCE_CONNECTIONS_UNREVIEWED: bind the actual connection confirmation with cader_confirm_source_connections before submitting a plan. Map source object IDs/terminal indices, quote the real confirmation, never infer a confirmation from the picture.');
         if(/确认|clarification|confirm/i.test(task)){
           const unreviewed=referenceObservation?.structured?.visible_text.flatMap((label,index)=>label.certainty==='uncertain'&&!unconfirmedLabelReviews.some(r=>r.index===index)?[{index,text:label.text,bounds:label.bounds}]:[])??[];
           if(unreviewed.length)throw new Error('EXPLICIT_SOURCE_CLARIFICATIONS_UNREVIEWED: review the actual user clarification BEFORE submitting a plan. Use cader_confirm_source_labels for matching confirmed values; put genuinely uncovered indices in unconfirmed with a reason, never guess or ignore an applicable confirmation. '+JSON.stringify(unreviewed));
@@ -469,6 +474,16 @@ export async function runQualityTask(options: {
     unconfirmedLabelReviews.push(...unconfirmed);
     await options.persist(state());options.emit({type:'reference.labels_confirmed',count:labels.length,unconfirmed:unconfirmed.length,image_sha256:referenceTask.image.sha256,source:'explicit_user_quote'});return JSON.stringify({confirmed:labels,unconfirmed,source:'user_confirmation',not_ocr_success:true});
   }};
+  const confirmConnections:ToolDefinition={name:'cader_confirm_source_connections',description:'Bind explicit USER confirmation that source terminals share one connected external net. Use original object IDs and zero-based terminal indices. Quote the actual confirmation including its confirmation wording; never invent one from an image. Only merges declared source groups, no CAD writes, no arbitrary splits. Record genuinely unmappable clarifications as unconfirmed; they stay pending.',parameters:sourceConnectionReviewSchema,isConcurrencySafe:()=>false,
+    output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args){
+      await sourceUnchanged();const review=parseSourceConnectionReview(args),source=referenceObservation?.structured;
+      if(plan||!referenceTask||!source?.nets?.length||!review.connections.length&&!review.unconfirmed?.length)throw new Error('SOURCE_CONNECTION_CONFIRMATION_INVALID');
+      if([...review.connections,...review.unconfirmed??[]].some(r=>!task.includes(r.source_quote)||!/确认|confirm/i.test(r.source_quote)||/\.(?:png|jpe?g|dwg)\b/i.test(r.source_quote)))throw new Error('EXPLICIT_USER_CONNECTION_QUOTE_REQUIRED: quote the real confirmation clause including confirmation wording, not a filename or guessed intention');
+      const original=structuredClone(source.nets),next=mergeConfirmedSourceConnections(source.nets,review.connections),start=connectionConfirmations.length,unconfirmedStart=unconfirmedConnectionReviews.length;
+      source.nets=next;connectionConfirmations.push(...review.connections.map(c=>({...c,image_sha256:referenceTask.image.sha256,original_nets:original})));unconfirmedConnectionReviews.push(...review.unconfirmed??[]);
+      try{await options.persist(state());}catch(error){source.nets=original;connectionConfirmations.length=start;unconfirmedConnectionReviews.length=unconfirmedStart;throw error;}
+      options.emit({type:'reference.connections_confirmed',count:review.connections.length,image_sha256:referenceTask.image.sha256,source:'explicit_user_quote'});return JSON.stringify({nets:source.nets,confirmed:review.connections,unconfirmed:review.unconfirmed??[],not_vision_success:true});
+    }};
   try {
     if(owner.facts().frozen){await enter('blocked');return state();}
     if(!runtime)throw new Error('QUALITY_RUNTIME_REQUIRED');
@@ -495,7 +510,8 @@ export async function runQualityTask(options: {
     }
     else {
       const canConfirm=Boolean(referenceTask&&referenceObservation?.structured?.visible_text.length&&/确认|clarification|confirm/i.test(task));
-      const planningRequest={ signal,maxImageViews:2, onlyTools: [tool.name,'cader_view_image',...(canConfirm?[confirmLabels.name]:[])], extraTools: [tool,...(canConfirm?[confirmLabels]:[])], resultText: () => plan ? JSON.stringify(plan) : undefined };
+      const canConfirmConnections=Boolean(hasConnectionClarification&&referenceObservation?.structured?.nets?.length);
+      const planningRequest={ signal,maxImageViews:2, onlyTools: [tool.name,'cader_view_image',...(canConfirm?[confirmLabels.name]:[]),...(canConfirmConnections?[confirmConnections.name]:[])], extraTools: [tool,...(canConfirm?[confirmLabels]:[]),...(canConfirmConnections?[confirmConnections]:[])], resultText: () => plan ? JSON.stringify(plan) : undefined };
       try {
       await act('用中文规划以下绘图任务。'+(referenceObservation?.structured?.drawing_kind==='schematic'?'参考手绘电路是输入资料，目标是可编辑CAD；没有明确要求手绘/手写输出风格时，不增加笔触、手写字体或纸张纹理验收，只核对图形、标签、连接和相对布局。':'')+'若用户明确补充确认了仍不确定的标注，先调用cader_confirm_source_labels按位置绑定原文确认；不能从原图或常见值编造用户确认。必须调用cader_submit_acceptance_plan，只提交紧凑需求验收清单；普通插画的components可为空，勿虚构连接端口。仅拓扑任务需要组件布局/端口；参考电路必须用netlist，components带source_id、source_terminals（按ports顺序的原图端子索引）、pin_names及全部端口；nets必须保持观察的原图端子分组，不能把分支/三端器件改成series_cycle。组件bounds可包含引线，端口在边界；此阶段不能绘图。若有参考图片，必须先观察实际像素；可用cader_view_image裁看原图。识别可读符号、文字与连接，示意图使用布局坐标，不因缺少物理比例尺全局拒绝；不可读的值单独标未知。source_quote必须原样引用用户请求，图片中数值可在description/text写出并用“参考图”等请求原文作source_quote。独立列出数量、文字、布局及源图外观匹配条件。新建文档与保存由程序验证，不能用任意实体数代替。entity_count必须是可测的实际AcDb类型；COM draw_polyline/rectangle生成AcDb2dPolyline，不是AcDbPolyline。组件语义使用visual检查。参考图的符号数量不能随意变成全部圆/线实体的硬上限（还可能有接点小圆和符号内部线）；需要实体计数时可用layer限定其语义图层，或以visual验符号。电路使用真实组件边界端口和适合的拓扑检查，不强加电路条件到普通图。标注以text检查，禁止导线穿组件或短接其端口。不得把本阶段的“只做规划”误写为整任务不准绘图。\n' + task,
         planningRequest);

@@ -181,6 +181,23 @@ test('an inapplicable user clarification is reviewed without clearing a differen
   finally{await f.cleanup();}
 });
 
+for(const persistFails of [false,true])test(`source connection confirmation precedes sealing and rolls back failed persistence: ${persistFails}`,async()=>{
+  const f=await setup(),pixels=await readReferenceImage(f.root,'reference.png'),sha256=createHash('sha256').update(pixels.data).digest('hex'),quote='连接确认：A与B连通',task='复现参考电路。'+quote;let grants=0;
+  const source=parseReferenceObservation({...observation,drawing_kind:'schematic',objects:['A','B'].map((id,i)=>({id,kind:'terminal',category:'component',bounds:[[i*0.5,0],[i*0.5+0.4,0.4]],terminals:[[i*0.5,0]],certainty:'clear'})),nets:['A','B'].map(object=>({id:object,pins:[{object,terminal:0}],certainty:object==='A'?'clear':'uncertain'}))});
+  const plan={version:1,domain:'electrical-schematic',wire_layer:'WIRE',visual_required:true,components:['A','B'].map((id,i)=>({id,source_id:id,source_terminals:[0],kind:'terminal',bounds:[[i*3,0],[i*3+1,1]],ports:[[i*3,0]],pin_names:['p']})),nets:[{id:'joined',pins:['A','B'].map(component=>({component,pin:'p'}))}],requirements:['visual','netlist','no_wire_through_component','text_clearance'].map(check=>({id:check,check,description:'Synthetic condition',source_quote:'复现参考电路'}))};
+  const runtime={completed:()=>[],async inspectReference(){return {valid:true,structured:structuredClone(source),evidence:{path:join(f.root,'reference.png'),sha256,width:pixels.width,height:pixels.height}};},async run(_p:string,_i:string,request:any){
+    await assert.rejects(request.extraTools[0].execute(plan,{concludeTurn(){}}),/EXPLICIT_SOURCE_CONNECTIONS_UNREVIEWED/);
+    const confirm=request.extraTools.find((t:ToolDefinition)=>t.name==='cader_confirm_source_connections'),pins=['A','B'].map(object=>({object,terminal:0}));assert.ok(confirm);
+    await assert.rejects(confirm.execute({connections:[{pins,source_quote:'伪造连接确认'}]}),/EXPLICIT_USER_CONNECTION_QUOTE_REQUIRED/);
+    await assert.rejects(confirm.execute({connections:[{pins:[pins[0],{object:'absent',terminal:0}],source_quote:quote}]}),/UNKNOWN_PIN/);
+    if(persistFails){await assert.rejects(confirm.execute({connections:[{pins,source_quote:quote}]}),/fixture persist/);await assert.rejects(request.extraTools[0].execute(plan,{concludeTurn(){}}),/EXPLICIT_SOURCE_CONNECTIONS_UNREVIEWED/);return {status:'failed',errorCode:'FIXTURE_PERSIST_FAILED',tools:[],text:''};}
+    await confirm.execute({connections:[{pins,source_quote:quote}]});await request.extraTools[0].execute(plan,{concludeTurn(){}});return {status:'succeeded',text:'fixture plan',tools:[]};
+  }};
+  const owner={workspace:f.root,facts:()=>({frozen:false,local_connection_id:'fixture',scratch:null}),taskScope:()=>({owned:false,new_drawing_confirmed:false,geometry_confirmed:0}),async authorizeTask(){grants++;return false;},endTask(){}};
+  try{const q=await runQualityTask({runtime,owner,task,profile:'fixture',emit(){},persist:async(state:any)=>{if(persistFails&&state.connection_confirmations.length)throw new Error('fixture persist failure');},referenceTask:{request:task,freshDrawing:true,outputPath:join(f.root,'fixture.dwg'),image:{path:join(f.root,'reference.png'),sha256,width:pixels.width,height:pixels.height}}} as never);assert.equal(q.connection_confirmations.length,persistFails?0:1);assert.equal(q.reference_observation!.structured!.nets!.length,persistFails?2:1);assert.equal(grants,persistFails?0:1);if(!persistFails){assert.equal((q.connection_confirmations[0]!.original_nets as unknown[]).length,2);assert.equal(q.connection_confirmations[0]!.image_sha256,sha256);}assert.equal(q.quality_accepted,false);}
+  finally{await f.cleanup();}
+});
+
 test('source label reread gets original pixels plus a real crop and replaces the earlier unverified unit',async()=>{
   const f=await setup();process.env.CADER_LABEL_FIXTURE='offline-label-only';let reads=0;const events:PublicEvent[]=[];
   const config=await import('@cader/config').then(m=>m.loadConfig(f.root));
@@ -206,7 +223,7 @@ for(const scenario of ['clear','conflict','consensus'] as const)test(`independen
   const runtime=await createLiveRuntime({root:f.root,workspaceRoot:f.root,runDirectory:join(f.root,'.cader/runs/net-review'),...config,profiles:config.profiles.map(p=>({...p,api_key_env:'CADER_NET_REVIEW_FIXTURE'}))});
   runtime.ctx.on('llm/stream',async function*(request):AsyncGenerator<StreamChunk>{
     if(request.tools?.some(t=>t.name==='cader_submit_reference_observation')){yield* call('cader_submit_reference_observation',{...observation,drawing_kind:'schematic',objects:[{id:'Q',kind:'three-pin',category:'component',bounds:[[0,0],[1,1]],terminals:[[0,0],[1,0],[1,1]],certainty:'clear'}],nets:same?[0,1,2].map(terminal=>({id:String(terminal),pins:[{object:'Q',terminal}]})):[{id:'prior-short',pins:[0,1,2].map(terminal=>({object:'Q',terminal}))}]},'observation');return;}
-    if(request.tools?.some(t=>t.name==='cader_submit_reference_nets')){assert.match(JSON.stringify(request.messages),/禁止按常见电路知识补全/);yield* call('cader_submit_reference_nets',{missing_objects:[{id:'X',kind:'one-pin marker',category:'component',bounds:[[0.1,0.1],[0.2,0.2]],terminals:[[0.15,0.1]],certainty:'clear'}],membership:{'Q:0':'0','Q:1':'1','Q:2':'2','X:0':'new-marker'},nets:[...[0,1,2].map(terminal=>({id:String(terminal),evidence:'Synthetic test evidence only',certainty:uncertain&&terminal===2?'uncertain':'clear'})),{id:'new-marker',evidence:'Synthetic independently inventoried marker only',certainty:'clear'}]},'net-review');return;}
+    if(request.tools?.some(t=>t.name==='cader_submit_reference_nets')){assert.match(JSON.stringify(request.messages),/禁止按常见电路知识补全/);assert.match(JSON.stringify(request.messages),/Read synthetic branched source/);yield* call('cader_submit_reference_nets',{missing_objects:[{id:'X',kind:'one-pin marker',category:'component',bounds:[[0.1,0.1],[0.2,0.2]],terminals:[[0.15,0.1]],certainty:'clear'}],membership:{'Q:0':'0','Q:1':'1','Q:2':'2','X:0':'new-marker'},nets:[...[0,1,2].map(terminal=>({id:String(terminal),evidence:'Synthetic test evidence only',certainty:uncertain&&terminal===2?'uncertain':'clear'})),{id:'new-marker',evidence:'Synthetic independently inventoried marker only',certainty:'clear'}]},'net-review');return;}
     if(request.tools?.some(t=>t.name==='cader_submit_reference_label_inventory')){yield* call('cader_submit_reference_label_inventory',{visible_text:[]},'inventory');return;}
     throw new Error('No CAD calls in source inspection');
   });

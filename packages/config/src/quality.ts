@@ -69,6 +69,28 @@ export function parseReferenceMembership(value:unknown,source:ReferenceObservati
   parseReferenceObservation({...source,objects:[...source.objects,...report.missing_objects??[]],nets:report.nets});
   return report;
 }
+const SourceConnectionReview=z.object({connections:z.array(z.object({pins:ObservedNet.shape.pins.min(2),source_quote:Text}).strict()).max(16),unconfirmed:z.array(z.object({source_quote:Text,reason:Text}).strict()).max(16).optional()}).strict();
+export const sourceConnectionReviewSchema=JSON.parse(JSON.stringify(z.toJSONSchema(SourceConnectionReview)));
+export function parseSourceConnectionReview(value:unknown){return SourceConnectionReview.parse(value);}
+export type ConfirmedSourceConnection=z.infer<typeof SourceConnectionReview>['connections'][number];
+/** Merge only explicitly confirmed source connections. Uncovered uncertainty
+ * remains uncertain; this never splits nets or generates CAD operations. */
+export function mergeConfirmedSourceConnections(nets:ReturnType<typeof parseReferenceNets>['nets'],confirmations:ConfirmedSourceConnection[]){
+  const address=(p:{object:string;terminal:number})=>`${p.object}:${p.terminal}`;
+  const pins=nets.flatMap(n=>n.pins),indices=new Map(pins.map((p,i)=>[address(p),i])),parent=pins.map((_,i)=>i),proof=pins.map((_,i)=>i),selected=new Set<string>();
+  const root=(list:number[],i:number):number=>list[i]===i?i:(list[i]=root(list,list[i]!));
+  const join=(list:number[],members:typeof pins)=>{const ids=members.map(p=>{const index=indices.get(address(p));if(index===undefined)throw new Error('SOURCE_CONNECTION_UNKNOWN_PIN');return index;});for(const index of ids)list[root(list,index)]=root(list,ids[0]!);};
+  for(const net of nets){join(parent,net.pins);if(net.certainty==='clear')join(proof,net.pins);}
+  for(const c of confirmations){if(c.pins.length<2||new Set(c.pins.map(address)).size!==c.pins.length)throw new Error('SOURCE_CONNECTION_DISTINCT_PINS_REQUIRED');join(parent,c.pins);join(proof,c.pins);c.pins.forEach(p=>selected.add(address(p)));}
+  const groups=new Map<number,typeof pins>();pins.forEach((p,i)=>{const r=root(parent,i);groups.set(r,[...groups.get(r)??[],p]);});
+  const ids=new Set(nets.map(n=>n.id));let serial=0;
+  return [...groups.values()].map(members=>{
+    const prior=nets.filter(n=>n.pins.some(p=>members.some(q=>address(q)===address(p)))),uncertain=prior.filter(n=>n.certainty!=='clear');
+    const clear=!uncertain.length||uncertain.every(n=>n.pins.every(p=>selected.has(address(p))))&&new Set(members.map(p=>root(proof,indices.get(address(p))!))).size===1;
+    let id=prior[0]!.id;if(prior.length>1){do{id=`cader_confirmed_${serial++}`;}while(ids.has(id));ids.add(id);}
+    return {id,pins:members,certainty:clear?'clear' as const:'uncertain' as const,evidence:(prior.length>1?'Explicit user connection confirmation; original observations retained. ':prior[0]!.evidence??'Source observation').slice(0,400)};
+  });
+}
 /** Unknown connectivity is not a proven disconnection. Retain the preliminary
  * candidate only where the independent review is explicitly uncertain; every
  * clear old-pin relation must agree. The final pixel-fidelity gate is mandatory. */

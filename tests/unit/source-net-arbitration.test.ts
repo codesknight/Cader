@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseReferenceObservation,parseReferenceNets,reconcileSourceNets,referenceMembershipSchema,parseReferenceMembership} from '@cader/config';
+import {parseReferenceObservation,parseReferenceNets,reconcileSourceNets,referenceMembershipSchema,parseReferenceMembership,mergeConfirmedSourceConnections} from '@cader/config';
 const source=parseReferenceObservation({version:1,drawing_kind:'schematic',summary:'Synthetic reference only',coordinate_system:'normalized-image-top-left-y-down',content_bounds:[[0,0],[1,1]],objects:[{id:'Q',kind:'three-pin',category:'component',bounds:[[0,0],[1,1]],terminals:[[0,0],[1,0],[1,1]],certainty:'clear'}],visible_text:[],connections:[],unknowns:[],nets:[{id:'original',pins:[0,1,2].map(terminal=>({object:'Q',terminal})),certainty:'clear'}]});
 const net=(terminal:number,certainty:'clear'|'uncertain')=>({id:`n${terminal}`,pins:[{object:'Q',terminal}],certainty,evidence:'Synthetic confidence fixture only'});
 
@@ -32,4 +32,14 @@ test('a fully clear changed interpretation still records disagreement; missing p
   const result=reconcileSourceNets(source,parseReferenceNets({nets:[net(0,'clear'),net(1,'clear'),net(2,'clear')]}));
   assert.equal(result.valid,true);assert.equal(result.clear_consistent,false);
   assert.throws(()=>reconcileSourceNets(source,parseReferenceNets({nets:[net(0,'clear')]})),/missing/);
+});
+
+test('explicit source connection merges resolve only covered uncertainty and preserve the original report',()=>{
+  const groups=parseReferenceNets({nets:[net(0,'uncertain'),{...net(1,'clear'),pins:[{object:'Q',terminal:1},{object:'Q',terminal:2}]}]}).nets,before=JSON.stringify(groups);
+  const confirmation={pins:[{object:'Q',terminal:0},{object:'Q',terminal:1}],source_quote:'确认两个源端子连通'};
+  const merged=mergeConfirmedSourceConnections(groups,[confirmation]);assert.equal(merged.length,1);assert.equal(merged[0]!.certainty,'clear');assert.equal(merged[0]!.pins.length,3);assert.equal(JSON.stringify(groups),before);
+  const untouched=mergeConfirmedSourceConnections(groups,[{...confirmation,pins:[{object:'Q',terminal:1},{object:'Q',terminal:2}]}]);assert.equal(untouched[0]!.certainty,'uncertain');
+  assert.throws(()=>mergeConfirmedSourceConnections(groups,[{...confirmation,pins:[{object:'Q',terminal:0},{object:'missing',terminal:0}]}]),/UNKNOWN_PIN/);
+  const bridge=parseReferenceNets({nets:[net(0,'clear'),{...net(1,'uncertain'),pins:[{object:'Q',terminal:1},{object:'Q',terminal:2}]},net(3,'clear')]}).nets;
+  const unproven=mergeConfirmedSourceConnections(bridge,[confirmation,{...confirmation,pins:[{object:'Q',terminal:2},{object:'Q',terminal:3}]}]);assert.equal(unproven[0]!.certainty,'uncertain','two separate confirmations cannot prove an uncertain bridge between them');
 });

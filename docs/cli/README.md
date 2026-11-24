@@ -20,6 +20,8 @@ Explicit label clarifications may accompany the original request. The program re
 
 When the request contains a clarification, planning must review every remaining uncertain label. Applicable values require exact user-quote bindings; uncovered indices need explicit `unconfirmed` reasons and remain pending. Source-inspection events are immutable snapshots. Image symbols do not imply a requirement for CAD block references; unrequested block-count gates are rejected before drawing.
 
+For an ambiguous source connection, append `connection confirmation:` (or `连接确认：`) and your confirmed relationship to the request. Before sealing the plan, the Agent must bind the exact quote and source pins through `cader_confirm_source_connections`, or record why it cannot apply. Only confirmed merges are supported; unrelated uncertainty remains pending. Independent source review receives these confirmations and retains its raw reading separately. Human confirmation does not clear an unknown CAD write, authorize adopting another document, or imply unassisted image recognition.
+
 For circuit redraws, “hand-drawn” identifies the source medium. Rough strokes and handwritten fonts are output requirements only when explicitly requested. Independent final vision compares the actual source and CAD images; preliminary model opinions are withheld to reduce anchoring.
 
 If a queued Patch encounters a proven pre-dispatch rejection after budget renewal, the model receives its actual partial results and may replan missing operations. This requires the original connection/document and an unfrozen execution ledger; confirmed leaves are never replayed. Uncertain native outcomes still stop execution. Failed reservations remain spent.
