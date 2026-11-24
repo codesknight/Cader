@@ -40,6 +40,10 @@ BUG-065（REQ-045回归新增，#20）：同轮已有明确标注确认，源cle
 
 BUG-066（REQ-045回归新增，#20）：第29轮86 committed/0 unknown后，最终视觉DELEGATION_BUDGET_EXCEEDED，实际视觉模型调用0，Drawing38保留但无DWG。内部源读取/多批标注与主动Agent委派共用16额度，预先耗尽；视觉异常catch也未保存待验进度。现分开内部源复核预留（由原阶段上限推导46）、Agent主动委派（仍16）与最终视觉（原截图/格式上限），任务总Token/时间/成本不变。受控视觉异常在原绑定/已知写入/新鲜执行层读回/文件保护允许时保存pending，unknown/frozen/取消仍停止。实际DSH fixture在Agent委派上限1时完成多次源读取及最终视觉，捕获异常fixture保存待验不冒充通过；192项/typecheck/smoke通过。整套离线一项CLI帮助测试耗时异常、原因未证实；单独复验5956ms通过。完整同原图第30轮继续。
 
+BUG-067（REQ-045回归新增，#20）：第30轮源11器件/9标注正确，但Main两次规划响应达到8192，0 CAD写入；需要在一次响应中完成多种确认及复制源图谱。现明确标签按4项分段、再连接确认、再验收规划，原DSH run/act复用，每段一次有限截断重试，不重放确认。规划可选source_layout:true引用模型观察的源布局/网表，记录端口边界规范化，保留全量自定义方案、所有校验/审批及模型自主几何工具调用。第31轮实机已记录9标签+1连接确认、选择紧凑源布局并开始绘图，证明阶段链路，但因下述源读取成本暂停，不算完整通过。
+
+BUG-068（REQ-045回归新增，#20）：第31轮同一cader_submit_reference_labels请求31次、30次框超裁图拒绝，1324747 token；局部格式修复只受全任务100步骤控制，耗尽绘图额度。该轮14 committed/0 unknown，2M暂停保存17311字节待验DWG。现批量文字Schema去掉bounds重定位，单项保留原图坐标校验，每次读取最多3模型请求；失败标签保留uncertain，源补充裁图沿用每次2次额度。只有后续真实用户确认覆盖该失败读取的全部索引且持久化后，才关联recovered_by及人工作答证据，原failed及原读数不改，不掩盖QUOTA/auth或无确认失败。194项/typecheck/smoke通过，含有限失败不恢复、实际Scheduler确认解决而原failed保留、紧凑布局规范化和单元契约。新的同原图完整实机继续。
+
 2026-11-24 REQ-043 / #20 / MCP#43：BUG-045的Count/CopyFrom截图恢复分支及BUG-047视觉失败绿色勾号已修复，恢复后状态读回/备份清理/请求关联均强制，未知仍保护。实机发现非活动文档ActiveLayout可能指向活动文档，新增Layout.Document/ObjectID绑定检查，并用ModelSpace.Layout确认旧图未变。回归首轮还发现Layers.Add动态解析错误，复用只读就绪/单次调用修复；Drawing18旧unknown保留。两轮原始绘本整体通过、10次复杂图重复捕获恢复通过；另一次风格uncertain保持待验证，历史蓝图根因、文件验收和纸布局自动路由仍未宣称解决。[分层结果](../validation/2026-11-24-capture-restoration-fix.md)。
 
 2026-11-24 REQ-042 / #20：BUG-045原生截图/恢复故障在用户Drawing17复现，48次绘图确认、预算充足，export Count异常及CopyFrom/COM拒绝使恢复状态未知；无PNG或实际VisionAgent调用。保留冻结，未修复。新增BUG-047：视觉失败的控制交接isError=false导致CLI绿色勾号，visual_attempt_count还包含截图失败，需拆分业务结果及真实视觉次数。dev.10异常交接本次确已生效。[证据](../validation/2026-11-24-house-capture-audit.md)。

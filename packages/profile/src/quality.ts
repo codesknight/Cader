@@ -4,7 +4,7 @@ import type { QualityPlan } from '@cader/config';
 import type { createLiveRuntime, ToolDefinition, PublicEvent, ImageView } from '@cader/dsh-adapter';
 import type { ExecutionSession, Approval } from './execution.js';
 import type { ReferenceTask } from './reference-input.js';
-import { referenceLayoutHints } from './reference-input.js';
+import { referenceLayoutHints,sourcePlanLayout } from './reference-input.js';
 import {crossesInterior} from './cad-arguments.js';
 import { taskIntent } from './task-intent.js';
 import {verifyNetlist,missingSymbolPorts} from './netlist.js';
@@ -221,6 +221,8 @@ export async function runQualityTask(options: {
   const checkpoints: unknown[] = [];
   const drawingUnits:{id:string;status:'active'|'checked_in';snapshot_sha256?:string}[]=[];
   let activeUnit:string|null=null;
+  let activePlanningUnit:string|null=null,sourceLayoutEvidence:ReturnType<typeof sourcePlanLayout>|null=null;
+  const planningUnits:{id:string;status:'active'|'checked_in'}[]=[];
   let budgetPaused=false;
   let outputRecoveries=0;
   let reviewedWrites: string | undefined;
@@ -253,12 +255,12 @@ export async function runQualityTask(options: {
   const taskId = options.resume?.task_id ?? randomUUID();
   const state = () => ({ version: 1, task_id: taskId, phase, original_request: task, request_sha256: hash, plan, round, checks, visual, reviews, visual_calls: visualCalls, visual_attempt_count:visualAttempts,
     visual_model_call_count:runtime?.reviewStats?priorModelCalls+runtime.reviewStats().model_calls:visualCalls.reduce((sum,call)=>sum+(call.review.attempts?.length??1),0),
-    visual_error:visualError,transitions, failure,reference_task:referenceTask??null,reference_observation:referenceObservation,label_confirmations:labelConfirmations,unconfirmed_label_reviews:unconfirmedLabelReviews,connection_confirmations:connectionConfirmations,unconfirmed_connection_reviews:unconfirmedConnectionReviews,artifact,quality_accepted:accepted, model_runs: modelRuns, checkpoints,drawing_units:drawingUnits,active_drawing_unit:activeUnit, budget:runtime?.budgetState?.(),execution: owner.facts() });
+    visual_error:visualError,transitions, failure,reference_task:referenceTask??null,reference_observation:referenceObservation,label_confirmations:labelConfirmations,unconfirmed_label_reviews:unconfirmedLabelReviews,connection_confirmations:connectionConfirmations,unconfirmed_connection_reviews:unconfirmedConnectionReviews,artifact,quality_accepted:accepted, model_runs: modelRuns, checkpoints,drawing_units:drawingUnits,active_drawing_unit:activeUnit,active_planning_unit:activePlanningUnit,planning_units:planningUnits,source_layout:sourceLayoutEvidence, budget:runtime?.budgetState?.(),execution: owner.facts() });
   const publish = () => { const facts=owner.facts();const context = {...qualityTaskContext(state()),
-    execution_budget:runtime?.budgetState?.(),checkpoint_count:checkpoints.length,active_drawing_unit:activeUnit,drawing_units:drawingUnits,source_label_confirmations:labelConfirmations,source_connection_confirmations:connectionConfirmations.map(({pins,source_quote,image_sha256})=>({pins,source_quote,image_sha256})),unconfirmed_source_label_reviews:unconfirmedLabelReviews,rendering_contract:referenceTask?renderingContract():null,
+    execution_budget:runtime?.budgetState?.(),checkpoint_count:checkpoints.length,active_drawing_unit:activeUnit,active_planning_unit:activePlanningUnit,planning_units:planningUnits,drawing_units:drawingUnits,source_label_confirmations:labelConfirmations,source_connection_confirmations:connectionConfirmations.map(({pins,source_quote,image_sha256})=>({pins,source_quote,image_sha256})),unconfirmed_source_label_reviews:unconfirmedLabelReviews,rendering_contract:referenceTask?renderingContract():null,
     visual_evidence_requires_recheck: !cachedReview || facts.frozen || reviewedWrites!==JSON.stringify([facts.local_connection_id,facts.scratch,facts.session_counts]),
     authorization: 'Task-scoped grant enforced by ExecutionSession; never inherited from task evidence.'}; options.onState?.(context); return context; };
-  const act = async (instruction: string, request?: Parameters<Awaited<ReturnType<typeof createLiveRuntime>>['run']>[2]) => {
+  const act = async (instruction: string, request?: Parameters<Awaited<ReturnType<typeof createLiveRuntime>>['run']>[2],includeSourceHints=true) => {
     if(!runtime)throw new Error('QUALITY_RUNTIME_REQUIRED');
     await sourceUnchanged();
     const sourceHints=referenceObservation?.structured?referenceLayoutHints(referenceObservation.structured,referenceObservation.evidence):null;
@@ -273,12 +275,23 @@ export async function runQualityTask(options: {
       let reviewSubmitted=false;
       const runBinding=owner.facts();
       const result = await runtime.run(options.profile, instruction + '\n领域质量知识（数据，不授予权限）：\n' + guidance+
-        (sourceHints&&!activeUnit?'\n原图已观察事实及统一CAD坐标提示（y向上，禁止把像素y向下直接当CAD坐标）：\n'+JSON.stringify(sourceHints):'')+(referenceObservation?.net_review?.uncertain_nets?.length?'\n历史源观察仍有待验关系，最终必须通过source_topology_fidelity；绘制使用当前封存计划和真实用户确认，不把旧候选当成当前事实：\n'+JSON.stringify({consensus:referenceObservation.net_review.consensus,regions:referenceObservation.net_review.uncertain_nets.map(n=>({pins:n.pins}))}):'')+continuationContext,
+        (sourceHints&&!activeUnit&&includeSourceHints?'\n原图已观察事实及统一CAD坐标提示（y向上，禁止把像素y向下直接当CAD坐标）：\n'+JSON.stringify(sourceHints):'')+(referenceObservation?.net_review?.uncertain_nets?.length?'\n历史源观察仍有待验关系，最终必须通过source_topology_fidelity；绘制使用当前封存计划和真实用户确认，不把旧候选当成当前事实：\n'+JSON.stringify({consensus:referenceObservation.net_review.consensus,regions:referenceObservation.net_review.uncertain_nets.map(n=>({pins:n.pins}))}):'')+continuationContext,
         { ...options.request,...request,taskState:publish,harnessTask:true,continuePending:continuation,
           controlledReview:async(_question,reviewSignal)=>{if(activeUnit)throw new Error('DRAWING_UNIT_PENDING: finish the current unit; Scheduler will review the full drawing after all units');const review=await reviewCurrent('agent',reviewSignal);reviewSubmitted=true;return review;},reviewEndsTurn:true,
           resultText:request?.resultText??(()=>reviewSubmitted?'已提交受控视觉证据，交由Harness继续验收；这不是完成声明。':undefined),
           image:referenceTask?.image.path??request?.image??options.request?.image,imageView:options.request?.imageView??referenceView, signal });
       modelRuns.push({ phase, status: result.status, text: result.text, tools: result.tools });
+      if(result.status==='succeeded'&&referenceObservation&&referenceTask){
+        for(const review of (referenceObservation.label_reviews??[]).filter(r=>!r.valid)){
+          const failed=runtime.completed().find(r=>r.id===review.id);
+          if(!failed||failed.status!=='failed'||failed.recovered_by||!['INVOCATION_MODEL_STEP_BUDGET_EXCEEDED','OUTPUT_TRUNCATED','TIMEOUT','MALFORMED_RESPONSE'].includes(failed.errorCode??''))continue;
+          const confirmed=review.indices.filter(index=>labelConfirmations.some(c=>c.index===index));
+          if(confirmed.length===review.indices.length&&review.indices.every(index=>referenceObservation!.structured?.visible_text[index]?.certainty==='clear')){
+            failed.recovered_by=result.id;failed.recovery_kind='source_label_confirmation';failed.recovery_evidence={indices:review.indices,source_sha256:referenceTask.image.sha256,confirmed_indices:confirmed};
+            options.emit({type:'reference.label_read_reconciled',failed_agent_id:failed.id,resolver_agent_id:result.id,indices:confirmed,source:'explicit_user_confirmation',not_ocr_success:true});
+          }
+        }
+      }
       if(result.status !== 'succeeded'){
         if(['OUTPUT_TRUNCATED','TIMEOUT'].includes(result.errorCode??'')&&['drawing','correcting'].includes(phase)&&outputRecoveries<2&&!signal?.aborted){
           const before=owner.facts();
@@ -416,7 +429,14 @@ export async function runQualityTask(options: {
   const tool: ToolDefinition = {
     name: 'cader_submit_acceptance_plan', description: 'Submit compact independent requirements. Components have 1..8 boundary ports with matching pin_names. Branched/multi-pin circuits use netlist and explicit junctions; series_cycle is only for a simple two-terminal series loop. Reference circuits preserve source_id and source_terminals in port order. Never submit operation sequences.', parameters: acceptancePlanSchema,
     output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },isConcurrencySafe:()=>false, async execute(args, exec) {
-      const parsed = parseAcceptancePlan(args);
+      let input=args,layout:ReturnType<typeof sourcePlanLayout>|null=null;
+      if((args as {source_layout?:boolean}).source_layout===true){
+        const source=referenceObservation?.structured;if(!referenceTask||source?.drawing_kind!=='schematic'||!source.nets?.length)throw new Error('SOURCE_LAYOUT_UNAVAILABLE');
+        layout=sourcePlanLayout(source,referenceObservation!.evidence);
+        const compact=args as {requirements:QualityPlan['requirements'];wire_layer?:string};
+        input={version:1,domain:'electrical-schematic',wire_layer:compact.wire_layer??'WIRE',visual_required:true,components:layout.components,nets:layout.nets,requirements:compact.requirements};
+      }
+      const parsed = parseAcceptancePlan(input);
       if(parsed.requirements.some(r => !task.toLowerCase().includes(r.source_quote.toLowerCase())))
         throw new Error('SOURCE_QUOTE_MUST_BE_FROM_ORIGINAL_REQUEST');
       if(!referenceTask&&parsed.requirements.some(r=>r.check==='saved_dwg')&&!/保存|另存|导出|\bsave\b|\bexport\b|\.dwg\b/i.test(task))throw new Error('UNREQUESTED_FILE_ACCEPTANCE: no DWG save was requested; remove saved_dwg rather than inventing a delivery condition');
@@ -462,7 +482,7 @@ export async function runQualityTask(options: {
           if(canonical(expected)!==canonical(actual))throw new Error('SOURCE_NETLIST_MISMATCH: planned external nets must preserve observed source terminal partition');
         }
       }
-      plan = parsed;
+      plan = parsed;sourceLayoutEvidence=layout;
       exec.concludeTurn();
       return JSON.stringify(plan);
     }
@@ -517,16 +537,37 @@ export async function runQualityTask(options: {
     else {
       const canConfirm=Boolean(referenceTask&&referenceObservation?.structured?.visible_text.length&&/确认|clarification|confirm/i.test(task));
       const canConfirmConnections=Boolean(hasConnectionClarification&&referenceObservation?.structured?.nets?.length);
+      if(referenceObservation?.structured?.drawing_kind==='schematic'){
+        tool.parameters={anyOf:[acceptancePlanSchema,{type:'object',properties:{source_layout:{const:true},requirements:acceptancePlanSchema.properties.requirements,wire_layer:{type:'string',minLength:1,maxLength:80}},required:['source_layout','requirements'],additionalProperties:false}]};
+        tool.description+=' For a reference schematic prefer {source_layout:true,requirements:[...],wire_layer?:...}: reuse the already model-observed and independently reviewed source layout/net groups. The program normalizes boundary ports and runs the same plan checks before approval; never submit operation sequences or duplicate the whole graph.';
+        const focused=async(id:string,instruction:string,selected:ToolDefinition,includeHints:boolean)=>{
+          activePlanningUnit=id;const progress:{id:string;status:'active'|'checked_in'}={id,status:'active'};planningUnits.push(progress);await options.persist(state());
+          const request={signal,maxImageViews:0,onlyTools:[selected.name],extraTools:[tool,selected],resultText:()=> '当前源信息确认阶段已保存，等待后续验收规划。'};
+          try{await act(instruction,request,includeHints);}catch(error){const failed=runtime.completed().filter(r=>r.profile===options.profile).at(-1);if(signal?.aborted||failed?.errorCode!=='OUTPUT_TRUNCATED')throw error;failure=null;options.emit({type:'task.planning_retry',reason:'OUTPUT_TRUNCATED',attempt:1,unit_id:id});await act('上次本阶段输出截断；只提交当前确认，不规划或绘图。'+instruction,request,includeHints);const recovered=runtime.completed().filter(r=>r.profile===options.profile).at(-1);if(recovered?.status==='succeeded')failed.recovered_by=recovered.id;}
+          progress.status='checked_in';activePlanningUnit=null;await options.persist(state());
+        };
+        if(canConfirm&&/补充确认|标注确认|label clarification/i.test(task)){
+          const indices=referenceObservation.structured.visible_text.flatMap((label,index)=>/[\p{L}\p{N}]/u.test(label.text)&&!labelConfirmations.some(r=>r.index===index)&&!unconfirmedLabelReviews.some(r=>r.index===index)?[index]:[]);
+          for(let offset=0;offset<indices.length;offset+=4){const selected=indices.slice(offset,offset+4),schema=structuredClone(confirmLabels.parameters) as any;schema.properties.labels.items.properties.index.enum=selected;schema.properties.unconfirmed.items.properties.index.enum=selected;
+            const limited:ToolDefinition={...confirmLabels,parameters:schema,async execute(args,exec){const review=args as {labels:{index:number}[];unconfirmed?:{index:number}[]},provided=[...review.labels,...review.unconfirmed??[]].map(r=>r.index);if(provided.length!==selected.length||new Set(provided).size!==selected.length||provided.some(i=>!selected.includes(i)))throw new Error('SOURCE_CONFIRMATION_SCOPE: review every current index exactly once, no other indices');const result=await confirmLabels.execute(args,exec);exec.concludeTurn();return result;}};
+            await focused(`labels:${offset/4}`,'使用中文。当前只审定这批源标注，不规划、不追网、不绘图。立即调用cader_confirm_source_labels覆盖本批全部索引；适用的真实用户确认逐字引用并绑定值（包括clear读取），不涵盖的项记unconfirmed理由并保留原certainty。不能把推断伪装确认，不输出整图计划。用户请求：'+task+'\n本批源标注（原图归一化框）：'+JSON.stringify(selected.map(index=>({index,...referenceObservation!.structured!.visible_text[index]}))),limited,false);
+          }
+        }
+        if(canConfirmConnections&&!connectionConfirmations.length&&!unconfirmedConnectionReviews.length){
+          const limited:ToolDefinition={...confirmConnections,async execute(args,exec){const result=await confirmConnections.execute(args,exec);exec.concludeTurn();return result;}};
+          await focused('connections','使用中文。当前仅绑定用户明确的连接确认，立即调用cader_confirm_source_connections；按源对象id和端子索引映射，引用含确认语义的真实原文。不能推演绘图或验收计划，不补其他关系；无法映射记unconfirmed。用户请求：'+task,limited,true);
+        }
+      }
       const planningRequest={ signal,maxImageViews:2, onlyTools: [tool.name,'cader_view_image',...(canConfirm?[confirmLabels.name]:[]),...(canConfirmConnections?[confirmConnections.name]:[])], extraTools: [tool,...(canConfirm?[confirmLabels]:[]),...(canConfirmConnections?[confirmConnections]:[])], resultText: () => plan ? JSON.stringify(plan) : undefined };
       try {
-      await act('用中文规划以下绘图任务。'+(referenceObservation?.structured?.drawing_kind==='schematic'?'参考手绘电路是输入资料，目标是可编辑CAD；没有明确要求手绘/手写输出风格时，不增加笔触、手写字体或纸张纹理验收，只核对图形、标签、连接和相对布局。':'')+'若用户明确补充确认了仍不确定的标注，先调用cader_confirm_source_labels按位置绑定原文确认；不能从原图或常见值编造用户确认。必须调用cader_submit_acceptance_plan，只提交紧凑需求验收清单；普通插画的components可为空，勿虚构连接端口。仅拓扑任务需要组件布局/端口；参考电路必须用netlist，components带source_id、source_terminals（按ports顺序的原图端子索引）、pin_names及全部端口；nets必须保持观察的原图端子分组，不能把分支/三端器件改成series_cycle。组件bounds可包含引线，端口在边界；此阶段不能绘图。若有参考图片，必须先观察实际像素；可用cader_view_image裁看原图。识别可读符号、文字与连接，示意图使用布局坐标，不因缺少物理比例尺全局拒绝；不可读的值单独标未知。source_quote必须原样引用用户请求，图片中数值可在description/text写出并用“参考图”等请求原文作source_quote。独立列出数量、文字、布局及源图外观匹配条件。极性+/−、箭头等属于符号细节，未明确请求文字实体时用visual验，不增加纯标点的text数量门槛。新建文档与保存由程序验证，不能用任意实体数代替。entity_count必须是可测的实际AcDb类型；COM draw_polyline/rectangle生成AcDb2dPolyline，不是AcDbPolyline。组件语义使用visual检查。参考图的符号数量不能随意变成全部圆/线实体的硬上限（还可能有接点小圆和符号内部线）；需要实体计数时可用layer限定其语义图层，或以visual验符号。电路使用真实组件边界端口和适合的拓扑检查，不强加电路条件到普通图。标注以text检查，禁止导线穿组件或短接其端口。不得把本阶段的“只做规划”误写为整任务不准绘图。\n' + task,
+      await act('用中文规划以下绘图任务。'+(referenceObservation?.structured?.drawing_kind==='schematic'?'参考手绘电路是输入资料，目标是可编辑CAD；没有明确要求手绘/手写输出风格时，不增加笔触、手写字体或纸张纹理验收，只核对图形、标签、连接和相对布局。':'')+'标注和连接确认按当前任务状态已审定；不能从图片或常见值编造确认。必须调用cader_submit_acceptance_plan，只提交紧凑需求验收清单；参考电路优先使用source_layout:true引用既有源布局和网表，不抄写全部components/nets，不生成操作序列。普通插画的components可为空，勿虚构连接端口。仅拓扑任务需要组件布局/端口；参考电路必须用netlist，components带source_id、source_terminals（按ports顺序的原图端子索引）、pin_names及全部端口；nets必须保持观察的原图端子分组，不能把分支/三端器件改成series_cycle。组件bounds可包含引线，端口在边界；此阶段不能绘图。若有参考图片，必须先观察实际像素；可用cader_view_image裁看原图。识别可读符号、文字与连接，示意图使用布局坐标，不因缺少物理比例尺全局拒绝；不可读的值单独标未知。source_quote必须原样引用用户请求，图片中数值可在description/text写出并用“参考图”等请求原文作source_quote。独立列出数量、文字、布局及源图外观匹配条件。极性+/−、箭头等属于符号细节，未明确请求文字实体时用visual验，不增加纯标点的text数量门槛。新建文档与保存由程序验证，不能用任意实体数代替。entity_count必须是可测的实际AcDb类型；COM draw_polyline/rectangle生成AcDb2dPolyline，不是AcDbPolyline。组件语义使用visual检查。参考图的符号数量不能随意变成全部圆/线实体的硬上限（还可能有接点小圆和符号内部线）；需要实体计数时可用layer限定其语义图层，或以visual验符号。电路使用真实组件边界端口和适合的拓扑检查，不强加电路条件到普通图。标注以text检查，禁止导线穿组件或短接其端口。不得把本阶段的“只做规划”误写为整任务不准绘图。\n' + task,
         planningRequest);
       } catch(error) {
         const failed=runtime.completed().filter(run=>run.profile===options.profile).at(-1);
         if(plan||signal?.aborted||failed?.errorCode!=='OUTPUT_TRUNCATED')throw error;
         failure=null;
         options.emit({type:'task.planning_retry',reason:'OUTPUT_TRUNCATED',attempt:1});
-        await act('上次规划被截断。仅调用cader_submit_acceptance_plan提交紧凑计划，不输出长文；保持原始需求不变、逐项引用原文。普通插画components可为空；不加入未请求的保存或图元数量上限。必要语义/颜色/布局/风格用visual，新图用new_document。电路仍必须满足端口和拓扑schema。\n'+task,planningRequest);
+        await act('上次规划被截断。仅调用cader_submit_acceptance_plan提交紧凑计划，不输出长文；保持原始需求不变、逐项引用原文。普通插画components可为空；不加入未请求的保存或图元数量上限。必要语义/颜色/布局/风格用visual，新图用new_document。参考电路使用source_layout:true，只写必要requirements，不复制整份端口和net；仍须全部源标签/拓扑/视觉条件。\n'+task,planningRequest);
         const recovered=runtime.completed().filter(run=>run.profile===options.profile).at(-1);
         if(recovered?.status==='succeeded')failed.recovered_by=recovered.id;
       }

@@ -8,6 +8,8 @@ dev.12: reference circuits use model-planned components, named pins and external
 
 Source-label units receive transformed placement boxes and font-size guides; check actual CAD text bounds and keep labels clear of symbols. Punctuation-only polarity/arrows are component details and are not redrawn as duplicate label units or imposed as unrequested literal-text counts. Active units receive their own data without repeating the full source report; the complete evidence remains on disk.
 
+For reference schematics, explicit label confirmations are scheduled in batches of at most four, followed by connection confirmation and acceptance planning. The internal planning tool can select `source_layout:true` with its requirements instead of copying the complete source graph. This reuses model-observed objects/net groups, records any projection of approximate image ports onto component boundaries and applies the same plan checks before approval. It is a semantic layout reference, not a CAD operation sequence or physical scale; full custom plans remain supported.
+
 Each component also receives its original `source_appearance` and sealed `appearance_requirements`; an abstract component kind must not replace the observed outline, fill, polarity or arrow with a merely similar convention. Visual models can still miss such differences; a passed model report alone does not prove exact symbol fidelity.
 
 Every drawing unit receives the sealed measurable requirements and required layer names. Setup creates those layers; symbol/label work follows the plan's explicit layer constraints. Example names such as TEXT or SYMBOL do not override the accepted plan.
@@ -17,6 +19,8 @@ The per-response output limit remains 8192 tokens. Drawing/correction truncation
 Default task limits are 100 model steps, 30 minutes and 16 explicit Agent delegations; cumulative tool/CAD/token limits and individual API timeouts still apply. Continuation is in-process only; `/quality resume` remains verification-only.
 
 Before tracing schematic nets, an independent full-image component inventory checks position/port coverage, including unlabelled symbols. Existing pin indices are preserved; missing components are added with unresolved connectivity until traced. Unmatched prior components block drawing with `SOURCE_COMPONENT_INVENTORY_FAILED`. This check is separate from label inventory and cannot guarantee every visual interpretation.
+
+Batch label rereading returns index/text/certainty without redefining image boxes. Single-item review may refine original-image bounds. Each reading permits up to three model requests; exhausted format repair preserves uncertainty. A later explicit user confirmation can resolve the task evidence while the failed reading/status remains recorded as human-resolved, never OCR success. Supplementary source crops are limited to two per reading.
 
 The two label inventories are associated one-to-one. Independent inventory boxes remain the crop targets; shifted old boxes do not grow across neighboring labels. Case folding is used only to associate readings: conflicting case-sensitive values remain uncertain and must be reread or actually confirmed.
 

@@ -2,7 +2,7 @@ import { lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { readReferenceImage, workspacePath } from '@cader/config';
-import type { ReferenceObservationData } from '@cader/config';
+import type { ReferenceObservationData,QualityPlan } from '@cader/config';
 
 export interface ReferenceTask {
   request: string;
@@ -66,4 +66,19 @@ export function referenceLayoutHints(source:ReferenceObservationData,image:{widt
     visible_text:source.visible_text.map(t=>{const bounds=box(t.bounds),width=bounds[1]![0]!-bounds[0]![0]!,height=bounds[1]![1]!-bounds[0]![1]!;
       return {...t,bounds,text_layout:{anchor:bounds[0],target_width:width,target_height:height,max_text_height:Number(Math.min(height*0.7,width/(Math.max(1,[...t.text].length)*0.9)).toFixed(3)),note:'Source label box is a placement/size guide, not a point at the component centre. Fit native text inside this box; check actual bounding_box after writing.'}};
     }),connections:source.nets?.length?[]:source.connections,nets:source.nets,unknowns:source.unknowns};
+}
+
+/** Reuse model-observed source facts as a semantic layout, never CAD operations.
+ * Source coordinates are approximate image locations; project interior terminals
+ * to the nearest enclosing boundary and record every adjustment before approval. */
+export function sourcePlanLayout(source:ReferenceObservationData,image:{width:number;height:number}){
+  const hints=referenceLayoutHints(source,image),normalized_ports:{component:string;terminal:number;original:number[];planned:number[]}[]=[];
+  const components:QualityPlan['components']=hints.objects.filter(o=>o.terminals.length).map(o=>{
+    const bounds:[[number,number],[number,number]]=[[Math.min(o.bounds[0]![0]!,...o.terminals.map(p=>p[0]!)),Math.min(o.bounds[0]![1]!,...o.terminals.map(p=>p[1]!))],[Math.max(o.bounds[1]![0]!,...o.terminals.map(p=>p[0]!)),Math.max(o.bounds[1]![1]!,...o.terminals.map(p=>p[1]!))]];
+    const ports=o.terminals.map((p,terminal):[number,number]=>{const q:[number,number]=[p[0]!,p[1]!],sides=[{axis:0,value:bounds[0][0]},{axis:0,value:bounds[1][0]},{axis:1,value:bounds[0][1]},{axis:1,value:bounds[1][1]}].sort((a,b)=>Math.abs(q[a.axis]!-a.value)-Math.abs(q[b.axis]!-b.value)),side=sides[0]!;
+      if(Math.abs(q[side.axis]!-side.value)>1e-6){q[side.axis]=side.value;normalized_ports.push({component:o.id,terminal,original:p,planned:q});}return q;});
+    return {id:o.id,source_id:o.id,kind:o.kind,bounds,ports,pin_names:ports.map((_,i)=>`p${i}`),source_terminals:ports.map((_,i)=>i)};
+  });
+  const nets:NonNullable<QualityPlan['nets']>=(source.nets??[]).map(n=>({id:n.id,pins:n.pins.map(p=>({component:p.object,pin:`p${p.terminal}`}))}));
+  return {components,nets,normalized_ports};
 }
