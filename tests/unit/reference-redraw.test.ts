@@ -243,13 +243,14 @@ for(const scenario of ['clear','conflict','consensus','reread-stability','missin
 test('label review covers beyond the first four, prioritizes uncertainty and only retries unresolved original indices',async()=>{
   const f=await setup();process.env.CADER_LABEL_BATCH_FIXTURE='offline-label-batches';
   const config=await import('@cader/config').then(m=>m.loadConfig(f.root));
-  const runtime=await createLiveRuntime({root:f.root,workspaceRoot:f.root,runDirectory:join(f.root,'.cader/runs/label-batches'),...config,profiles:config.profiles.map(p=>({...p,api_key_env:'CADER_LABEL_BATCH_FIXTURE'}))});
+  const runtime=await createLiveRuntime({root:f.root,workspaceRoot:f.root,runDirectory:join(f.root,'.cader/runs/label-batches'),...config,runtime:{...config.runtime,max_delegations:1},captureCadView:async()=>({path:join(f.root,'reference.png'),evidence:{document:'fixture.dwg'}}),profiles:config.profiles.map(p=>({...p,api_key_env:'CADER_LABEL_BATCH_FIXTURE'}))});
   const batches:number[][]=[];
   runtime.ctx.on('llm/stream',async function*(request):AsyncGenerator<StreamChunk>{
     if(request.tools?.some(t=>t.name==='cader_submit_reference_observation')){
       yield* call('cader_submit_reference_observation',{...observation,visible_text:Array.from({length:8},(_,i)=>({text:`${i}MF`,certainty:'clear',bounds:[[0.1+(i%3)*0.25,0.1+Math.floor(i/3)*0.25],[0.25+(i%3)*0.25,0.2+Math.floor(i/3)*0.25]]}))},'initial');return;
     }
     if(request.tools?.some(t=>t.name==='cader_submit_reference_label_inventory')){yield* call('cader_submit_reference_label_inventory',{visible_text:Array.from({length:9},(_,i)=>({text:`${i}MF`,certainty:i===8?'uncertain':'clear',bounds:[[0.1+(i%3)*0.25,0.1+Math.floor(i/3)*0.25],[0.25+(i%3)*0.25,0.2+Math.floor(i/3)*0.25]]}))},'inventory');return;}
+    if(request.tools?.some(t=>t.name==='cader_submit_visual_report')){yield* call('cader_submit_visual_report',{verdict:'pass',defects:[],uncertainties:[],checklist:[]},'reserved-final-review');return;}
     const raw=JSON.stringify(request.messages),indices=[...raw.matchAll(/label crop index=(\d+)/g)].map(m=>Number(m[1]));
     const selected=[...new Set(indices)];batches.push(selected);
     assert.ok(selected.length<=4&&selected.length>0);
@@ -261,10 +262,11 @@ test('label review covers beyond the first four, prioritizes uncertainty and onl
     assert.equal(result.valid,true);assert.equal(result.structured!.visible_text.length,9);
     assert.ok(result.structured!.visible_text.every((l,i)=>l.text===`${i}μF`&&l.certainty==='clear'));
     assert.deepEqual(result.label_reviews.map(r=>r.indices),[[8,0,1,2],[3,4,5,6],[7],[8]]);
+    assert.ok(runtime.reviewStats().source_review_reservations>1);assert.equal(runtime.reviewStats().agent_delegations,0);assert.equal((await runtime.reviewCadView('Synthetic budget check')).review_valid,true);assert.equal(runtime.reviewStats().model_calls,1);
   }finally{await runtime.dispose();delete process.env.CADER_LABEL_BATCH_FIXTURE;await f.cleanup();}
 });
 
-for(const kind of ['complete','pending','quota','source-uncertain','budget'])test(`actual DSH reference task binds fresh CAD and verified DWG: ${kind}`,async()=>{
+for(const kind of ['complete','pending','quota','source-uncertain','budget','capture-error'])test(`actual DSH reference task binds fresh CAD and verified DWG: ${kind}`,async()=>{
   const initiallyPending=kind==='pending';
   const f=await setup(); const previous=process.env.CADER_REDRAW_FIXTURE;process.env.CADER_REDRAW_FIXTURE='offline-redraw-only';
   const events:PublicEvent[]=[],calls:string[]=[];let target='Old.dwg',steps=0,planningImages=0,reviewImages=0,reviewCalls=0,reportAttempts=0;
@@ -286,7 +288,7 @@ for(const kind of ['complete','pending','quota','source-uncertain','budget'])tes
       return {backend:'com'};
     }});
   const factory:typeof createLiveRuntime=async options=>{
-    const runtime=await createLiveRuntime({...options,profiles:options.profiles.map(p=>({...p,api_key_env:'CADER_REDRAW_FIXTURE'}))});
+    const runtime=await createLiveRuntime({...options,...(kind==='capture-error'?{captureCadView:async()=>{throw new Error('FIXTURE_CAPTURE_EXCEPTION');}}:{}),profiles:options.profiles.map(p=>({...p,api_key_env:'CADER_REDRAW_FIXTURE'}))});
     runtime.ctx.on('llm/stream',async function*(request):AsyncGenerator<StreamChunk>{
       const images=JSON.parse(JSON.stringify(request.messages)).flatMap((m:{content:unknown[]})=>m.content).filter((b:{type:string})=>b.type==='image');
       if(request.tools?.some(t=>t.name==='cader_submit_reference_observation')){
@@ -330,6 +332,7 @@ for(const kind of ['complete','pending','quota','source-uncertain','budget'])tes
   try{
     const callbacks={confirm:async()=>{approvals++;return true;},onEvent:(e:PublicEvent)=>events.push(e)};
     let result=await chat.execute('根据 reference.png 复现图形，新建空白图纸并保存为 result.dwg',callbacks);
+    if(kind==='capture-error'){const saved=JSON.parse(await readFile(chat.state.qualityRun!,'utf8'));assert.equal(result.error,true);assert.equal(saved.phase,'pending_verification');assert.equal(saved.quality_accepted,false);assert.ok(saved.artifact);assert.equal(saved.visual_error,'FIXTURE_CAPTURE_EXCEPTION');assert.equal(saved.execution.frozen,false);assert.equal(calls.filter(n=>n==='save_drawing').length,1);return;}
     if(kind==='source-uncertain'){
       const uncertain=JSON.parse(await readFile(chat.state.qualityRun!,'utf8'));
       assert.equal(result.error,true);assert.equal(uncertain.phase,'pending_verification');assert.ok(uncertain.artifact);assert.equal(uncertain.quality_accepted,false);assert.ok(uncertain.checks.some((c:{id:string;status:string})=>c.id==='source_labels_uncertain'&&c.status==='not_run'));assert.equal(calls.filter(n=>n==='new_drawing').length,1);return;

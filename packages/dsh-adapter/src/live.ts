@@ -60,7 +60,11 @@ export async function createLiveRuntime(options: LiveOptions) {
   const images = new Map(Object.entries(options.images ?? {}));
   const completed: AgentResult[] = [];
   const emit = (event: PublicEvent) => options.onEvent?.({ at: new Date().toISOString(), ...event });
-  let steps = 0, calls = 0, delegations = 0, visualReviews = 0, visualModelCalls = 0;
+  let steps = 0, calls = 0, delegations = 0, visualReviews = 0, visualModelCalls = 0, sourceReviewReservations=0;
+  // Existing bounded stages: initial2 + components1 + nets2 + label inventory1
+  // + first-pass batches(32/4) + one retry per label. Not Agent delegation.
+  const sourceReviewLimit=2+1+2+1+Math.ceil(32/4)+32;
+  const reserveSourceReview=()=>{if(++sourceReviewReservations>sourceReviewLimit)throw new Error('SOURCE_REVIEW_BUDGET_EXCEEDED');};
   const budget = new ExecutionBudget(options.runtime);
   let scheduled = false;
   let pending: PendingCall[] = [];
@@ -604,7 +608,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       const attempts:{id:string;status:string;valid:boolean}[]=[];
       for(let attempt=0;attempt<2;attempt++){
         signal?.throwIfAborted();
-        if(++delegations>options.runtime.max_delegations)throw new Error('DELEGATION_BUDGET_EXCEEDED');
+        reserveSourceReview();
         const submit:ToolDefinition={name:'cader_submit_reference_observation',description:'Report only observed source-image facts, normalized original pixel positions and uncertainty. No CAD operations or invented measurements.',
           parameters:referenceObservationSchema,output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},
           async execute(args,exec){const parsed=parseReferenceObservation(args);if(parsed.drawing_kind==='schematic'&&parsed.objects.some(o=>o.category!=='component'))throw new Error('SOURCE_DEVICES_ONLY: schematic objects must be actual component category=component; conductors belong in nets, NOT as fake components with ports. Report all device terminals.');if(parsed.drawing_kind==='schematic'&&parsed.objects.some(o=>o.terminals.length)&&!parsed.nets?.length)throw new Error('SOURCE_NETLIST_REQUIRED: report external conductor nets with object and zero-based terminal index; preserve every terminal exactly once, multi-pin devices are NOT internal shorts');structured=parsed;exec.concludeTurn();return JSON.stringify(structured);}};
@@ -618,7 +622,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       let netReview:{id:string;valid:boolean;changed:boolean;consensus?:boolean;report_valid?:boolean;uncertain_nets?:{id:string;evidence?:string;pins:{object:string;terminal:number}[]}[]}|null=null;
       let componentInventory:{id:string;valid:boolean;added:string[]}|null=null;
       if(observation?.drawing_kind==='schematic'){
-        signal?.throwIfAborted();if(++delegations>options.runtime.max_delegations)throw new Error('DELEGATION_BUDGET_EXCEEDED');
+        signal?.throwIfAborted();reserveSourceReview();
         let inventoried:ReturnType<typeof reconcileSourceComponents>|null=null;
         const inventoryTool:ToolDefinition={name:'cader_submit_reference_component_inventory',description:'Inventory every actual component from the entire original image, independently of an earlier list. Include symbols without labels and single-pin reference symbols; wires and labels are not devices.',parameters:referenceComponentInventorySchema,output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args,exec){const parsed=parseReferenceComponentInventory(args),merged=reconcileSourceComponents(observation.objects,parsed);if(merged.unmatched_prior_ids.length)throw new Error('SOURCE_COMPONENT_INVENTORY_DISAGREEMENT: independently recheck positions/port counts; prior components not matched: '+JSON.stringify(merged.unmatched_prior_ids));inventoried=merged;exec.concludeTurn();return JSON.stringify({objects:parsed.objects,added:merged.additions.map(o=>o.id)});}};
         const reading=await pool.run('main',()=>run(vision.id,'独立扫描整幅原图，必须调用cader_submit_reference_component_inventory列出所有实际器件。逐区域清点，不依赖任何先前器件清单，不用常见电路补全；无文字的圆形源、接地/参考符号也须列入。每个实际符号独立id、原图归一化bounds及全部terminal，三端器件不能压为两端。category只允许component；导线、标签不是器件。保留具体轮廓、填充、极性、箭头与方向，不把不同制式统称标准符号。只清点器件，不追网、不规划、不省略无标注符号。用户请求及确认：'+task,{image:path,signal,onlyTools:[inventoryTool.name],extraTools:[inventoryTool],resultText:()=>inventoried?JSON.stringify(inventoried):undefined}));
@@ -627,7 +631,7 @@ export async function createLiveRuntime(options: LiveOptions) {
         else{observation.objects=merged.objects;const ids=new Set(observation.nets?.map(n=>n.id));for(const object of merged.additions)for(let terminal=0;terminal<object.terminals.length;terminal++){let id='inventory_'+ids.size;while(ids.has(id))id+='x';ids.add(id);(observation.nets??=[]).push({id,pins:[{object:object.id,terminal}],certainty:'uncertain',evidence:'Inventory-only terminal; connectivity not yet observed. Must be independently traced before drawing.'});}}
       }
       if(structured&&observation?.drawing_kind==='schematic'){
-        signal?.throwIfAborted();if(++delegations>options.runtime.max_delegations)throw new Error('DELEGATION_BUDGET_EXCEEDED');
+        signal?.throwIfAborted();reserveSourceReview();
         let checked:ReturnType<typeof parseReferenceNets>|null=null;
         const submit:ToolDefinition={name:'cader_submit_reference_nets',description:'Independently trace actual source conductors. membership maps EVERY object:terminal key to exactly one net ID. nets supplies evidence/certainty, without pin arrays. Do not invent return/ground connections.',parameters:referenceMembershipSchema(observation),output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args,exec){const parsed=parseReferenceMembership(args,observation);if(parsed.missing_objects?.some(o=>o.category!=='component'))throw new Error('SOURCE_DEVICES_ONLY');parseReferenceObservation({...observation,objects:[...observation.objects,...parsed.missing_objects??[]],nets:parsed.nets});if(parsed.nets.some(n=>!n.evidence||!n.certainty))throw new Error('SOURCE_NET_EVIDENCE_REQUIRED');checked=parsed;exec.concludeTurn();return JSON.stringify(parsed);}};
         const quadrants=[0,1,2,3].map(index=>({path,view:{crop:{left:index%2?Math.floor(source.width*0.4):0,top:index>1?Math.floor(source.height*0.4):0,width:Math.ceil(source.width*0.6),height:Math.ceil(source.height*0.6)}},label:`Original source quadrant ${index}; preserve observed device terminal indices.`}));
@@ -635,7 +639,7 @@ export async function createLiveRuntime(options: LiveOptions) {
         const partition=(nets:typeof originalNets)=>nets.map(n=>n.pins.map(p=>`${p.object}:${p.terminal}`).filter(p=>originalPins.has(p)).sort().join('|')).filter(Boolean).sort().join(';');
         let fallback:{id:string;report:ReturnType<typeof parseReferenceNets>;uncertainty:ReturnType<typeof parseReferenceNets>['nets'];consensus:boolean}|null=null;
         for(let pass=0;pass<2;pass++){
-          if(pass){signal?.throwIfAborted();if(++delegations>options.runtime.max_delegations)throw new Error('DELEGATION_BUDGET_EXCEEDED');}
+          if(pass){signal?.throwIfAborted();reserveSourceReview();}
           const previousNets=checked;checked=null;
         const result=await pool.run('main',()=>run(vision.id,'手稿线条可有轻微抖动、叠笔或浓淡变化，追踪可辨的连续路径，不把轻微笔触差异误判为多处断路；仍不可辨则uncertain，不用电路常识补线。'+(pass?'上次存在未确认连接；本轮附原图四个局部区域，以实际像素复核这些不确定处：'+JSON.stringify((previousNets as ReturnType<typeof parseReferenceNets>|null)?.nets.filter(n=>n.certainty!=='clear')):'')+'先独立核对整图器件覆盖，再沿原图像素导线追踪外部net，调用cader_submit_reference_nets。若初始objects漏掉可见器件或接地/连接符号，在missing_objects补报真实器件、bounds和端子索引（不可补假导线组件），并在membership包含新旧全部端子；缺失符号不能静默忽略。给定器件与端子索引只是位置索引，不能当作已验证连接。使用membership逐端子赋组：每个“object:terminal”必须作为一个属性键，值为net ID；nets仅列id、evidence及certainty，不再列pins数组。原有每个端子的属性在schema中均必填，新补器件也须加入全部端子键。给出可见导线路径evidence和certainty。禁止按常见电路知识补全：一个接地符号不自动连接到另一条未标地、且像素上断开的回路线；T接点或折线端点直接相接无需圆点，不能仅因缺少圆点就标uncertain；两条线的内部交叉才需判断接点。真正可见的断线/无接点内部跨越分别分组。器件内部各端不短接；各电源极性端独立，三端器件保留全部端子。无法追清则uncertain，不猜闭环；不确定表示尚不能确认关系，不等于默认断开可见导线。按最可能的像素路径分组，真正的疑问留在certainty/evidence，后续仍需独立对照验收。只提交membership、nets及必要missing_objects，不规划。用户原始请求及明确澄清：'+task+'。明确的用户连接确认优先于模糊笔触，但证据须注明来自用户确认，不能伪装纯像素识别。原图端子索引：'+JSON.stringify(observation.objects.map(o=>({...o,terminals:o.terminals.map((position,terminal)=>({terminal,position}))}))),{image:path,sourceDetails:pass?quadrants:undefined,signal,onlyTools:[submit.name,'cader_view_image'],extraTools:[submit],resultText:()=>checked?JSON.stringify(checked):undefined}));
         const revised=checked as ReturnType<typeof parseReferenceNets>|null;
@@ -658,7 +662,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       }
       let labelInventory:{id:string;valid:boolean}|null=null;
       if(structured&&observation&&(observation.drawing_kind==='schematic'||observation.visible_text.length)){
-        signal?.throwIfAborted();if(++delegations>options.runtime.max_delegations)throw new Error('DELEGATION_BUDGET_EXCEEDED');
+        signal?.throwIfAborted();reserveSourceReview();
         let inventory:ReturnType<typeof parseReferenceLabelInventory>|null=null;
         const submit:ToolDefinition={name:'cader_submit_reference_label_inventory',description:'Independently inventory ALL source values/units/designators by actual image position, including repeated equal labels. No prior OCR list is authoritative.',parameters:referenceLabelInventorySchema,output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args,exec){inventory=parseReferenceLabelInventory(args);exec.concludeTurn();return JSON.stringify(inventory);}};
         const review=await pool.run('main',()=>run(vision.id,'独立清点原图全部文字标签，立即调用cader_submit_reference_label_inventory。先逐区域扫描整图，逐位置列出数值、单位、型号或编号；相同值出现在不同位置必须分别列出，不能合并成一个。保持原图归一化bounds覆盖全部字符；模糊字保留uncertain，不猜常用值。组件内部正负极号由组件绘制，不计为外部标签。此阶段只清点，不规划，不省略重复标注。用户任务：'+task,{image:path,signal,onlyTools:[submit.name],extraTools:[submit],resultText:()=>inventory?JSON.stringify(inventory):undefined}));
@@ -679,7 +683,7 @@ export async function createLiveRuntime(options: LiveOptions) {
           const indices=observation.visible_text.map((_,i)=>i).filter(i=>pass===0||observation.visible_text[i]!.certainty==='uncertain')
             .sort((a,b)=>Number(observation.visible_text[b]!.certainty==='uncertain')-Number(observation.visible_text[a]!.certainty==='uncertain'));
           for(let offset=0;offset<indices.length;offset+=pass?1:4){
-            signal?.throwIfAborted();if(++delegations>options.runtime.max_delegations)throw new Error('DELEGATION_BUDGET_EXCEEDED');
+            signal?.throwIfAborted();reserveSourceReview();
             const selected=indices.slice(offset,offset+(pass?1:4)),details=selected.map(index=>{
               const text=observation.visible_text[index]!,[a,b]=text.bounds;
               const mx=pass?Math.max((b[0]-a[0])*1.5,0.05):(b[0]-a[0])*0.5,my=pass?Math.max((b[1]-a[1])*1.5,0.05):(b[1]-a[1])*0.75;
@@ -752,7 +756,6 @@ export async function createLiveRuntime(options: LiveOptions) {
       };
       for (let attempt = 0; attempt < 2; attempt++) {
         signal?.throwIfAborted();
-        if (++delegations > options.runtime.max_delegations) throw new Error('DELEGATION_BUDGET_EXCEEDED');
         const submit: ToolDefinition = { name: 'cader_submit_visual_report', description: 'Submit the compact validated visual report. No extra fields. Mark unobservable conditions uncertain.',
           parameters: reportSchema, output: { schema: { type: 'string' }, render: (_a,v) => [{type:'text',text:String(v)}] },
           async execute(args, exec) { structured=validateReport(args);exec.concludeTurn();return JSON.stringify(structured); } };
@@ -774,7 +777,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       emit({ type: 'cad.review', ...result }); return result;
     }
 
-    return { ctx, run, reviewStats:()=>({capture_attempts:visualReviews,model_calls:visualModelCalls}),enableTaskBudget:()=>{scheduled=true;},budgetState:()=>({...budget.snapshot(),pending:structuredClone(pending)}),inspectReference,reviewCadView:(question:string,signal?:AbortSignal,referenceImage?:string,referenceDetails?:{path:string;view:ImageView;label:string}[])=>reviewCadView(question,signal,undefined,referenceImage,referenceDetails), pool, completed: () => completed.slice(), toolNames: () => ctx.tools.schemas().map(tool => tool.name),
+    return { ctx, run, reviewStats:()=>({capture_attempts:visualReviews,model_calls:visualModelCalls,source_review_reservations:sourceReviewReservations,source_review_limit:sourceReviewLimit,agent_delegations:delegations}),enableTaskBudget:()=>{scheduled=true;},budgetState:()=>({...budget.snapshot(),agent_delegations:delegations,source_review_reservations:sourceReviewReservations,source_review_limit:sourceReviewLimit,pending:structuredClone(pending)}),inspectReference,reviewCadView:(question:string,signal?:AbortSignal,referenceImage?:string,referenceDetails?:{path:string;view:ImageView;label:string}[])=>reviewCadView(question,signal,undefined,referenceImage,referenceDetails), pool, completed: () => completed.slice(), toolNames: () => ctx.tools.schemas().map(tool => tool.name),
       async dispose() { clearTimeout(deadline); lifetime.abort(); await ctx.fiber.dispose(); } };
   } catch (error) { clearTimeout(deadline); await ctx.fiber.dispose(); throw error; }
 }

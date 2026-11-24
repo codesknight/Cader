@@ -683,7 +683,7 @@ export async function runQualityTask(options: {
     if(!failure&&['CONTINUATION_BINDING_CHANGED','TRUNCATION_RECOVERY_UNSAFE','DRAWING_UNIT_NOT_CLOSED'].includes((error as Error).message))failure={stage:phase,code:(error as Error).message,source:'verification'};
     if((phase as QualityPhase)==='saving')failure={stage:phase,code:'DWG_SAVE_FAILED',source:'verification'};
     if(!failure)visual = { previous: visual, error: (error as Error).message };
-    if(referenceTask&&(failure?.source==='model'||budgetPaused)&&!signal?.aborted&&!owner.facts().frozen&&owner.taskScope(taskId).new_drawing_confirmed&&owner.taskScope(taskId).geometry_confirmed){
+    if(referenceTask&&(failure?.source==='model'||budgetPaused||(phase as QualityPhase)==='vision'&&Boolean(visualError))&&!signal?.aborted&&!owner.facts().frozen&&owner.taskScope(taskId).new_drawing_confirmed&&owner.taskScope(taskId).geometry_confirmed){
       accepted=false;
       checks.push({id:'model_interrupted',status:'not_run',evidence:'执行因模型或任务总预算中断，当前图形尚未完成质量验收；仅保存待验稿'});
       try{await saveReferenceArtifact();}catch(saveError){visual={previous:visual,save_error:(saveError as Error).message};}
