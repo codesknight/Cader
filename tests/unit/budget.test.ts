@@ -27,6 +27,43 @@ const finish=async function*():AsyncGenerator<StreamChunk>{
   yield {type:'finish',reason:{kind:'stop'}};
 };
 
+test('semantic work units share a round and cannot reset task or round allowances',async()=>{
+  const c=await config();c.runtime.max_execution_rounds=1;let steps=0;
+  const runtime=await createLiveRuntime({...c,root:process.cwd(),runDirectory:resolve('.cader/tests/unit-budget-shared')});
+  runtime.ctx.on('llm/stream',async function*():AsyncGenerator<StreamChunk>{steps++;yield* finish();});
+  try{
+    assert.equal((await runtime.run('MainAgent','unit one',{harnessTask:true})).status,'succeeded');
+    assert.equal((await runtime.run('MainAgent','unit two',{harnessTask:true,keepExecutionRound:true})).status,'succeeded');
+    assert.equal(runtime.budgetState().execution_round,1);assert.equal(steps,2);
+    assert.equal((await runtime.run('MainAgent','forbidden reset',{harnessTask:true})).handoff?.code,'EXECUTION_ROUND_LIMIT');assert.equal(steps,2);
+  }finally{await runtime.dispose();}
+});
+
+for(const readFailed of [false,true])test(`final scoped Patch checks in without an extra model request: ${readFailed}`,async()=>{
+  const c=await config();let steps=0,writes=0,checked=0;const events:PublicEvent[]=[];
+  const runtime=await createLiveRuntime({...c,root:process.cwd(),runDirectory:resolve(`.cader/tests/final-unit-patch-${readFailed}`),onEvent:e=>events.push(e),executionTools:['draw_circle','draw_line'].map(name=>defineTool({name:`mcp__autocad__${name}`,description:'Offline unit fixture',parameters:{radius:{type:'number',required:true}},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(){writes++;return 'acknowledged fixture only';}}))});
+  runtime.ctx.on('llm/stream',async function*(request):AsyncGenerator<StreamChunk>{steps++;assert.ok(!request.tools?.some(t=>t.name==='mcp__autocad__draw_line'));yield* call('cader_apply_cad_patch',{operations:[{tool:'mcp__autocad__draw_circle',arguments:{radius:7}}],unit_complete:true},'unit-last');});
+  try{
+    const result=await runtime.run('MainAgent','Complete one fixture unit',{harnessTask:true,onlyTools:['mcp__autocad__draw_circle','cader_apply_cad_patch'],completeDrawingUnit:async()=>{if(readFailed)throw new Error('read failed');checked++;},resultText:()=>checked?'Unit check-in only; not acceptance':undefined});
+    assert.equal(result.status,'succeeded');assert.equal(steps,1);assert.equal(writes,1);assert.equal(checked,readFailed?0:1);
+    assert.equal(events.find(e=>e.type==='tool.result'&&e.tool==='cader_apply_cad_patch')?.isError,readFailed);
+    if(readFailed)assert.equal(result.handoff?.code,'DRAWING_UNIT_READBACK_FAILED');
+  }finally{await runtime.dispose();}
+});
+
+test('incomplete symbol contact returns real patch results without replay or premature check-in',async()=>{
+  const c=await config();let steps=0,writes=0,checks=0,checked=false;
+  const runtime=await createLiveRuntime({...c,root:process.cwd(),runDirectory:resolve('.cader/tests/incomplete-unit'),executionTools:[defineTool({name:'mcp__autocad__draw_circle',description:'Offline symbol fixture',parameters:{},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(){writes++;return 'acknowledged fixture';}})]});
+  runtime.ctx.on('llm/stream',async function*(request):AsyncGenerator<StreamChunk>{
+    if(++steps===1){yield* call('cader_apply_cad_patch',{operations:[{tool:'mcp__autocad__draw_circle',arguments:{}}],unit_complete:true},'incomplete');return;}
+    assert.equal(writes,1);assert.match(JSON.stringify(request.messages),/DRAWING_UNIT_INCOMPLETE/);yield* call('fixture_finish',{},'finish');
+  });
+  try{
+    const result=await runtime.run('MainAgent','Fixture only',{harnessTask:true,onlyTools:['mcp__autocad__draw_circle','cader_apply_cad_patch','fixture_finish'],completeDrawingUnit:async()=>{checks++;throw Object.assign(new Error('DRAWING_UNIT_INCOMPLETE: missing observed symbol contact'),{code:'DRAWING_UNIT_INCOMPLETE'});},extraTools:[defineTool({name:'fixture_finish',description:'Fixture retry of check-in without a mutation',parameters:{},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(_a,exec){checked=true;exec.concludeTurn();return 'fixture checkpoint';}})],resultText:()=>checked?'Unit checked in, not accepted':undefined});
+    assert.equal(result.status,'succeeded');assert.equal(writes,1);assert.equal(steps,2);assert.equal(checks,1);
+  }finally{await runtime.dispose();}
+});
+
 test('layered reservations protect validation, atomic patches and cumulative limits across rounds',async()=>{
   const c=await config();Object.assign(c.runtime,{max_tool_calls:10,validation_tool_reserve:2,max_task_tool_calls:20,max_cad_operations_per_round:6,max_cad_operations:8,max_execution_rounds:3,max_task_tokens:50});
   const b=new ExecutionBudget(c.runtime);

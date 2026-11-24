@@ -53,6 +53,12 @@ test('literal labels normalize typographic minus/micro but reject wrong values, 
   assert.equal(check('5V',['15V']),'fail');assert.equal(check('1mF',['1MF']),'fail');assert.equal(check('1μF',['1MF']),'fail');
   assert.equal(check('5V',['5V','5V'],{min:1,max:1}),'fail');
 });
+
+test('layer-scoped primitive counts do not count junction markers as device bodies',()=>{
+  const counts={version:1 as const,domain:'generic' as const,visual_required:false,components:[],requirements:[{id:'bodies',source_quote:'fixture',description:'Device circles',check:'entity_count' as const,entity_type:'AcDbCircle' as const,layer:'DEVICE',min:2,max:2}]};
+  const rows=[...Array.from({length:2},()=>({type:'AcDbCircle',layer:'DEVICE'})),...Array.from({length:4},()=>({type:'AcDbCircle',layer:'JUNCTION'}))];
+  assert.equal(verifyQuality(counts,rows)[0]!.status,'pass');assert.equal(verifyQuality({...counts,requirements:[{...counts.requirements[0]!,layer:undefined}]},rows)[0]!.status,'fail');
+});
 test('schemas reject semantic entity types, contradictory visual pass and missing topology checks', () => {
   assert.doesNotThrow(() => parseAcceptancePlan(plan));
   assert.throws(() => parseAcceptancePlan({ ...plan, requirements: [{ ...plan.requirements[0], check: 'entity_count', entity_type: '灯泡' }] }));

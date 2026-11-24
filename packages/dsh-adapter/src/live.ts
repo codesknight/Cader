@@ -20,7 +20,7 @@ import * as mcpClient from '@deepseek-ai/dsh-mcp-client';
 import Attachments from '@deepseek-ai/dsh-attachment-local';
 import FileSystem from '@deepseek-ai/dsh-fs-local';
 import type { ModelProfile, RuntimeConfig, McpConfig } from '@cader/config';
-import { parseVisualReport, visualReportSchema, requireCredential, loadSkills, mcpEnvironment, workspacePath, readReferenceImage,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema } from '@cader/config';
+import { parseVisualReport, visualReportSchema, requireCredential, loadSkills, mcpEnvironment, workspacePath, readReferenceImage,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema,parseReferenceLabelInventory,referenceLabelInventorySchema,parseReferenceNets,referenceNetsSchema,reconcileSourceNets } from '@cader/config';
 import { ChildPool } from './pool.js';
 import { ExecutionBudget } from './budget.js';
 import type { BudgetStop } from './budget.js';
@@ -101,6 +101,12 @@ export async function createLiveRuntime(options: LiveOptions) {
       emit({ type: 'image.attached', agentId, ...audit });
       return { attachment, audit };
     }
+    function viewCoordinates(audit:Awaited<ReturnType<typeof attachView>>['audit']){
+      const [a,b,c,d,e,f]=audit.view_to_source,w=audit.view_width,h=audit.view_height,sw=audit.source_width,sh=audit.source_height;
+      return {original_pixels:{width:sw,height:sh},source_sha256:audit.source_sha256,crop_original_pixels:audit.crop,rotation:audit.rotation,
+        normalized_view_to_original:[a!*w/sw,b!*h/sw,c!/sw,d!*w/sh,e!*h/sh,f!/sh],
+        rule:'Coordinates refer to the ORIGINAL image. For this displayed view use normalized (u,v) in 0..1 and the supplied affine transform. A crop edge is not a broken wire. Do not interpret local crop coordinates as original coordinates.'};
+    }
     await ctx.plugin(LlmRuntime);
     await ctx.plugin(SessionStore);
     await ctx.plugin(SessionProjections);
@@ -144,6 +150,8 @@ export async function createLiveRuntime(options: LiveOptions) {
       reviewEndsTurn?: boolean;
       harnessTask?: boolean;
       continuePending?: boolean;
+      keepExecutionRound?:boolean;
+      completeDrawingUnit?:()=>Promise<void>;
       cadReview?: boolean;
       sourceDetails?:{path:string;view:ImageView;label:string}[];
       history?: { role: 'user' | 'assistant'; content: string; status?: string }[]; summary?: string; domain?: string;
@@ -156,7 +164,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       let handoff: AgentResult['handoff'];
       if (request.harnessTask && profile.role === 'main' && !request.parent) {
         scheduled = true;
-        const stopped = budget.beginRound();
+        const stopped = !request.keepExecutionRound||request.continuePending||budget.snapshot().execution_round===0 ? budget.beginRound() : budget.taskStop();
         if (stopped) handoff = { kind: 'budget', code: stopped, renewable: false };
         emit({ type: 'budget.round', ...budget.snapshot() });
       }
@@ -200,21 +208,22 @@ export async function createLiveRuntime(options: LiveOptions) {
             const roleSkills = skills.list(profile.role);
             const imageRefs = profile.input.includes('image') ? [...images.keys()].filter(ref => profile.role === 'main'
               || images.get(ref) === request.image) : [];
-            const allowed = options.disableTools ? [] : options.runtime.read_only_tools.filter(name => Boolean(ctx.tools.get(name)));
+            const allowed = options.disableTools ? [] : options.runtime.read_only_tools.filter(name => Boolean(ctx.tools.get(name))&&(!request.onlyTools||request.onlyTools.includes(name)));
             if (profile.role === 'main' && !options.disableTools && options.executionTools) {
               for (const tool of options.executionTools) { if (!request.onlyTools || request.onlyTools.includes(tool.name)) { agentCtx.tools.register(tool, { when: () => options.toolAvailable?.(tool.name) ?? true }); allowed.push(tool.name); } }
             }
-            if(profile.role==='main'&&!request.onlyTools&&!options.disableTools&&options.executionTools){
-              const patchNames=options.executionTools.map(t=>t.name).filter(name=>/^mcp__.+__(?:draw_\w+|create_layer|set_layer_properties|move_entity|rotate_entity|scale_entity|copy_entity|mirror_entity|delete_entity)$/.test(name));
-              const patchLimit=Math.min(32,options.runtime.max_cad_operations_per_round??64,options.runtime.max_tool_calls-(options.runtime.validation_tool_reserve??8)-1);
+            if(profile.role==='main'&&(!request.onlyTools||request.onlyTools.includes('cader_apply_cad_patch'))&&!options.disableTools&&options.executionTools){
+              const patchNames=options.executionTools.map(t=>t.name).filter(name=>(!request.onlyTools||request.onlyTools.includes(name))&&/^mcp__.+__(?:draw_\w+|create_layer|set_layer_properties|move_entity|rotate_entity|scale_entity|copy_entity|mirror_entity|delete_entity)$/.test(name));
+              const patchLimit=Math.min(request.harnessTask?8:32,options.runtime.max_cad_operations_per_round??64,options.runtime.max_tool_calls-(options.runtime.validation_tool_reserve??8)-1);
               if(patchNames.length&&patchLimit>0){
                 const definitions=new Map(options.executionTools.map(tool=>[tool.name,tool]));
                 const variants=patchNames.map((name,index)=>({type:'object',properties:{tool:{type:'string',const:name},arguments:patchArgumentsSchema(definitions.get(name)!,`#/properties/operations/items${patchNames.length===1?'':`/oneOf/${index}`}/properties/arguments`)},required:['tool','arguments'],additionalProperties:false}));
-                const patch:ToolDefinition={name:'cader_apply_cad_patch',description:`Apply a model-generated local CAD patch in order, at most ${patchLimit} operations. Whole-patch budget admission precedes every leaf; round exhaustion yields to Scheduler. Original schemas, permissions and write journal apply. Stops at first failure; committed operations must never be replayed. New drawing, saving, file and Shell operations are excluded.`,
-                  parameters:{type:'object',properties:{operations:{type:'array',minItems:1,maxItems:patchLimit,items:variants.length===1?variants[0]:{oneOf:variants}}},required:['operations'],additionalProperties:false},
+                const completion=request.completeDrawingUnit?{unit_complete:{type:'boolean',description:'True ONLY on the final patch of the CURRENT semantic unit. Harness will read back/check in and end this turn; this does not accept the task.'}}:{};
+                const patch:ToolDefinition={name:'cader_apply_cad_patch',description:`Apply a model-generated local CAD patch in order, at most ${patchLimit} operations. Whole-patch budget admission precedes every leaf; round exhaustion yields to Scheduler. Original schemas, permissions and write journal apply. Stops at first failure; committed operations must never be replayed. New drawing, saving, file and Shell operations are excluded.${request.completeDrawingUnit?' On the final patch of this unit set unit_complete=true to request program readback/check-in without a separate model call.':''}`,
+                  parameters:{type:'object',properties:{operations:{type:'array',minItems:1,maxItems:patchLimit,items:variants.length===1?variants[0]:{oneOf:variants}},...completion},required:['operations'],additionalProperties:false},
                   output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},isConcurrencySafe:()=>false,
                   async execute(args,exec){
-                    assertToolArguments({name:patch.name,parameters:{type:'object',properties:{operations:{type:'array',minItems:1,maxItems:patchLimit,items:{type:'object',properties:{tool:{type:'string',enum:patchNames},arguments:{type:'object'}},required:['tool','arguments'],additionalProperties:false}}},required:['operations'],additionalProperties:false}},args);
+                    assertToolArguments({name:patch.name,parameters:{type:'object',properties:{operations:{type:'array',minItems:1,maxItems:patchLimit,items:{type:'object',properties:{tool:{type:'string',enum:patchNames},arguments:{type:'object'}},required:['tool','arguments'],additionalProperties:false}},...completion},required:['operations'],additionalProperties:false}},args);
                     const operations=(args as {operations:{tool:string;arguments:Record<string,unknown>}[]}).operations;
                     // Validate every leaf against the original schema before any patch mutation.
                     for(const op of operations){
@@ -241,6 +250,10 @@ export async function createLiveRuntime(options: LiveOptions) {
                       results.push({index,tool:op.tool,result});
                       if(!result||result.isError)throw new Error(JSON.stringify({code:'CAD_PATCH_STOPPED',ok:false,stopped_at:index,results,
                         not_dispatched:operations.slice(index+1).map((pending,offset)=>({index:index+offset+1,tool:pending.tool})),no_replay:true}));
+                    }
+                    if((args as {unit_complete?:boolean}).unit_complete&&request.completeDrawingUnit){
+                      try{await request.completeDrawingUnit();exec.concludeTurn();}
+                      catch(error){if((error as {code?:string}).code==='DRAWING_UNIT_INCOMPLETE')return JSON.stringify({ok:true,results,unit_complete:false,unit_readback:(error as Error).message,no_replay:true,task_complete:false});handoff={kind:'verification',code:'DRAWING_UNIT_READBACK_FAILED'};exec.concludeTurn();throw new Error(JSON.stringify({ok:false,code:handoff.code,results,no_replay:true,task_complete:false}));}
                     }
                     return JSON.stringify({ok:true,results});
                     } finally {
@@ -404,7 +417,7 @@ export async function createLiveRuntime(options: LiveOptions) {
                     description: worker.description, when_to_use: worker.when_to_use })) : [],
                 image_refs: imageRefs,
                 permission_mode: options.permissionMode ?? 'read-only',
-                execution_state: options.executionState?.() ?? null,
+                execution_state: (()=>{const state=options.executionState?.();if(!state||typeof state!=='object'||!Array.isArray((state as {operations?:unknown[]}).operations))return state??null;const {operations,...rest}=state as Record<string,unknown>&{operations:unknown[]};return {...rest,operations:operations.slice(-8),operation_history_scope:'Latest 8 only; full immutable ledger remains with Harness. Older confirmed writes must not be replayed; query current entities when needed.'};})(),
                 task_state: (request.taskState ?? options.taskState)?.() ?? null,
                 execution: options.executionTools ? 'Program-controlled tools available; request actions and obey approval results. New scratch drawings require no existing DWG or reference image.' : 'No dynamic execution session selected.',
                 document_identity_and_units: 'not verified; do not assume target identity or units',
@@ -412,6 +425,7 @@ export async function createLiveRuntime(options: LiveOptions) {
             let continued=false;
             agentCtx.on('agent/pre-step', async (payload, next) => {
               if(handoff)return {kind:'reject'};
+              if(outputTruncated){errorCode='OUTPUT_TRUNCATED';return {kind:'reject'};}
               const taskStop=scheduled?budget.taskStop():undefined;
               if(taskStop){
                 if(profile.role==='main')handoff={kind:'budget',code:taskStop,renewable:false};
@@ -535,20 +549,21 @@ export async function createLiveRuntime(options: LiveOptions) {
         const content: ContentBlock[] = [{ type: 'text', text: instruction }];
         if (request.image) {
           if(request.comparisonImage)content.push({type:'text',text:'Image A: ORIGINAL USER REFERENCE. Read its symbols, labels and topology; do not confuse it with the generated drawing.'});
-          const { attachment: image } = await attachView(request.image, request.imageView ?? {}, id);
+          const { attachment: image,audit } = await attachView(request.image, request.imageView ?? {}, id);
+          content.push({type:'text',text:'Image coordinate evidence: '+JSON.stringify(viewCoordinates(audit))});
           content.push({ type: 'image', attachment: image });
         }
         if(request.comparisonImage){
           content.push({type:'text',text:'Image B: GENERATED CAD RESULT. Compare this result with image A and the acceptance requirements.'});
-          const {attachment}=await attachView(request.comparisonImage,{},id);content.push({type:'image',attachment});
+          const {attachment,audit}=await attachView(request.comparisonImage,{},id);content.push({type:'text',text:'Image coordinate evidence: '+JSON.stringify(viewCoordinates(audit))});content.push({type:'image',attachment});
         }
-        for(const detail of request.sourceDetails?.slice(0,4)??[]){content.push({type:'text',text:detail.label});const {attachment}=await attachView(detail.path,detail.view,id);content.push({type:'image',attachment});}
+        for(const detail of request.sourceDetails?.slice(0,4)??[]){content.push({type:'text',text:detail.label});const {attachment,audit}=await attachView(detail.path,detail.view,id);content.push({type:'text',text:'Image coordinate evidence: '+JSON.stringify(viewCoordinates(audit))});content.push({type:'image',attachment});}
         emit({ type: 'agent.started', agentId: id, role: profile.role, parentId: request.parent?.id });
         handle.agent.followup(createUserMessage({ content, source: { kind: 'user' } }));
         await handle.agent.whenIdle();
         text = request.resultText?.() || text;
         if(handoff&&!errorCode)text=JSON.stringify({scheduler_handoff:handoff,task_complete:false});
-        if(outputTruncated&&!request.resultText?.()&&!handoff)errorCode??='OUTPUT_TRUNCATED';
+        if(outputTruncated&&!request.resultText?.()&&!handoff)errorCode='OUTPUT_TRUNCATED';
         const status: AgentResult['status'] = signal.aborted ? 'cancelled' : errorCode || !text.trim() ? 'failed' : 'succeeded';
         emit({ type: 'agent.completed', agentId: id, role: profile.role, status });
         const result = { id, profile: profileId, status, text, ...(errorCode ? { errorCode } : {}), ...(handoff?{handoff}:{}),modelSteps: agentSteps, tools };
@@ -559,7 +574,7 @@ export async function createLiveRuntime(options: LiveOptions) {
         await handle?.dispose();
       }
     }
-    async function inspectReference(path:string,task:string,signal?:AbortSignal):Promise<{valid:boolean;structured:ReturnType<typeof parseReferenceObservation>|null;attempts:{id:string;status:string;valid:boolean}[];evidence:{path:string;sha256:string;width:number;height:number}}>{
+    async function inspectReference(path:string,task:string,signal?:AbortSignal):Promise<{valid:boolean;structured:ReturnType<typeof parseReferenceObservation>|null;attempts:{id:string;status:string;valid:boolean}[];label_reviews:{id:string;indices:number[];valid:boolean;pass:number}[];label_inventory?:{id:string;valid:boolean}|null;net_review?:{id:string;valid:boolean;changed:boolean;consensus?:boolean;uncertain_nets?:{id:string;evidence?:string;pins:{object:string;terminal:number}[]}[]}|null;evidence:{path:string;sha256:string;width:number;height:number}}>{
       const vision=options.profiles.find(p=>p.role==='vision'&&p.input.includes('image'));
       if(!vision)throw new Error('VISION_PROFILE_UNAVAILABLE');
       const source=await readReferenceImage(options.workspaceRoot??options.root,path);
@@ -570,33 +585,94 @@ export async function createLiveRuntime(options: LiveOptions) {
         if(++delegations>options.runtime.max_delegations)throw new Error('DELEGATION_BUDGET_EXCEEDED');
         const submit:ToolDefinition={name:'cader_submit_reference_observation',description:'Report only observed source-image facts, normalized original pixel positions and uncertainty. No CAD operations or invented measurements.',
           parameters:referenceObservationSchema,output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},
-          async execute(args,exec){structured=parseReferenceObservation(args);exec.concludeTurn();return JSON.stringify(structured);}};
-        const result=await pool.run('main',()=>run(vision.id,'观察实际附带的用户手稿，必须调用cader_submit_reference_observation。报告图形种类、可辨符号/构件、可读标注、连接关系和不确定项。只根据像素，不用Shell统计猜类别，不要求物理比例尺。content_bounds包含整幅有效图及其标签，排除无关空白/纸张横线。所有bounds/terminals为原图归一化坐标，左上原点、y向下。terminal是符号接导线的位置，不是标注位置；无端口构件可为空。不要输出CAD计划，严禁虚构无法读出的数值。保持紧凑。'+(attempt?'上次格式无效，请仅按schema补报。':'')+'\n用户请求：'+task,
+          async execute(args,exec){const parsed=parseReferenceObservation(args);if(parsed.drawing_kind==='schematic'&&parsed.objects.some(o=>o.category!=='component'))throw new Error('SOURCE_DEVICES_ONLY: schematic objects must be actual component category=component; conductors belong in nets, NOT as fake components with ports. Report all device terminals.');if(parsed.drawing_kind==='schematic'&&parsed.objects.some(o=>o.terminals.length)&&!parsed.nets?.length)throw new Error('SOURCE_NETLIST_REQUIRED: report external conductor nets with object and zero-based terminal index; preserve every terminal exactly once, multi-pin devices are NOT internal shorts');structured=parsed;exec.concludeTurn();return JSON.stringify(structured);}};
+        const result=await pool.run('main',()=>run(vision.id,'观察实际附带的用户手稿，必须调用cader_submit_reference_observation。报告图形种类、可辨符号/构件、可读标注、连接关系和不确定项。电路objects只列真实器件（category=component），导线/总线不得作为带端口的元件，导线仅用nets表达；文字单列visible_text。只根据像素，不用Shell统计猜类别，不要求物理比例尺。content_bounds包含整幅有效图及其标签，排除无关空白/纸张横线。所有bounds/terminals为原图归一化坐标，左上原点、y向下。terminal是符号接导线的位置，不是标注位置；无端口构件可为空。不要输出CAD计划，严禁虚构无法读出的数值。电路还必须提供nets：从实际导线观察的外部等势连接组，每组pins以object和terminal零起始索引引用，覆盖每个器件的全部端子一次。三极管必须保留三个端子，不把器件内部当导线短接；导线交叉只有明确接点才相连；未连接端子用单独net。只沿可见导线追踪，不按常见电路补接地或回路；孤立接地符号不自动连接未标地的另一回路。先核对各分支与公共回路。保持紧凑。'+(attempt?'上次格式无效，请仅按schema补报。':'')+'\n用户请求：'+task,
           {image:path,signal,onlyTools:[submit.name,'cader_view_image'],extraTools:[submit],resultText:()=>structured?JSON.stringify(structured):undefined}));
         attempts.push({id:result.id,status:result.status,valid:structured!==null});
         if(structured){for(const prior of attempts.slice(0,-1)){const old=completed.find(r=>r.id===prior.id);if(old)old.recovered_by=result.id;}break;}
-        if(signal?.aborted||(result.status!=='succeeded'&&result.errorCode!=='OUTPUT_TRUNCATED'))break;
+        if(signal?.aborted||(result.status!=='succeeded'&&!['OUTPUT_TRUNCATED','TIMEOUT'].includes(result.errorCode??'')))break;
       }
       const observation=structured as ReturnType<typeof parseReferenceObservation>|null;
-      if(observation?.visible_text.length){
+      let netReview:{id:string;valid:boolean;changed:boolean;consensus?:boolean;uncertain_nets?:{id:string;evidence?:string;pins:{object:string;terminal:number}[]}[]}|null=null;
+      if(observation?.drawing_kind==='schematic'){
         signal?.throwIfAborted();if(++delegations>options.runtime.max_delegations)throw new Error('DELEGATION_BUDGET_EXCEEDED');
-        const selected=observation.visible_text.slice(0,4),details=selected.map((text,index)=>{
-          const [a,b]=text.bounds,mx=(b[0]-a[0])*0.3,my=(b[1]-a[1])*0.5;
-          const left=Math.max(0,Math.floor((a[0]-mx)*source.width)),top=Math.max(0,Math.floor((a[1]-my)*source.height));
-          return {path,view:{crop:{left,top,width:Math.min(source.width,Math.ceil((b[0]+mx)*source.width))-left,height:Math.min(source.height,Math.ceil((b[1]+my)*source.height))-top}},label:`Original source label crop index=${index}. Read the actual glyphs; earlier recognition is unverified.`};
-        });
-        let labels:ReturnType<typeof parseReferenceLabels>|null=null;
-        const submit:ToolDefinition={name:'cader_submit_reference_labels',description:'Reread each original image label crop exactly once, preserving numerical values and SI prefix case; uncertainty is not permission to guess.',parameters:referenceLabelsSchema,output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args,exec){const parsed=parseReferenceLabels(args);if(parsed.labels.length!==selected.length||new Set(parsed.labels.map(l=>l.index)).size!==selected.length||parsed.labels.some(l=>l.index>=selected.length))throw new Error('SOURCE_LABEL_CROP_INDEX_MISMATCH');labels=parsed;exec.concludeTurn();return JSON.stringify(parsed);}};
-        const review=await pool.run('main',()=>run(vision.id,'只根据实际附带的原图及标注局部图逐项读取文字，调用cader_submit_reference_labels。仔细区分SI前缀大小写、微符号与字母、数字与字母。不要照抄之前识别结果，不从电路常见值猜测。确实无法区分则标uncertain。用户任务：'+task,{image:path,sourceDetails:details,signal,onlyTools:[submit.name],extraTools:[submit],resultText:()=>labels?JSON.stringify(labels):undefined}));
-        const refined=labels as ReturnType<typeof parseReferenceLabels>|null;
-        attempts.push({id:review.id,status:review.status,valid:refined!==null});
-        selected.forEach((text,index)=>{const label=refined?.labels.find(l=>l.index===index);if(label){text.text=label.text;text.certainty=label.certainty;}else text.certainty='uncertain';});
-        if(!refined)structured=null;
+        let checked:ReturnType<typeof parseReferenceNets>|null=null;
+        const submit:ToolDefinition={name:'cader_submit_reference_nets',description:'Independently trace actual source conductors between observed terminal indices. Every net needs pixel evidence and clear/uncertain status. Do not invent return/ground connections.',parameters:referenceNetsSchema,output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args,exec){const parsed=parseReferenceNets(args);if(parsed.missing_objects?.some(o=>o.category!=='component'))throw new Error('SOURCE_DEVICES_ONLY');parseReferenceObservation({...observation,objects:[...observation.objects,...parsed.missing_objects??[]],nets:parsed.nets});if(parsed.nets.some(n=>!n.evidence||!n.certainty))throw new Error('SOURCE_NET_EVIDENCE_REQUIRED');checked=parsed;exec.concludeTurn();return JSON.stringify(parsed);}};
+        const quadrants=[0,1,2,3].map(index=>({path,view:{crop:{left:index%2?Math.floor(source.width*0.4):0,top:index>1?Math.floor(source.height*0.4):0,width:Math.ceil(source.width*0.6),height:Math.ceil(source.height*0.6)}},label:`Original source quadrant ${index}; preserve observed device terminal indices.`}));
+        const originalNets=observation.nets??[],originalPins=new Set(observation.objects.flatMap(o=>o.terminals.map((_,i)=>`${o.id}:${i}`)));
+        const partition=(nets:typeof originalNets)=>nets.map(n=>n.pins.map(p=>`${p.object}:${p.terminal}`).filter(p=>originalPins.has(p)).sort().join('|')).filter(Boolean).sort().join(';');
+        let fallback:{id:string;report:ReturnType<typeof parseReferenceNets>;uncertainty:ReturnType<typeof parseReferenceNets>['nets'];consensus:boolean}|null=null;
+        for(let pass=0;pass<2;pass++){
+          if(pass){signal?.throwIfAborted();if(++delegations>options.runtime.max_delegations)throw new Error('DELEGATION_BUDGET_EXCEEDED');}
+          const previousNets=checked;checked=null;
+        const result=await pool.run('main',()=>run(vision.id,'手稿线条可有轻微抖动、叠笔或浓淡变化，追踪可辨的连续路径，不把轻微笔触差异误判为多处断路；仍不可辨则uncertain，不用电路常识补线。'+(pass?'上次存在未确认连接；本轮附原图四个局部区域，以实际像素复核这些不确定处：'+JSON.stringify((previousNets as ReturnType<typeof parseReferenceNets>|null)?.nets.filter(n=>n.certainty!=='clear')):'')+'先独立核对整图器件覆盖，再沿原图像素导线追踪外部net，调用cader_submit_reference_nets。若初始objects漏掉可见器件或接地/连接符号，在missing_objects补报真实器件、bounds和端子索引（不可补假导线组件），并在nets包含新旧全部端子；缺失符号不能静默忽略。给定器件与端子索引只是位置索引，不能当作已验证连接。每个端子恰好归组一次，给出可见导线路径evidence和certainty。禁止按常见电路知识补全：一个接地符号不自动连接到另一条未标地、且像素上断开的回路线；T接点或折线端点直接相接无需圆点，不能仅因缺少圆点就标uncertain；两条线的内部交叉才需判断接点。真正可见的断线/无接点内部跨越分别分组。器件内部各端不短接；各电源极性端独立，三端器件保留全部端子。无法追清则uncertain，不猜闭环；不确定表示尚不能确认关系，不等于默认断开可见导线。按最可能的像素路径分组，真正的疑问留在certainty/evidence，后续仍需独立对照验收。只提交nets，不规划。原图端子索引：'+JSON.stringify(observation.objects.map(o=>({...o,terminals:o.terminals.map((position,terminal)=>({terminal,position}))}))),{image:path,sourceDetails:pass?quadrants:undefined,signal,onlyTools:[submit.name,'cader_view_image'],extraTools:[submit],resultText:()=>checked?JSON.stringify(checked):undefined}));
+        const revised=checked as ReturnType<typeof parseReferenceNets>|null;
+        const canonical=(nets:NonNullable<typeof observation.nets>)=>nets.map(n=>n.pins.map(p=>`${p.object}:${p.terminal}`).sort().join('|')).sort().join(';');
+        const arbitration=revised?reconcileSourceNets(observation,revised):null;
+        const consensus=arbitration?.clear_consistent??false;
+        const valid=arbitration?.valid??false;
+        netReview={id:result.id,valid,consensus,changed:Boolean(revised&&canonical(revised.nets)!==canonical(originalNets)),uncertain_nets:revised?.nets.filter(n=>n.certainty!=='clear')??[]};
+        attempts.push({id:result.id,status:result.status,valid});
+        if(valid&&revised){fallback={id:result.id,report:arbitration!.report,uncertainty:revised.nets.filter(n=>n.certainty!=='clear').length?revised.nets.filter(n=>n.certainty!=='clear'):consensus?[]:revised.nets.map(n=>({...n,certainty:'uncertain' as const,evidence:('Source observations disagree; independently verify this group against original pixels: '+(n.evidence??'')).slice(0,400)})),consensus};if(!netReview.uncertain_nets!.length)break;}
+        if(result.status!=='succeeded'&&!['TIMEOUT','OUTPUT_TRUNCATED','MALFORMED_RESPONSE'].includes(result.errorCode??'')){fallback=null;break;}
+        }
+        if(fallback){
+          const revised=fallback.report;
+          netReview={id:fallback.id,valid:true,consensus:fallback.consensus,changed:Boolean(revised.missing_objects?.length)||partition(originalNets)!==partition(revised.nets),uncertain_nets:fallback.uncertainty};
+          observation.nets=revised.nets;observation.objects.push(...revised.missing_objects??[]);
+          for(const attempt of attempts){const failed=completed.find(r=>r.id===attempt.id&&r.status!=='succeeded'&&!r.recovered_by&&['TIMEOUT','OUTPUT_TRUNCATED','MALFORMED_RESPONSE'].includes(r.errorCode??''));if(failed)failed.recovered_by=fallback.id;}
+        }else structured=null;
       }
-      const result={valid:structured!==null,structured,attempts,evidence:{path,sha256:createHash('sha256').update(source.data).digest('hex'),width:source.width,height:source.height}};
+      let labelInventory:{id:string;valid:boolean}|null=null;
+      if(structured&&observation&&(observation.drawing_kind==='schematic'||observation.visible_text.length)){
+        signal?.throwIfAborted();if(++delegations>options.runtime.max_delegations)throw new Error('DELEGATION_BUDGET_EXCEEDED');
+        let inventory:ReturnType<typeof parseReferenceLabelInventory>|null=null;
+        const submit:ToolDefinition={name:'cader_submit_reference_label_inventory',description:'Independently inventory ALL source values/units/designators by actual image position, including repeated equal labels. No prior OCR list is authoritative.',parameters:referenceLabelInventorySchema,output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args,exec){inventory=parseReferenceLabelInventory(args);exec.concludeTurn();return JSON.stringify(inventory);}};
+        const review=await pool.run('main',()=>run(vision.id,'独立清点原图全部文字标签，立即调用cader_submit_reference_label_inventory。先逐区域扫描整图，逐位置列出数值、单位、型号或编号；相同值出现在不同位置必须分别列出，不能合并成一个。保持原图归一化bounds覆盖全部字符；模糊字保留uncertain，不猜常用值。组件内部正负极号由组件绘制，不计为外部标签。此阶段只清点，不规划，不省略重复标注。用户任务：'+task,{image:path,signal,onlyTools:[submit.name],extraTools:[submit],resultText:()=>inventory?JSON.stringify(inventory):undefined}));
+        const scanned=inventory as ReturnType<typeof parseReferenceLabelInventory>|null;
+        labelInventory={id:review.id,valid:scanned!==null};attempts.push({id:review.id,status:review.status,valid:scanned!==null});
+        if(!scanned)structured=null;
+        else{
+          const merged=[...scanned.visible_text];
+          for(const prior of observation.visible_text){
+            const match=merged.find(label=>{const [a,b]=label.bounds,[c,d]=prior.bounds;const area=Math.max(0,Math.min(b[0],d[0])-Math.max(a[0],c[0]))*Math.max(0,Math.min(b[1],d[1])-Math.max(a[1],c[1]));return area>0.2*Math.min((b[0]-a[0])*(b[1]-a[1]),(d[0]-c[0])*(d[1]-c[1]));});
+            if(match){match.bounds=[[Math.min(match.bounds[0][0],prior.bounds[0][0]),Math.min(match.bounds[0][1],prior.bounds[0][1])],[Math.max(match.bounds[1][0],prior.bounds[1][0]),Math.max(match.bounds[1][1],prior.bounds[1][1])]];if(match.text!==prior.text||prior.certainty==='uncertain')match.certainty='uncertain';}
+            else merged.push(prior);
+          }
+          if(merged.length>32)throw new Error('SOURCE_LABEL_INVENTORY_LIMIT');
+          observation.visible_text=merged.sort((a,b)=>a.bounds[0][1]-b.bounds[0][1]||a.bounds[0][0]-b.bounds[0][0]);
+        }
+      }
+      const labelReviews:{id:string;indices:number[];valid:boolean;pass:number}[]=[];
+      if(structured&&observation?.visible_text.length){
+        // Cover every label, uncertain first. A second pass only revisits
+        // unresolved crops; indices always refer to the original observation.
+        for(let pass=0;pass<2;pass++){
+          const indices=observation.visible_text.map((_,i)=>i).filter(i=>pass===0||observation.visible_text[i]!.certainty==='uncertain')
+            .sort((a,b)=>Number(observation.visible_text[b]!.certainty==='uncertain')-Number(observation.visible_text[a]!.certainty==='uncertain'));
+          for(let offset=0;offset<indices.length;offset+=pass?1:4){
+            signal?.throwIfAborted();if(++delegations>options.runtime.max_delegations)throw new Error('DELEGATION_BUDGET_EXCEEDED');
+            const selected=indices.slice(offset,offset+(pass?1:4)),details=selected.map(index=>{
+              const text=observation.visible_text[index]!,[a,b]=text.bounds;
+              const mx=pass?Math.max((b[0]-a[0])*1.5,0.05):(b[0]-a[0])*0.5,my=pass?Math.max((b[1]-a[1])*1.5,0.05):(b[1]-a[1])*0.75;
+              const left=Math.max(0,Math.floor((a[0]-mx)*source.width)),top=Math.max(0,Math.floor((a[1]-my)*source.height));
+              return {path,view:{crop:{left,top,width:Math.min(source.width,Math.ceil((b[0]+mx)*source.width))-left,height:Math.min(source.height,Math.ceil((b[1]+my)*source.height))-top}},label:`Original source label crop index=${index}. Target ORIGINAL normalized bounds=${JSON.stringify(text.bounds)}, candidate=${JSON.stringify(text.text)} (UNVERIFIED). The larger crop is CONTEXT: read ONLY this target label, not neighboring labels; never concatenate different labels. You may correct its bounds within this crop after inspecting actual pixels. Preserve actual case and units, not assumed circuit values.`};
+            });
+            let labels:ReturnType<typeof parseReferenceLabels>|null=null;
+            const submit:ToolDefinition={name:'cader_submit_reference_labels',description:'Read ALL supplied original label crops; indices are original observation indices, not batch positions. Preserve actual symbols, values, units and case. Do not guess.',parameters:referenceLabelsSchema,output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args,exec){const parsed=parseReferenceLabels(args);if(parsed.labels.length!==selected.length||new Set(parsed.labels.map(l=>l.index)).size!==selected.length||parsed.labels.some(l=>!selected.includes(l.index)))throw new Error('SOURCE_LABEL_CROP_INDEX_MISMATCH');for(const label of parsed.labels)if(label.bounds){const crop=details[selected.indexOf(label.index)]!.view.crop;if(label.bounds[0][0]<crop.left/source.width||label.bounds[1][0]>(crop.left+crop.width)/source.width||label.bounds[0][1]<crop.top/source.height||label.bounds[1][1]>(crop.top+crop.height)/source.height)throw new Error('SOURCE_LABEL_BOUNDS_OUTSIDE_CROP');const center=[(label.bounds[0][0]+label.bounds[1][0])/2,(label.bounds[0][1]+label.bounds[1][1])/2],distance=(bounds:typeof label.bounds)=>Math.hypot(center[0]!-(bounds![0][0]+bounds![1][0])/2,center[1]!-(bounds![0][1]+bounds![1][1])/2);const own=distance(observation.visible_text[label.index]!.bounds);if(observation.visible_text.some((other,index)=>index!==label.index&&distance(other.bounds)+1e-5<own))throw new Error('SOURCE_LABEL_TARGET_MISMATCH: corrected bounds select a neighboring label, not the requested index');}labels=parsed;exec.concludeTurn();return JSON.stringify(parsed);}};
+            const review=await pool.run('main',()=>run(vision.id,'只根据实际原图和局部图读取每个标签，立即调用cader_submit_reference_labels。每个局部图只读取指定target bounds附近的一处标签，不能将上下或左右相邻标注串成一个值；扩大图只是上下文。可按像素修正bounds。原始index集合：'+JSON.stringify(selected)+'。区分SI前缀大小写、微符号、正负号、数字与字母；不从常见电路值猜测。若字迹确实不清标uncertain，不把不确定标签改成常见值。'+(pass?'这是仍不确定标签的第二次复核，可查看整图上下文；仍无法读取则保留uncertain。':'')+'用户任务：'+task,{image:path,sourceDetails:details,signal,onlyTools:[submit.name],extraTools:[submit],resultText:()=>labels?JSON.stringify(labels):undefined}));
+            const refined=labels as ReturnType<typeof parseReferenceLabels>|null;
+            attempts.push({id:review.id,status:review.status,valid:refined!==null});
+            labelReviews.push({id:review.id,indices:selected,valid:refined!==null,pass});
+            for(const index of selected){const text=observation.visible_text[index]!,label=refined?.labels.find(l=>l.index===index);if(label){text.text=label.text;text.certainty=label.certainty;if(label.bounds)text.bounds=label.bounds;}else text.certainty='uncertain';}
+          }
+        }
+      }
+      const result={valid:structured!==null,structured,attempts,label_reviews:labelReviews,label_inventory:labelInventory,net_review:netReview,evidence:{path,sha256:createHash('sha256').update(source.data).digest('hex'),width:source.width,height:source.height}};
       emit({type:'reference.inspected',...result});return result;
     }
-    async function reviewCadView(question: string, signal?: AbortSignal, parent?: Agent, referenceImage?:string) {
+    async function reviewCadView(question: string, signal?: AbortSignal, parent?: Agent, referenceImage?:string,referenceDetails?:{path:string;view:ImageView;label:string}[]) {
+      if(referenceDetails?.some(detail=>detail.path!==referenceImage))throw new Error('SOURCE_DETAIL_MISMATCH');
       if (!options.captureCadView) throw new Error('CAD_VIEW_EXPORT_UNAVAILABLE');
       if (++visualReviews > options.runtime.max_visual_reviews_per_turn) throw new Error('VISUAL_REVIEW_BUDGET_EXCEEDED');
       const vision = options.profiles.find(profile => profile.role === 'vision' && profile.input.includes('image'));
@@ -624,7 +700,7 @@ export async function createLiveRuntime(options: LiveOptions) {
         const review = await pool.run('main', () => run(vision.id,
           '用中文审查实际CAD图片与原始需求。若有Image A/B，A是原始用户手稿，B是本任务CAD结果：必须比较符号、可读标注、连接和布局，不能只说结果好看或拿旧图当参考。没有真实依据的条件标uncertain。必须调用cader_submit_visual_report提交；不要输出长篇解释。每条证据与建议保持简短，最多8个缺陷。checklist逐项核验要求的视觉条件；程序几何/拓扑事实不要求通过像素重复证实，不得仅凭图像推翻实体坐标。uncertainties仅记录影响必要视觉条件的未解决问题，不记录用户未要求的特征、无关观察或程序已证明的几何精度。' +
           (attempt ? '\n上次未提交有效报告或输出被截断。请按工具schema简短重报，不要增加自定义字段。' : '') + '\n需求与程序证据：\n' + question,
-          { parent, cadReview:true,image: referenceImage??capture.path, comparisonImage:referenceImage?capture.path:undefined, signal, onlyTools: [submit.name], extraTools: [submit], resultText: () => structured ? JSON.stringify(structured) : undefined }));
+          { parent, cadReview:true,image: referenceImage??capture.path, comparisonImage:referenceImage?capture.path:undefined,sourceDetails:referenceDetails, signal, onlyTools: [submit.name], extraTools: [submit], resultText: () => structured ? JSON.stringify(structured) : undefined }));
         if (!structured && review.status === 'succeeded') {
           try { structured=validateReport(JSON.parse(review.text.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''))); } catch { /* Format repair is bounded and never constitutes acceptance. */ }
         }
@@ -640,7 +716,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       emit({ type: 'cad.review', ...result }); return result;
     }
 
-    return { ctx, run, reviewStats:()=>({capture_attempts:visualReviews,model_calls:visualModelCalls}),enableTaskBudget:()=>{scheduled=true;},budgetState:()=>({...budget.snapshot(),pending:structuredClone(pending)}),inspectReference,reviewCadView:(question:string,signal?:AbortSignal,referenceImage?:string)=>reviewCadView(question,signal,undefined,referenceImage), pool, completed: () => completed.slice(), toolNames: () => ctx.tools.schemas().map(tool => tool.name),
+    return { ctx, run, reviewStats:()=>({capture_attempts:visualReviews,model_calls:visualModelCalls}),enableTaskBudget:()=>{scheduled=true;},budgetState:()=>({...budget.snapshot(),pending:structuredClone(pending)}),inspectReference,reviewCadView:(question:string,signal?:AbortSignal,referenceImage?:string,referenceDetails?:{path:string;view:ImageView;label:string}[])=>reviewCadView(question,signal,undefined,referenceImage,referenceDetails), pool, completed: () => completed.slice(), toolNames: () => ctx.tools.schemas().map(tool => tool.name),
       async dispose() { clearTimeout(deadline); lifetime.abort(); await ctx.fiber.dispose(); } };
   } catch (error) { clearTimeout(deadline); await ctx.fiber.dispose(); throw error; }
 }

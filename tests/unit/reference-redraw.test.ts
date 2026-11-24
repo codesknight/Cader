@@ -5,7 +5,7 @@ import { resolve, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { InteractiveSession, ExecutionSession, runTask, runQualityTask, requiresQuality, referencedPaths,referenceLayoutHints } from '@cader/profile';
 import { createLiveRuntime, prepareImageView, createToolRuntime, invokeTool } from '@cader/dsh-adapter';
-import type { ToolDefinition, createMcpClient, StreamChunk, PublicEvent } from '@cader/dsh-adapter';
+import type { ToolDefinition, createMcpClient, StreamChunk, PublicEvent, ImageView } from '@cader/dsh-adapter';
 import {readReferenceImage,parseReferenceObservation} from '@cader/config';
 
 const observation={version:1,drawing_kind:'other',summary:'Synthetic source fixture',coordinate_system:'normalized-image-top-left-y-down',content_bounds:[[0,0],[1,1]],objects:[{id:'object',kind:'fixture',bounds:[[0.2,0.2],[0.8,0.8]],terminals:[],certainty:'clear'}],visible_text:[],connections:[],unknowns:[]};
@@ -103,22 +103,111 @@ function* call(name:string,args:unknown,id:string):Generator<StreamChunk>{
   yield {type:'finish',reason:{kind:'tool-calls'}};
 }
 
+test('reference schematic units retain all source pins/nets and share the same authorization before independent acceptance',async()=>{
+  const f=await setup(),raw=await readFile(join(f.root,'reference.png')),sha256=createHash('sha256').update(raw).digest('hex');
+  const pixels=await readReferenceImage(f.root,'reference.png');let target:string|null=null,created=false,approvals=0;const entities:any[]=[],unitIds:string[]=[];
+  const source=parseReferenceObservation({...observation,drawing_kind:'schematic',objects:[{id:'Q',kind:'three-pin',bounds:[[0,0],[0.4,0.4]],terminals:[[0,0],[0,0.2],[0.4,0.4]],certainty:'clear'},{id:'R',kind:'two-pin',bounds:[[0.6,0],[1,0.4]],terminals:[[0.6,0],[1,0.4]],certainty:'clear'}],nets:[{id:'joint',pins:[{object:'Q',terminal:0},{object:'R',terminal:0}]},...['Q:1','Q:2','R:1'].map(id=>({id,pins:[{object:id.split(':')[0],terminal:Number(id.split(':')[1])}]}))]});
+  const proposed={version:1,domain:'electrical-schematic',wire_layer:'WIRE',visual_required:true,components:[{id:'Q',source_id:'Q',source_terminals:[0,1,2],kind:'three-pin',bounds:[[-2,0],[0,4]],ports:[[0,0],[-2,2],[0,4]],pin_names:['B','C','E']},{id:'R',source_id:'R',source_terminals:[0,1],kind:'two-pin',bounds:[[10,0],[12,4]],ports:[[10,0],[12,4]],pin_names:['1','2']}],nets:[{id:'joint',pins:[{component:'Q',pin:'B'},{component:'R',pin:'1'}]},...['Q:C','Q:E','R:2'].map(id=>({id,pins:[{component:id.split(':')[0],pin:id.split(':')[1]}]}))],requirements:['netlist','visual','no_wire_through_component','text_clearance','new_document','saved_dwg','source_topology_fidelity'].map(check=>({id:check,check:check==='source_topology_fidelity'?'visual':check,description:check,source_quote:'复现电路'}))};
+  const facts=()=>({frozen:false,local_connection_id:'original',scratch:target,session_counts:{committed:entities.length+(created?1:0),unknown:0}});
+  const runtime={completed:()=>[],async inspectReference(){return {valid:true,structured:source,net_review:{id:'fixture-source-review',valid:true,changed:false,consensus:true,uncertain_nets:[{...source.nets![0]!,evidence:'PRELIMINARY_OPINION_MUST_NOT_PRIME_REVIEW'}]},evidence:{path:join(f.root,'reference.png'),sha256,width:pixels.width,height:pixels.height}};},async run(_profile:string,_instruction:string,request:any){
+    if(request.onlyTools?.includes('cader_submit_acceptance_plan')){
+      await assert.rejects(request.extraTools[0].execute({...proposed,requirements:proposed.requirements.filter(r=>r.id!=='source_topology_fidelity')},{concludeTurn(){}}),/SOURCE_TOPOLOGY_VISUAL_RESOLUTION_REQUIRED/);
+      await assert.rejects(request.extraTools[0].execute({...proposed,requirements:[...proposed.requirements,{id:'invented-style',check:'visual',source_quote:'复现电路',description:'手绘风格深色笔触与手写字体'}]},{concludeTurn(){}}),/UNREQUESTED_SOURCE_STYLE/);
+      const lost=structuredClone(proposed);lost.components[0]!.ports.pop();lost.components[0]!.pin_names.pop();lost.components[0]!.source_terminals.pop();lost.nets=lost.nets.filter(n=>n.id!=='Q:E');
+      await assert.rejects(request.extraTools[0].execute(lost,{concludeTurn(){}}),/SOURCE_TERMINALS_MUST_BE_PRESERVED/);
+      const wrong=structuredClone(proposed);wrong.components[0]!.source_terminals=[1,0,2];await assert.rejects(request.extraTools[0].execute(wrong,{concludeTurn(){}}),/SOURCE_NETLIST_MISMATCH/);
+      await request.extraTools[0].execute(proposed,{concludeTurn(){}});return {status:'succeeded',text:'plan',tools:[]};
+    }
+    const finish=request.extraTools.find((t:ToolDefinition)=>t.name==='cader_finish_drawing_unit');assert.ok(finish);assert.equal(request.keepExecutionRound,true);
+    const id=finish.parameters.properties.unit_id.const;unitIds.push(id);
+    if(id==='setup'){assert.equal(created,false);created=true;target='New.dwg';}
+    if(id.startsWith('component:')){const c=proposed.components.find(c=>`component:${c.id}`===id)!;for(const port of c.ports)entities.push({object_id:entities.length+1,type:'AcDbLine',layer:'SYMBOL',start_point:[...port,0],end_point:[(c.bounds[0]![0]!+c.bounds[1]![0]!)/2,(c.bounds[0]![1]!+c.bounds[1]![1]!)/2,0],bounding_box:{min:c.bounds[0],max:c.bounds[1]}});}
+    if(id==='net:joint')entities.push({object_id:entities.length+1,type:'AcDbLine',layer:'WIRE',start_point:[0,0,0],end_point:[10,0,0]});
+    await finish.execute({unit_id:id},{concludeTurn(){}});return {status:'succeeded',text:request.resultText(),tools:[finish.name]};
+  },async reviewCadView(_question:string,_signal?:AbortSignal,_reference?:string,details?:{path:string;view:ImageView;label:string}[]){assert.doesNotMatch(_question,/PRELIMINARY_OPINION_MUST_NOT_PRIME_REVIEW/);assert.equal(details?.length,1);assert.equal(details![0]!.path,join(f.root,'reference.png'));assert.match(details![0]!.label,/ORIGINAL Image A detail/);assert.ok(details![0]!.view.crop!.width>0);return {review_valid:true,attempts:[],structured:{verdict:'pass',defects:[],uncertainties:[],checklist:[{requirement_id:'visual',status:'pass',evidence:'Fixture only'},{requirement_id:'source_topology_fidelity',status:'pass',evidence:'Synthetic source connection fidelity only'}]},evidence:{reference:{sha256},document:target}};}};
+  const owner={workspace:f.root,facts,definitions:()=>[],taskScope:()=>({owned:true,target,connection:'original',new_drawing_confirmed:created,geometry_confirmed:entities.length,entity_ids:entities.map(e=>e.object_id)}),async snapshot(){return {document:target,entities};},async authorizeTask(){approvals++;return true;},endTask(){},async saveTaskArtifact(){return {kind:'local-dwg',path:join(f.root,'result.dwg'),sha256:'fixture-only',bytes:100};}};
+  try{
+    const result=await runQualityTask({runtime,owner,task:'新建并复现电路',profile:'fixture',emit(){},persist:async()=>{},referenceTask:{freshDrawing:true,outputPath:join(f.root,'result.dwg'),request:'新建并复现电路',image:{path:join(f.root,'reference.png'),sha256,bytes:raw.length,width:pixels.width,height:pixels.height,kind:'image'}}} as unknown as Parameters<typeof runQualityTask>[0]);
+    assert.equal(result.phase,'complete');assert.equal(approvals,1);assert.equal(unitIds.filter(id=>id==='setup').length,1);assert.equal(result.drawing_units.length,7);assert.ok(result.drawing_units.every(u=>u.status==='checked_in'&&u.snapshot_sha256));
+  }finally{await f.cleanup();}
+});
+
+test('source label clarification requires an explicit literal user quote and preserves uncertain OCR evidence',async()=>{
+  const f=await setup(),pixels=await readReferenceImage(f.root,'reference.png'),sha256=createHash('sha256').update(pixels.data).digest('hex');
+  const quote='补充确认：10kΩ',task='复现手稿。'+quote;
+  const runtime={completed:()=>[],async inspectReference(){return {valid:true,structured:structuredClone({...observation,visible_text:[{text:'10K',certainty:'uncertain',bounds:[[0.2,0.2],[0.8,0.4]]}]}),evidence:{path:join(f.root,'reference.png'),sha256,width:pixels.width,height:pixels.height}};},async run(_profile:string,_instruction:string,request:any){
+    const confirm=request.extraTools.find((t:ToolDefinition)=>t.name==='cader_confirm_source_labels');assert.ok(confirm);
+    await assert.rejects(confirm.execute({labels:[{index:0,text:'5kΩ',source_quote:quote}]}),/EXPLICIT_USER_CONFIRMATION_REQUIRED/);
+    await assert.rejects(confirm.execute({labels:[{index:0,text:'10kΩ',source_quote:'伪造确认10kΩ'}]}),/EXPLICIT_USER_CONFIRMATION_REQUIRED/);
+    await assert.rejects(confirm.execute({labels:[{index:99,text:'10kΩ',source_quote:quote}]}),/EXPLICIT_USER_CONFIRMATION_REQUIRED/);
+    await confirm.execute({labels:[{index:0,text:'10kΩ',source_quote:quote}]});
+    await request.extraTools[0].execute({version:1,domain:'generic',components:[],visual_required:true,requirements:[{id:'visual',source_quote:'复现手稿',description:'Source appearance',check:'visual'},{id:'literal',source_quote:quote,description:'User clarified value',check:'text',text:'10kΩ',min:1}]},{concludeTurn(){}});return {status:'succeeded',text:'plan',tools:[]};
+  }};
+  const owner={workspace:f.root,facts:()=>({frozen:false,local_connection_id:'fixture',scratch:null}),async authorizeTask(){return false;},endTask(){}};
+  try{
+    const result=await runQualityTask({runtime,owner,task,profile:'fixture',emit(){},persist:async()=>{},referenceTask:{request:task,freshDrawing:true,outputPath:join(f.root,'result.dwg'),image:{path:join(f.root,'reference.png'),sha256,kind:'image',bytes:pixels.data.length,width:pixels.width,height:pixels.height}}} as unknown as Parameters<typeof runQualityTask>[0]);
+    assert.equal(result.phase,'blocked');assert.equal(result.label_confirmations.length,1);assert.equal((result.label_confirmations[0]!.original_reading as {certainty:string}).certainty,'uncertain');assert.equal(result.label_confirmations[0]!.image_sha256,sha256);assert.equal(result.reference_observation!.structured!.visible_text[0]!.text,'10kΩ');
+  }finally{await f.cleanup();}
+});
+
 test('source label reread gets original pixels plus a real crop and replaces the earlier unverified unit',async()=>{
-  const f=await setup();process.env.CADER_LABEL_FIXTURE='offline-label-only';
+  const f=await setup();process.env.CADER_LABEL_FIXTURE='offline-label-only';let reads=0;
   const config=await import('@cader/config').then(m=>m.loadConfig(f.root));
   const runtime=await createLiveRuntime({root:f.root,workspaceRoot:f.root,runDirectory:join(f.root,'.cader/runs/labels'),...config,profiles:config.profiles.map(p=>({...p,api_key_env:'CADER_LABEL_FIXTURE'}))});
   runtime.ctx.on('llm/stream',async function*(request):AsyncGenerator<StreamChunk>{
     if(request.tools?.some(t=>t.name==='cader_submit_reference_observation')){yield* call('cader_submit_reference_observation',{...observation,visible_text:[{text:'2MF',certainty:'clear',bounds:[[0.2,0.2],[0.8,0.4]]}]},'initial-label');return;}
+    if(request.tools?.some(t=>t.name==='cader_submit_reference_label_inventory')){yield* call('cader_submit_reference_label_inventory',{visible_text:[{text:'2MF',certainty:'clear',bounds:[[0.2,0.2],[0.8,0.4]]}]},'inventory');return;}
     assert.ok(request.tools?.some(t=>t.name==='cader_submit_reference_labels'));
     const images=JSON.parse(JSON.stringify(request.messages)).flatMap((m:{content:unknown[]})=>m.content).filter((b:{type:string})=>b.type==='image');
-    assert.equal(images.length,2);assert.match(JSON.stringify(request.messages),/label crop index=0/);
-    yield* call('cader_submit_reference_labels',{labels:[{index:0,text:'2μF',certainty:'clear'}]},'refined-label');
+    assert.equal(images.length,2);assert.match(JSON.stringify(request.messages),/label crop index=0/);assert.match(JSON.stringify(request.messages),/normalized_view_to_original/);assert.match(JSON.stringify(request.messages),/Target ORIGINAL normalized bounds/);
+    const blocks=JSON.parse(JSON.stringify(request.messages)).flatMap((m:{content:{type:string;text?:string}[]})=>m.content) as {type:string;text?:string}[];const audits=blocks.filter(b=>b.text?.startsWith('Image coordinate evidence: ')).map(b=>JSON.parse(b.text!.slice('Image coordinate evidence: '.length)));assert.equal(audits.length,2);assert.deepEqual(audits[0].normalized_view_to_original,[1,0,0,0,1,0]);assert.deepEqual(audits[1].normalized_view_to_original,[audits[1].crop_original_pixels.width/audits[1].original_pixels.width,0,audits[1].crop_original_pixels.left/audits[1].original_pixels.width,0,audits[1].crop_original_pixels.height/audits[1].original_pixels.height,audits[1].crop_original_pixels.top/audits[1].original_pixels.height]);
+    if(reads++===0){yield* call('cader_submit_reference_labels',{labels:[{index:0,text:'2μF',certainty:'clear',bounds:[[0,0],[1,1]]}]},'bad-bounds');return;}
+    assert.match(JSON.stringify(request.messages),/SOURCE_LABEL_BOUNDS_OUTSIDE_CROP/);yield* call('cader_submit_reference_labels',{labels:[{index:0,text:'2μF',certainty:'clear'}]},'refined-label');
   });
-  try{const result=await runtime.inspectReference('reference.png','Read synthetic label');assert.equal(result.valid,true);assert.equal(result.structured!.visible_text[0]!.text,'2μF');assert.equal(result.attempts.length,2);}
+  try{const result=await runtime.inspectReference('reference.png','Read synthetic label');assert.equal(result.valid,true);assert.equal(result.structured!.visible_text[0]!.text,'2μF');assert.equal(result.attempts.length,3);}
   finally{await runtime.dispose();delete process.env.CADER_LABEL_FIXTURE;await f.cleanup();}
 });
 
-for(const kind of ['complete','pending','quota','source-uncertain'])test(`actual DSH reference task binds fresh CAD and verified DWG: ${kind}`,async()=>{
+for(const scenario of ['clear','conflict','consensus'] as const)test(`independent source-net tracing preserves uncertainty and partitions: ${scenario}`,async()=>{
+  const uncertain=scenario!=='clear',same=scenario==='consensus';
+  const f=await setup();process.env.CADER_NET_REVIEW_FIXTURE='offline-net-review';
+  const config=await import('@cader/config').then(m=>m.loadConfig(f.root));
+  const runtime=await createLiveRuntime({root:f.root,workspaceRoot:f.root,runDirectory:join(f.root,'.cader/runs/net-review'),...config,profiles:config.profiles.map(p=>({...p,api_key_env:'CADER_NET_REVIEW_FIXTURE'}))});
+  runtime.ctx.on('llm/stream',async function*(request):AsyncGenerator<StreamChunk>{
+    if(request.tools?.some(t=>t.name==='cader_submit_reference_observation')){yield* call('cader_submit_reference_observation',{...observation,drawing_kind:'schematic',objects:[{id:'Q',kind:'three-pin',category:'component',bounds:[[0,0],[1,1]],terminals:[[0,0],[1,0],[1,1]],certainty:'clear'}],nets:same?[0,1,2].map(terminal=>({id:String(terminal),pins:[{object:'Q',terminal}]})):[{id:'prior-short',pins:[0,1,2].map(terminal=>({object:'Q',terminal}))}]},'observation');return;}
+    if(request.tools?.some(t=>t.name==='cader_submit_reference_nets')){assert.match(JSON.stringify(request.messages),/禁止按常见电路知识补全/);yield* call('cader_submit_reference_nets',{missing_objects:[{id:'X',kind:'one-pin marker',category:'component',bounds:[[0.1,0.1],[0.2,0.2]],terminals:[[0.15,0.1]],certainty:'clear'}],nets:[...[0,1,2].map(terminal=>({id:String(terminal),pins:[{object:'Q',terminal}],evidence:'Synthetic test evidence only',certainty:uncertain&&terminal===2?'uncertain':'clear'})),{id:'new-marker',pins:[{object:'X',terminal:0}],evidence:'Synthetic independently inventoried marker only',certainty:'clear'}]},'net-review');return;}
+    if(request.tools?.some(t=>t.name==='cader_submit_reference_label_inventory')){yield* call('cader_submit_reference_label_inventory',{visible_text:[]},'inventory');return;}
+    throw new Error('No CAD calls in source inspection');
+  });
+  try{const result=await runtime.inspectReference('reference.png','Read synthetic branched source');assert.equal(result.valid,scenario!=='conflict');assert.equal(result.net_review?.changed,true);assert.equal(result.net_review?.valid,scenario!=='conflict');if(same){assert.equal(result.net_review?.consensus,true);assert.equal(result.net_review?.uncertain_nets?.length,1);}if(scenario!=='conflict'){assert.equal(result.structured?.nets?.length,4);assert.equal(result.structured?.objects.length,2);}}
+  finally{await runtime.dispose();delete process.env.CADER_NET_REVIEW_FIXTURE;await f.cleanup();}
+});
+
+test('label review covers beyond the first four, prioritizes uncertainty and only retries unresolved original indices',async()=>{
+  const f=await setup();process.env.CADER_LABEL_BATCH_FIXTURE='offline-label-batches';
+  const config=await import('@cader/config').then(m=>m.loadConfig(f.root));
+  const runtime=await createLiveRuntime({root:f.root,workspaceRoot:f.root,runDirectory:join(f.root,'.cader/runs/label-batches'),...config,profiles:config.profiles.map(p=>({...p,api_key_env:'CADER_LABEL_BATCH_FIXTURE'}))});
+  const batches:number[][]=[];
+  runtime.ctx.on('llm/stream',async function*(request):AsyncGenerator<StreamChunk>{
+    if(request.tools?.some(t=>t.name==='cader_submit_reference_observation')){
+      yield* call('cader_submit_reference_observation',{...observation,visible_text:Array.from({length:8},(_,i)=>({text:`${i}MF`,certainty:'clear',bounds:[[0.1+(i%3)*0.25,0.1+Math.floor(i/3)*0.25],[0.25+(i%3)*0.25,0.2+Math.floor(i/3)*0.25]]}))},'initial');return;
+    }
+    if(request.tools?.some(t=>t.name==='cader_submit_reference_label_inventory')){yield* call('cader_submit_reference_label_inventory',{visible_text:Array.from({length:9},(_,i)=>({text:`${i}MF`,certainty:i===8?'uncertain':'clear',bounds:[[0.1+(i%3)*0.25,0.1+Math.floor(i/3)*0.25],[0.25+(i%3)*0.25,0.2+Math.floor(i/3)*0.25]]}))},'inventory');return;}
+    const raw=JSON.stringify(request.messages),indices=[...raw.matchAll(/label crop index=(\d+)/g)].map(m=>Number(m[1]));
+    const selected=[...new Set(indices)];batches.push(selected);
+    assert.ok(selected.length<=4&&selected.length>0);
+    if(batches.length===1){assert.equal(selected[0],8);yield* call('cader_submit_reference_labels',{labels:[...selected.slice(1),99].map(index=>({index,text:'bad',certainty:'clear'}))},'wrong-index');return;}
+    yield* call('cader_submit_reference_labels',{labels:selected.map(index=>({index,text:`${index}μF`,certainty:index===8&&batches.length===2?'uncertain':'clear'}))},`batch-${batches.length}`);
+  });
+  try{
+    const result=await runtime.inspectReference('reference.png','Read ALL synthetic labels');
+    assert.equal(result.valid,true);assert.equal(result.structured!.visible_text.length,9);
+    assert.ok(result.structured!.visible_text.every((l,i)=>l.text===`${i}μF`&&l.certainty==='clear'));
+    assert.deepEqual(result.label_reviews.map(r=>r.indices),[[8,0,1,2],[3,4,5,6],[7],[8]]);
+  }finally{await runtime.dispose();delete process.env.CADER_LABEL_BATCH_FIXTURE;await f.cleanup();}
+});
+
+for(const kind of ['complete','pending','quota','source-uncertain','budget'])test(`actual DSH reference task binds fresh CAD and verified DWG: ${kind}`,async()=>{
   const initiallyPending=kind==='pending';
   const f=await setup(); const previous=process.env.CADER_REDRAW_FIXTURE;process.env.CADER_REDRAW_FIXTURE='offline-redraw-only';
   const events:PublicEvent[]=[],calls:string[]=[];let target='Old.dwg',steps=0,planningImages=0,reviewImages=0,reviewCalls=0,reportAttempts=0;
@@ -146,6 +235,7 @@ for(const kind of ['complete','pending','quota','source-uncertain'])test(`actual
       if(request.tools?.some(t=>t.name==='cader_submit_reference_observation')){
         assert.ok(images.length);yield* call('cader_submit_reference_observation',kind==='source-uncertain'?{...observation,visible_text:[{text:'2mF',bounds:[[0.2,0.2],[0.8,0.4]],certainty:'uncertain'}]}:observation,'observation');return;
       }
+      if(request.tools?.some(t=>t.name==='cader_submit_reference_label_inventory')){yield* call('cader_submit_reference_label_inventory',{visible_text:[{text:'2mF',bounds:[[0.2,0.2],[0.8,0.4]],certainty:'uncertain'}]},'inventory');return;}
       if(request.tools?.some(t=>t.name==='cader_submit_reference_labels')){assert.equal(images.length,2);yield* call('cader_submit_reference_labels',{labels:[{index:0,text:'2mF',certainty:'uncertain'}]},'labels');return;}
       if(request.tools?.some(t=>t.name==='cader_submit_acceptance_plan')){
         planningImages=images.length;assert.ok(planningImages>=1);
@@ -168,6 +258,7 @@ for(const kind of ['complete','pending','quota','source-uncertain'])test(`actual
       yield {type:'block-start',index:0,blockType:'text'};yield {type:'text-delta',index:0,text:'Synthetic geometry ready'};
       yield {type:'block-end',index:0,block:{type:'text',text:'Synthetic geometry ready'}};yield {type:'finish',reason:{kind:'stop'}};
     });
+    if(kind==='budget'){const run=runtime.run;runtime.run=async(...args)=>{const result=await run(...args);if(!args[2]?.onlyTools&&calls.includes('draw_line'))return {...result,status:'succeeded',handoff:{kind:'budget',code:'TASK_TOKEN_BUDGET_EXCEEDED',renewable:false}};return result;};}
     if(kind==='quota'){
       const run=runtime.run;
       runtime.run=async(...args)=>{const result=await run(...args);if(!args[2]?.onlyTools&&calls.includes('draw_line'))Object.assign(result,{status:'failed',errorCode:'QUOTA'});return result;};
@@ -186,6 +277,7 @@ for(const kind of ['complete','pending','quota','source-uncertain'])test(`actual
       const uncertain=JSON.parse(await readFile(chat.state.qualityRun!,'utf8'));
       assert.equal(result.error,true);assert.equal(uncertain.phase,'pending_verification');assert.ok(uncertain.artifact);assert.equal(uncertain.quality_accepted,false);assert.ok(uncertain.checks.some((c:{id:string;status:string})=>c.id==='source_labels_uncertain'&&c.status==='not_run'));assert.equal(calls.filter(n=>n==='new_drawing').length,1);return;
     }
+    if(kind==='budget'){const paused=JSON.parse(await readFile(chat.state.qualityRun!,'utf8'));assert.equal(result.error,true);assert.equal(paused.phase,'pending_verification');assert.equal(paused.failure.code,'TASK_TOKEN_BUDGET_EXCEEDED');assert.equal(paused.quality_accepted,false);assert.ok(paused.artifact);assert.equal(calls.filter(n=>n==='save_drawing').length,1);assert.equal(paused.execution.frozen,false);return;}
     if(kind==='quota'){
       const interrupted=JSON.parse(await readFile(chat.state.qualityRun!,'utf8'));
       assert.equal(result.error,true);assert.match(result.text,/QUOTA/);assert.match(result.text,/待验稿/);

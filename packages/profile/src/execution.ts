@@ -86,7 +86,7 @@ export class ExecutionSession {
     if(!this.client)throw new Error('MCP_NOT_CONNECTED');
     const operationId=randomUUID();
     let entities:unknown;
-    try {entities=await this.client.call('query_entities',{},operationId);}
+    try {entities=await this.readBack('query_entities',{},operationId);}
     catch(error){
       await this.audit({phase:'quality_snapshot_failed',operation_id:operationId,tool:'query_entities',target:this.scratch,error:this.diagnostic(error),dispatched:true});
       throw error;
@@ -272,6 +272,20 @@ export class ExecutionSession {
       hresult, native_code: hresult === -2147418111 ? 'RPC_E_CALL_REJECTED' : null,
       stack: e?.stack?.slice(0, 8000), protocol_failure: e?.failure })));
   }
+  /** Retry only a known transient COM rejection of a READ. A mutation is
+   * invoked once regardless of whether its acknowledgement can be observed. */
+  private async readBack(name:'query_entities'|'get_entity',args:Record<string,unknown>,correlation?:string){
+    if(!this.client)throw new Error('MCP_NOT_CONNECTED');
+    for(let attempt=0;;attempt++){
+      try{return await this.client.call(name,args,correlation);}
+      catch(error){
+        const diagnostic=this.diagnostic(error);
+        if(attempt>=3||![-2147418111,-2147417846].includes(diagnostic.hresult))throw error;
+        await this.audit({phase:'readonly_retry',tool:name,operation_id:correlation??null,attempt:attempt+1,hresult:diagnostic.hresult});
+        await new Promise(resolve=>setTimeout(resolve,250*2**attempt));
+      }
+    }
+  }
   async probe() {
     return this.serial(async () => {
       if (!this.client) throw new Error('MCP_NOT_CONNECTED');
@@ -292,7 +306,7 @@ export class ExecutionSession {
         return { recovered: false, reason: 'AUTHORITATIVE_OUTCOME_OR_ORIGINAL_CONNECTION_REQUIRED', ...this.facts() };
       }
       try {
-        const observed = await this.client.call('query_entities', {});
+        const observed = await this.readBack('query_entities', {});
         await this.audit({ phase: 'reconciled', operation_id: this.freeze.operation_id, outcome: 'committed', observed });
         this.observedAt = new Date().toISOString(); this.observedCount = Array.isArray(observed) ? observed.length : null;
         this.observedOperationMark=this.operations.length;
@@ -421,8 +435,8 @@ export class ExecutionSession {
             record.stage = 'postflight';
             const objectId = Number(payload.object_id ?? String(result).match(/object_id=(\d+)/)?.[1]);
             const targeted = name !== 'delete_entity' && Number.isSafeInteger(objectId) && objectId > 0;
-            const observed = targeted ? [await this.client!.call('get_entity', { object_id: objectId }, operationId + '-query')]
-              : await this.client!.call('query_entities', {}, operationId + '-query');
+            const observed = targeted ? [await this.readBack('get_entity', { object_id: objectId }, operationId + '-query')]
+              : await this.readBack('query_entities', {}, operationId + '-query');
             const observation_scope = targeted ? 'affected_entity' : 'full_document';
             if (!targeted) { this.observedAt = new Date().toISOString(); this.observedCount = Array.isArray(observed) ? observed.length : null; this.observedOperationMark=this.operations.length+1; }
             if (output) {

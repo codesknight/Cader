@@ -1,0 +1,24 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {parseReferenceObservation,parseReferenceNets,reconcileSourceNets} from '@cader/config';
+const source=parseReferenceObservation({version:1,drawing_kind:'schematic',summary:'Synthetic reference only',coordinate_system:'normalized-image-top-left-y-down',content_bounds:[[0,0],[1,1]],objects:[{id:'Q',kind:'three-pin',category:'component',bounds:[[0,0],[1,1]],terminals:[[0,0],[1,0],[1,1]],certainty:'clear'}],visible_text:[],connections:[],unknowns:[],nets:[{id:'original',pins:[0,1,2].map(terminal=>({object:'Q',terminal})),certainty:'clear'}]});
+const net=(terminal:number,certainty:'clear'|'uncertain')=>({id:`n${terminal}`,pins:[{object:'Q',terminal}],certainty,evidence:'Synthetic confidence fixture only'});
+test('uncertainty is not a proven disconnection; candidate and unresolved status are both preserved',()=>{
+  const original=JSON.stringify(source),review=parseReferenceNets({nets:[net(0,'clear'),net(1,'uncertain'),net(2,'uncertain')]});
+  const result=reconcileSourceNets(source,review);
+  assert.equal(result.valid,true);assert.equal(result.clear_consistent,true);assert.equal(result.report.nets.length,1);assert.equal(result.report.nets[0]!.pins.length,3);assert.equal(result.report.nets[0]!.certainty,'uncertain');assert.equal(JSON.stringify(source),original);
+});
+test('known clear contradictions cannot be hidden by uncertainty elsewhere',()=>{
+  const result=reconcileSourceNets(source,parseReferenceNets({nets:[net(0,'clear'),net(1,'clear'),net(2,'uncertain')]}));
+  assert.equal(result.valid,false);assert.equal(result.clear_consistent,false);
+});
+test('independently clear new-device connection extends a compatible candidate without inventing a wire component',()=>{
+  const review=parseReferenceNets({missing_objects:[{id:'X',kind:'合法连接符号，描述中提及邻近导线',category:'component',bounds:[[0.1,0.1],[0.2,0.2]],terminals:[[0.15,0.1]],certainty:'clear'}],nets:[{...net(0,'clear'),pins:[{object:'Q',terminal:0},{object:'X',terminal:0}]},net(1,'uncertain'),net(2,'uncertain')]});
+  const result=reconcileSourceNets(source,review);assert.equal(result.valid,true);assert.equal(result.report.nets[0]!.pins.length,4);assert.equal(result.report.nets[0]!.certainty,'uncertain');
+  assert.equal(reconcileSourceNets(source,{...review,missing_objects:[{...review.missing_objects![0]!,kind:'wire',category:'wire'}]}).valid,false);
+});
+test('a fully clear changed interpretation still records disagreement; missing pins fail validation',()=>{
+  const result=reconcileSourceNets(source,parseReferenceNets({nets:[net(0,'clear'),net(1,'clear'),net(2,'clear')]}));
+  assert.equal(result.valid,true);assert.equal(result.clear_consistent,false);
+  assert.throws(()=>reconcileSourceNets(source,parseReferenceNets({nets:[net(0,'clear')]})),/missing/);
+});

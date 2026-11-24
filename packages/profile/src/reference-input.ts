@@ -62,6 +62,6 @@ export function referenceLayoutHints(source:ReferenceObservationData,image:{widt
   const point=(p:number[])=>[Number(((p[0]!-low[0])*scale).toFixed(3)),Number(((high[1]-p[1]!)*scale*image.height/image.width).toFixed(3))];
   const box=(b:number[][])=>[point([b[0]![0]!,b[1]![1]!]),point([b[1]![0]!,b[0]![1]!])];
   return {coordinate_system:'CAD XY: x right, y UP. Relative layout units, not physical dimensions.',
-    objects:source.objects.map(o=>({...o,bounds:box(o.bounds),terminals:o.terminals.map(point)})),
-    visible_text:source.visible_text.map(t=>({...t,bounds:box(t.bounds)})),connections:source.connections,unknowns:source.unknowns};
+    objects:source.objects.map(o=>({...o,bounds:box(o.bounds),terminals:o.terminals.map(point),indexed_terminals:o.terminals.map((p,index)=>({index,position:point(p)}))})),
+    visible_text:source.visible_text.map(t=>({...t,bounds:box(t.bounds)})),connections:source.nets?.length?[]:source.connections,nets:source.nets,unknowns:source.unknowns};
 }

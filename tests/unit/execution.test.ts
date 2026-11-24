@@ -6,6 +6,20 @@ import { ExecutionSession } from '@cader/profile';
 import { createToolRuntime, defineTool, invokeTool } from '@cader/dsh-adapter';
 import type { createMcpClient } from '@cader/dsh-adapter';
 
+test('transient COM read rejection retries only readback, never the acknowledged mutation',async()=>{
+  await mkdir('.cader/tests',{recursive:true});
+  const root=await mkdtemp(resolve('.cader/tests/readback-retry-')),calls:string[]=[];let busy=0;
+  const definitions=['new_drawing','draw_circle','query_entities','get_entity','get_backend_status'].map(name=>defineTool({name:`mcp__autocad__${name}`,description:'Offline readback fixture',parameters:{},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(){throw new Error('owner required');}}));
+  const client:typeof createMcpClient=async()=>({definitions:()=>definitions,toolNames:()=>definitions.map(t=>t.name.split('__').at(-1)!),async dispose(){},async call(name){calls.push(name);if(name==='new_drawing')return 'Fixture.dwg';if(name==='draw_circle'){busy=2;return 'object_id=42';}if(name==='get_entity'){if(busy-->0)throw Object.assign(new Error('fixture read rejected'),{failure:{error:{message:"(-2147418111, 'RPC_E_CALL_REJECTED', None, None)"}}});return {object_id:42,type:'AcDbCircle'};}return name==='query_entities'?[]:{};}});
+  const owner=new ExecutionSession(root,join(root,'.cader/runs/owner'),undefined,client);owner.mode='workspace-write';await owner.connect(resolve('configs/mcp/AutoCAD.example.yaml'));const ctx=await createToolRuntime();for(const t of owner.definitions())ctx.tools.register(t);
+  try{
+    assert.equal((await invokeTool(ctx,'mcp__autocad__new_drawing',{})).isError,false);
+    assert.equal((await invokeTool(ctx,'mcp__autocad__draw_circle',{})).isError,false);assert.equal(owner.facts().frozen,false);
+    assert.equal(calls.filter(n=>n==='draw_circle').length,1);assert.equal(calls.filter(n=>n==='get_entity').length,3);
+    const journal=await readFile(join(root,'.cader/runs/owner/execution.jsonl'),'utf8');assert.equal(journal.split('\n').filter(l=>l.includes('readonly_retry')).length,2);
+  }finally{await ctx.fiber.dispose();await owner.dispose();await rm(root,{recursive:true});}
+});
+
 async function setup() {
   await mkdir('.cader/tests', { recursive: true });
   const root = await mkdtemp(resolve('.cader/tests/execution-'));

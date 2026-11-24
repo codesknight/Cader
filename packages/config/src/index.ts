@@ -2,7 +2,7 @@ import { readFile, realpath, stat } from 'node:fs/promises';
 import { dirname, resolve, relative, isAbsolute } from 'node:path';
 import { parseDocument } from 'yaml';
 import { z } from 'zod';
-export { parseVisualReport, visualReportSchema, parseAcceptancePlan, acceptancePlanSchema,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema } from './quality.js';
+export { parseVisualReport, visualReportSchema, parseAcceptancePlan, acceptancePlanSchema,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema,parseReferenceLabelInventory,referenceLabelInventorySchema,parseReferenceNets,referenceNetsSchema,reconcileSourceNets } from './quality.js';
 export type { VisualReview, QualityPlan,ReferenceObservationData } from './quality.js';
 
 const Profile = z.object({
@@ -33,14 +33,14 @@ const Runtime = z.object({
   version: z.literal(1), main_profile: z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/),
   subagent_profiles: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/)).min(1),
   max_parallel_subagents: z.int().min(1).max(5), max_delegation_depth: z.literal(1),
-  max_model_steps: z.int().min(1).max(50), max_tool_calls: z.int().min(1).max(100),
+  max_model_steps: z.int().min(1).max(100), max_tool_calls: z.int().min(1).max(100),
   max_task_tool_calls: z.int().min(1).max(5000).optional(),
   max_cad_operations_per_round: z.int().min(1).max(256).optional(),
   max_cad_operations: z.int().min(1).max(5000).optional(),
   max_execution_rounds: z.int().min(1).max(50).optional(),
   validation_tool_reserve: z.int().min(0).max(32).optional(),
   max_task_tokens: z.int().min(1).max(20000000).optional(),
-  max_delegations: z.int().min(1).max(25), timeout_ms: z.int().min(1000).max(600000),
+  max_delegations: z.int().min(1).max(25), timeout_ms: z.int().min(1000).max(1800000),
   max_visual_reviews_per_turn: z.int().min(1).max(5).default(4),
   read_only_tools: z.array(z.string().regex(/^mcp__[A-Za-z0-9_-]+__(list_layers|list_symbol_library|get_backend_status)$/)),
 }).strict().superRefine((value, context) => {
