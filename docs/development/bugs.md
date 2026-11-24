@@ -44,6 +44,8 @@ BUG-067（REQ-045回归新增，#20）：第30轮源11器件/9标注正确，但
 
 BUG-068（REQ-045回归新增，#20）：第31轮同一cader_submit_reference_labels请求31次、30次框超裁图拒绝，1324747 token；局部格式修复只受全任务100步骤控制，耗尽绘图额度。该轮14 committed/0 unknown，2M暂停保存17311字节待验DWG。现批量文字Schema去掉bounds重定位，单项保留原图坐标校验，每次读取最多3模型请求；失败标签保留uncertain，源补充裁图沿用每次2次额度。只有后续真实用户确认覆盖该失败读取的全部索引且持久化后，才关联recovered_by及人工作答证据，原failed及原读数不改，不掩盖QUOTA/auth或无确认失败。194项/typecheck/smoke通过，含有限失败不恢复、实际Scheduler确认解决而原failed保留、紧凑布局规范化和单元契约。新的同原图完整实机继续。
 
+BUG-069（REQ-045回归新增，#20）：第32轮原初读与后续源网为明确冲突，后者clear却因break检查仅看显式uncertain而提前退出仲裁，错误候选进入绘图。独立期望表证实分区不匹配；97 committed/0 unknown后验收仍失败、2M暂停保存20378字节待验DWG，旧失败保留。现有两次源网复核槽会处理明确分歧，原初读被后续全明确分组佐证可恢复；三份全明确关系仍不一致则绘图前阻止。保留历史分歧要求最终源保真，漏项补报按id去重不改旧索引。最终源分区明确反驳计划则Scheduler交接/保存pending，不按错误契约反复修几何，原生几何未通过也适用。197项/typecheck/smoke通过，含恢复原分组、三方冲突无绘图及原生几何尚失败时源契约冲突停止修正；第33轮同原图执行中。
+
 2026-11-24 REQ-043 / #20 / MCP#43：BUG-045的Count/CopyFrom截图恢复分支及BUG-047视觉失败绿色勾号已修复，恢复后状态读回/备份清理/请求关联均强制，未知仍保护。实机发现非活动文档ActiveLayout可能指向活动文档，新增Layout.Document/ObjectID绑定检查，并用ModelSpace.Layout确认旧图未变。回归首轮还发现Layers.Add动态解析错误，复用只读就绪/单次调用修复；Drawing18旧unknown保留。两轮原始绘本整体通过、10次复杂图重复捕获恢复通过；另一次风格uncertain保持待验证，历史蓝图根因、文件验收和纸布局自动路由仍未宣称解决。[分层结果](../validation/2026-11-24-capture-restoration-fix.md)。
 
 2026-11-24 REQ-042 / #20：BUG-045原生截图/恢复故障在用户Drawing17复现，48次绘图确认、预算充足，export Count异常及CopyFrom/COM拒绝使恢复状态未知；无PNG或实际VisionAgent调用。保留冻结，未修复。新增BUG-047：视觉失败的控制交接isError=false导致CLI绿色勾号，visual_attempt_count还包含截图失败，需拆分业务结果及真实视觉次数。dev.10异常交接本次确已生效。[证据](../validation/2026-11-24-house-capture-audit.md)。

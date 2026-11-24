@@ -705,10 +705,12 @@ export async function runQualityTask(options: {
       }
       if(clipped)
         checks.push({ id: 'capture_bounds', status: 'not_run', evidence: '视图边缘出现图形，可能被裁切；不得依据不完整图片修改几何。检查MCP打印范围及缩放。' });
+      const sourcePartitionConflict=Boolean(review?.source_topology_evidence?.all_clear&&!review.source_topology_evidence.matches_cad_groups);
+      if(sourcePartitionConflict)checks.push({id:'source_partition_conflict',status:'not_run',evidence:'独立源端子分组与已封存计划冲突；几何修正不能改变源契约，停止无效绘图并保存待验。需要重新核对源分组，不能按旧分组反复增删导线。'});
       const nonActionableUncertainty = review?.structured?.verdict === 'uncertain' && !review.structured.defects.length && !checks.some(c => c.status === 'fail' && plan!.requirements.find(r => r.id === c.id)?.check !== 'visual');
       if(nonActionableUncertainty) checks.push({ id: 'visual_uncertainty', status: 'not_run', evidence: '必要视觉结论仍不确定；没有可定位缺陷，不做推测性修改，保留证据以便安全重验。' });
       if(sourceLabelsUncertain)checks.push({id:'source_labels_uncertain',status:'not_run',evidence:'原图局部复核后仍有必要文字不确定；已绘制结果只能保存为待验稿，不猜测SI单位或标注'});
-      if(sourceLabelsUncertain || nonActionableUncertainty || clipped || !sourceBound || !unchanged || round === 3 || (plan.visual_required && (!review?.review_valid || !referencesValid))) {
+      if(sourcePartitionConflict || sourceLabelsUncertain || nonActionableUncertainty || clipped || !sourceBound || !unchanged || round === 3 || (plan.visual_required && (!review?.review_valid || !referencesValid))) {
         await enter('pending_verification');
         break;
       }
