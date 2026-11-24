@@ -152,6 +152,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       continuePending?: boolean;
       keepExecutionRound?:boolean;
       completeDrawingUnit?:()=>Promise<void>;
+      maxImageViews?:number;
       cadReview?: boolean;
       sourceDetails?:{path:string;view:ImageView;label:string}[];
       history?: { role: 'user' | 'assistant'; content: string; status?: string }[]; summary?: string; domain?: string;
@@ -179,6 +180,7 @@ export async function createLiveRuntime(options: LiveOptions) {
         AbortSignal.timeout(turnTimeout)]);
       let text = '', currentText = '', errorCode: string | undefined, agentSteps = 0, outputTruncated=false;
       const tools: string[] = [];
+      let imageViews=0;
       let handle: AgentHandle | undefined;
       const continuationResults: unknown[] = [];
       const reservedLeaves = new Set<string>();
@@ -354,11 +356,13 @@ export async function createLiveRuntime(options: LiveOptions) {
                   return [{ type: 'text', text: JSON.stringify(result.audit) }, { type: 'image', attachment: result.attachment }];
                 } },
                 async execute(args) {
+                  if(imageViews>=(request.maxImageViews??Infinity))throw new Error('IMAGE_VIEW_BUDGET_EXHAUSTED: use the attached source and verified observations; return to planning instead of repeating crops');
+                  imageViews++;
                   if (!imageRefs.includes(args.image_ref)) throw new Error('IMAGE_REFERENCE_DENIED');
                   return JSON.stringify(await attachView(images.get(args.image_ref)!, { rotation: args.rotation as 0 | 90 | 180 | 270,
                     crop: { left: args.left, top: args.top, width: args.width, height: args.height } }, id));
                 },
-              }));
+              }),{when:()=>imageViews<(request.maxImageViews??Infinity)});
               allowed.push('cader_view_image');
               };
               if(imageRefs.length)enableImageView();
@@ -416,6 +420,7 @@ export async function createLiveRuntime(options: LiveOptions) {
                   .map(worker => ({ id: worker.id, role: worker.role, model: worker.model, input: worker.input,
                     description: worker.description, when_to_use: worker.when_to_use })) : [],
                 image_refs: imageRefs,
+                remaining_image_views:request.maxImageViews===undefined?null:Math.max(0,request.maxImageViews-imageViews),
                 permission_mode: options.permissionMode ?? 'read-only',
                 execution_state: (()=>{const state=options.executionState?.();if(!state||typeof state!=='object'||!Array.isArray((state as {operations?:unknown[]}).operations))return state??null;const {operations,...rest}=state as Record<string,unknown>&{operations:unknown[]};return {...rest,operations:operations.slice(-8),operation_history_scope:'Latest 8 only; full immutable ledger remains with Harness. Older confirmed writes must not be replayed; query current entities when needed.'};})(),
                 task_state: (request.taskState ?? options.taskState)?.() ?? null,
@@ -701,22 +706,48 @@ export async function createLiveRuntime(options: LiveOptions) {
       let structured: ReturnType<typeof parseVisualReport> | null = null;
       let knownIds:Set<number>|undefined;
       let requirementIds:Set<string>|undefined;
-      try{const evidence=JSON.parse(question);if(Array.isArray(evidence.entity_snapshot))knownIds=new Set(evidence.entity_snapshot.map((entity:{object_id:number})=>entity.object_id));if(Array.isArray(evidence.requirements))requirementIds=new Set(evidence.requirements.map((r:{id:string})=>r.id));}catch{/* Free-form reviews have no authoritative entity list. */}
+      let evidenceInput:any;
+      try{evidenceInput=JSON.parse(question);if(Array.isArray(evidenceInput.entity_snapshot))knownIds=new Set(evidenceInput.entity_snapshot.map((entity:{object_id:number})=>entity.object_id));if(Array.isArray(evidenceInput.requirements))requirementIds=new Set(evidenceInput.requirements.map((r:{id:string})=>r.id));}catch{/* Free-form reviews have no authoritative entity list. */}
+      const reference=referenceImage?await readReferenceImage(options.workspaceRoot??options.root,referenceImage):undefined;
+      const needsSourceTopology=requirementIds?.has('source_topology_fidelity')??false;
+      let sourceFrame:ReturnType<typeof parseReferenceObservation>|undefined;
+      let expectedSourceGroups:string[][]=[];
+      type SourceTopologyEvidence={report:ReturnType<typeof parseReferenceNets>;all_clear:boolean;matches_cad_groups:boolean;native_verified:boolean;source_sha256:string};
+      let sourceTopologyEvidence:SourceTopologyEvidence|null=null;
+      const reportSchema=structuredClone(visualReportSchema);
+      if(needsSourceTopology){
+        const source=evidenceInput?.source_terminal_index,cad=evidenceInput?.cad_external_netlist;
+        if(!reference||source?.sha256!==createHash('sha256').update(reference.data).digest('hex')||!Array.isArray(source?.objects)||!Array.isArray(cad?.components)||!Array.isArray(cad?.nets))throw new Error('SOURCE_TOPOLOGY_BINDINGS_REQUIRED');
+        sourceFrame=parseReferenceObservation({version:1,drawing_kind:'schematic',summary:'Source terminal locations only; no prior connectivity opinions.',coordinate_system:'normalized-image-top-left-y-down',content_bounds:[[0,0],[1,1]],objects:source.objects.map((o:any)=>({...o,kind:'Source component location',category:'component',certainty:'clear'})),visible_text:[],connections:[],unknowns:[]});
+        expectedSourceGroups=cad.nets.map((net:any)=>net.pins.map((pin:any)=>{const c=cad.components.find((c:any)=>c.id===pin.component),index=c?.pin_names?.indexOf(pin.pin);if(!c?.source_id||index===undefined||index<0||c.source_terminals?.[index]===undefined)throw new Error('SOURCE_TOPOLOGY_BINDINGS_INVALID');return `${c.source_id}:${c.source_terminals[index]}`;}));
+        reportSchema.properties.source_topology=referenceMembershipSchema(sourceFrame);reportSchema.required.push('source_topology');
+      }
       const validateReport=(value:unknown)=>{
-        const parsed=parseVisualReport(value);
+        const {source_topology,...visualValue}=value as Record<string,unknown>;
+        const parsed=parseVisualReport(visualValue);
         if(knownIds&&parsed.defects.some(d=>d.entity_ids.some(id=>!knownIds!.has(id))))throw new Error('UNKNOWN_REVIEW_ENTITY_ID: use only IDs from entity_snapshot, or [] when uncertain');
         if(requirementIds&&(parsed.checklist.length!==requirementIds.size||new Set(parsed.checklist.map(c=>c.requirement_id)).size!==requirementIds.size||parsed.checklist.some(c=>!requirementIds!.has(c.requirement_id))))throw new Error('REVIEW_CHECKLIST_MISMATCH: report each supplied visual requirement ID exactly once; do not invent IDs or report geometry-only conditions');
+        if(needsSourceTopology){
+          const report=parseReferenceMembership(source_topology,sourceFrame!);
+          if(report.nets.some(net=>!net.evidence||!net.certainty))throw new Error('SOURCE_NET_EVIDENCE_REQUIRED');
+          const canonical=(groups:string[][])=>groups.map(p=>p.sort().join('|')).sort().join(';');
+          const matches=canonical(report.nets.map(n=>n.pins.map(p=>`${p.object}:${p.terminal}`)))===canonical(expectedSourceGroups);
+          const allClear=report.nets.every(net=>net.certainty==='clear'),nativeVerified=evidenceInput.cad_external_netlist.verified===true;
+          const status=allClear?(matches?(nativeVerified?'pass':'uncertain'):'fail'):'uncertain';
+          if(parsed.checklist.find(c=>c.requirement_id==='source_topology_fidelity')?.status!==status)throw new Error('SOURCE_TOPOLOGY_REPORT_CONFLICT: independently trace Image A in source_topology.membership. The program compares those groups with CAD. Expected checklist status='+status+'. CAD T contacts and microscopic gaps are determined by native coordinates, not extra visible dots. Uncertainty must concern the ORIGINAL source path, not re-proving verified CAD contacts.');
+          sourceTopologyEvidence={report,all_clear:allClear,matches_cad_groups:matches,native_verified:nativeVerified,source_sha256:evidenceInput.source_terminal_index.sha256};
+        }else if(source_topology!==undefined)throw new Error('UNREQUESTED_SOURCE_TOPOLOGY_REPORT');
         return parsed;
       };
       for (let attempt = 0; attempt < 2; attempt++) {
         signal?.throwIfAborted();
         if (++delegations > options.runtime.max_delegations) throw new Error('DELEGATION_BUDGET_EXCEEDED');
         const submit: ToolDefinition = { name: 'cader_submit_visual_report', description: 'Submit the compact validated visual report. No extra fields. Mark unobservable conditions uncertain.',
-          parameters: visualReportSchema, output: { schema: { type: 'string' }, render: (_a,v) => [{type:'text',text:String(v)}] },
+          parameters: reportSchema, output: { schema: { type: 'string' }, render: (_a,v) => [{type:'text',text:String(v)}] },
           async execute(args, exec) { structured=validateReport(args);exec.concludeTurn();return JSON.stringify(structured); } };
         const review = await pool.run('main', () => run(vision.id,
           '用中文审查实际CAD图片与原始需求。若有Image A/B，A是原始用户手稿，B是本任务CAD结果：必须比较符号、可读标注、连接和布局，不能只说结果好看或拿旧图当参考。没有真实依据的条件标uncertain。必须调用cader_submit_visual_report提交；不要输出长篇解释。每条证据与建议保持简短，最多8个缺陷。checklist逐项核验要求的视觉条件；程序几何/拓扑事实不要求通过像素重复证实，不得仅凭图像推翻实体坐标。uncertainties仅记录影响必要视觉条件的未解决问题，不记录用户未要求的特征、无关观察或程序已证明的几何精度。' +
-          (attempt ? '\n上次未提交有效报告或输出被截断。请按工具schema简短重报，不要增加自定义字段。' : '') + '\n需求与程序证据：\n' + question,
+          (needsSourceTopology?'\nsource_topology只追踪原图A的外部连接，按每个源端子键提交membership及每组evidence/certainty；不要从CAD图片B的像素重证接点/微小间隙，也不要求T接点额外实心圆点。程序将原图分组与已读回验证的CAD分组比较。源图轻微笔触抖动或同路径叠笔不是断路证明，确实不清则在对应源net标uncertain。':'')+(attempt ? '\n上次未提交有效报告或输出被截断。请按工具schema简短重报，不要增加自定义字段。' : '') + '\n需求与程序证据：\n' + question,
           { parent, cadReview:true,image: referenceImage??capture.path, comparisonImage:referenceImage?capture.path:undefined,sourceDetails:referenceDetails, signal, onlyTools: [submit.name], extraTools: [submit], resultText: () => structured ? JSON.stringify(structured) : undefined }));
         if (!structured && review.status === 'succeeded') {
           try { structured=validateReport(JSON.parse(review.text.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''))); } catch { /* Format repair is bounded and never constitutes acceptance. */ }
@@ -728,8 +759,7 @@ export async function createLiveRuntime(options: LiveOptions) {
         }
         if (structured || (review.status !== 'succeeded'&&!['OUTPUT_TRUNCATED','MALFORMED_RESPONSE'].includes(review.errorCode??'')) || signal?.aborted) break;
       }
-      const reference=referenceImage?await readReferenceImage(options.workspaceRoot??options.root,referenceImage):undefined;
-      const result = { image_ref: ref, evidence: {...capture.evidence as Record<string,unknown>,reference:reference?{path:referenceImage,sha256:createHash('sha256').update(reference.data).digest('hex'),width:reference.width,height:reference.height}:null}, requirements: question, review_valid: structured !== null, structured, attempts };
+      const result = { image_ref: ref, evidence: {...capture.evidence as Record<string,unknown>,reference:reference?{path:referenceImage,sha256:createHash('sha256').update(reference.data).digest('hex'),width:reference.width,height:reference.height}:null}, requirements: question, review_valid: structured !== null, structured,source_topology_evidence:sourceTopologyEvidence as SourceTopologyEvidence|null, attempts };
       emit({ type: 'cad.review', ...result }); return result;
     }
 

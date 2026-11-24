@@ -28,6 +28,7 @@ export function verifyNetlist(plan:QualityPlan,entities:Record<string,any>[]){
   const join=(a:number,b:number)=>{parents[root(a)]=root(b);};
   const endpoints=(w:typeof wires[number])=>[w.start_point,w.end_point] as Point[];
   let overlap=false;
+  const overlappingPairs:{wire_ids:unknown[];axis:number;interval:number[];segments:Point[][]}[]=[];
   for(let i=0;i<wires.length;i++)for(let j=i+1;j<wires.length;j++){
     const a=wires[i]!,b=wires[j]!;
     const touching=endpoints(a).some(p=>on(p,b.start_point,b.end_point))||endpoints(b).some(p=>on(p,a.start_point,a.end_point));
@@ -35,7 +36,8 @@ export function verifyNetlist(plan:QualityPlan,entities:Record<string,any>[]){
     // Positive collinear overlap (including duplicates), rather than a shared endpoint.
     const axis=Math.abs(a.end_point[0]-a.start_point[0])>=Math.abs(a.end_point[1]-a.start_point[1])?0:1;
     const collinear=[b.start_point,b.end_point].every(p=>Math.abs((a.end_point[0]-a.start_point[0])*(p[1]-a.start_point[1])-(a.end_point[1]-a.start_point[1])*(p[0]-a.start_point[0]))<1e-5*Math.max(1,gap(a.start_point,a.end_point)));
-    if(collinear&&Math.min(Math.max(a.start_point[axis],a.end_point[axis]),Math.max(b.start_point[axis],b.end_point[axis]))-Math.max(Math.min(a.start_point[axis],a.end_point[axis]),Math.min(b.start_point[axis],b.end_point[axis]))>1e-5)overlap=true;
+    const low=Math.max(Math.min(a.start_point[axis],a.end_point[axis]),Math.min(b.start_point[axis],b.end_point[axis])),high=Math.min(Math.max(a.start_point[axis],a.end_point[axis]),Math.max(b.start_point[axis],b.end_point[axis]));
+    if(collinear&&high-low>1e-5){overlap=true;overlappingPairs.push({wire_ids:[a.object_id,b.object_id],axis,interval:[low,high],segments:[endpoints(a),endpoints(b)]});}
   }
   const missingJunctions:Point[]=[];
   for(const p of plan.junctions??[]){
@@ -63,5 +65,5 @@ export function verifyNetlist(plan:QualityPlan,entities:Record<string,any>[]){
   const schemaComplete=pins.length>0&&expected.size===pins.length&&pins.every(p=>expected.has(p.name));
   const pass=schemaComplete&&supported&&!overlap&&!unconnected.length&&!dangling.length&&!orphan.length&&!mismatches.length&&!missingJunctions.length&&!missingContacts.length;
   return {pass,evidence:`external net partition=${pass}; supported=${supported}; overlapping=${overlap}; mismatches=${mismatches.length}; disconnected pins=${unconnected.length}; dangling=${dangling.length}; orphan=${orphan.length}`,
-    details:{tolerance:1e-5,mismatches,unconnected_ports:unconnected,missing_symbol_contacts:missingContacts,dangling_endpoints:dangling,orphan_wire_ids:orphan,missing_junction_markers:missingJunctions,overlap,supported}};
+    details:{tolerance:1e-5,mismatches,unconnected_ports:unconnected,missing_symbol_contacts:missingContacts,dangling_endpoints:dangling,orphan_wire_ids:orphan,missing_junction_markers:missingJunctions,overlapping_wire_pairs:overlappingPairs.slice(0,32),overlapping_wire_pair_count:overlappingPairs.length,overlap,supported}};
 }

@@ -375,6 +375,8 @@ export async function runQualityTask(options: {
         requirements: plan.requirements.filter(r => r.check === 'visual'), geometry, domain_guidance: guidance,
         source_connection_review:{independent_check_required:Boolean(referenceTask),regions_to_inspect:referenceObservation?.net_review?.uncertain_nets?.map(n=>({pins:n.pins}))??[],
           note:'Preliminary model opinions are not authoritative and are deliberately withheld. Independently compare actual original pixels and CAD. The supplied region pins are locations, not a claim of connectivity.'},rendering_contract:referenceTask?renderingContract():null,
+        source_terminal_index:observedSource&&sourceImage?{sha256:sourceImage.sha256,objects:observedSource.objects.map(({id,bounds,terminals})=>({id,bounds,terminals}))}:null,
+        cad_external_netlist:plan.domain==='electrical-schematic'?{verified:geometry.some(c=>c.status==='pass'&&plan!.requirements.find(r=>r.id===c.id)?.check==='netlist'),components:plan.components,nets:plan.nets,wire_layer:plan.wire_layer}:null,
         entity_snapshot: before.entities, observed_state_hash: digest, document_revision: null,
         note: 'Image evidence checks appearance. Queried coordinates/IDs are authoritative; ambiguous pixels remain uncertain.',reference:referenceTask?.image??null }),reviewSignal,referenceTask?.image.path,sourceDetails);
       visual = review;
@@ -493,7 +495,7 @@ export async function runQualityTask(options: {
     }
     else {
       const canConfirm=Boolean(referenceTask&&referenceObservation?.structured?.visible_text.length&&/确认|clarification|confirm/i.test(task));
-      const planningRequest={ signal, onlyTools: [tool.name,'cader_view_image',...(canConfirm?[confirmLabels.name]:[])], extraTools: [tool,...(canConfirm?[confirmLabels]:[])], resultText: () => plan ? JSON.stringify(plan) : undefined };
+      const planningRequest={ signal,maxImageViews:2, onlyTools: [tool.name,'cader_view_image',...(canConfirm?[confirmLabels.name]:[])], extraTools: [tool,...(canConfirm?[confirmLabels]:[])], resultText: () => plan ? JSON.stringify(plan) : undefined };
       try {
       await act('用中文规划以下绘图任务。'+(referenceObservation?.structured?.drawing_kind==='schematic'?'参考手绘电路是输入资料，目标是可编辑CAD；没有明确要求手绘/手写输出风格时，不增加笔触、手写字体或纸张纹理验收，只核对图形、标签、连接和相对布局。':'')+'若用户明确补充确认了仍不确定的标注，先调用cader_confirm_source_labels按位置绑定原文确认；不能从原图或常见值编造用户确认。必须调用cader_submit_acceptance_plan，只提交紧凑需求验收清单；普通插画的components可为空，勿虚构连接端口。仅拓扑任务需要组件布局/端口；参考电路必须用netlist，components带source_id、source_terminals（按ports顺序的原图端子索引）、pin_names及全部端口；nets必须保持观察的原图端子分组，不能把分支/三端器件改成series_cycle。组件bounds可包含引线，端口在边界；此阶段不能绘图。若有参考图片，必须先观察实际像素；可用cader_view_image裁看原图。识别可读符号、文字与连接，示意图使用布局坐标，不因缺少物理比例尺全局拒绝；不可读的值单独标未知。source_quote必须原样引用用户请求，图片中数值可在description/text写出并用“参考图”等请求原文作source_quote。独立列出数量、文字、布局及源图外观匹配条件。新建文档与保存由程序验证，不能用任意实体数代替。entity_count必须是可测的实际AcDb类型；COM draw_polyline/rectangle生成AcDb2dPolyline，不是AcDbPolyline。组件语义使用visual检查。参考图的符号数量不能随意变成全部圆/线实体的硬上限（还可能有接点小圆和符号内部线）；需要实体计数时可用layer限定其语义图层，或以visual验符号。电路使用真实组件边界端口和适合的拓扑检查，不强加电路条件到普通图。标注以text检查，禁止导线穿组件或短接其端口。不得把本阶段的“只做规划”误写为整任务不准绘图。\n' + task,
         planningRequest);
@@ -619,7 +621,7 @@ export async function runQualityTask(options: {
         document_revision: null, image_evidence: review?.evidence ?? null, visual_report: review?.structured ?? null,
         references_valid: referencesValid, source_bound:sourceBound,possible_clipping: clipped, observation_unchanged: unchanged,
         disagreements: checks.filter(c => c.status === 'pass' && review?.structured?.checklist.some(v => v.requirement_id === c.id && v.status !== 'pass')).map(c => c.id),
-        source_topology_resolution:referenceObservation?.net_review?.uncertain_nets?.length?{original_uncertainty:referenceObservation.net_review,visual_condition:review?.structured?.checklist.find(c=>c.requirement_id==='source_topology_fidelity')??null,source_hash:referenceTask?.image.sha256}:null,
+        source_topology_resolution:referenceObservation?.net_review?.uncertain_nets?.length?{original_uncertainty:referenceObservation.net_review,visual_condition:review?.structured?.checklist.find(c=>c.requirement_id==='source_topology_fidelity')??null,structured_source_evidence:review?.source_topology_evidence??null,source_hash:referenceTask?.image.sha256}:null,
         entity_mapping: 'queried ObjectIDs; pixel-to-CAD transform unavailable; visual suggestions require coordinate reconciliation'
       });
       const beforeSave=checks.filter(c=>!referenceTask||plan!.requirements.find(r=>r.id===c.id)?.check!=='saved_dwg');

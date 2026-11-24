@@ -103,6 +103,21 @@ function* call(name:string,args:unknown,id:string):Generator<StreamChunk>{
   yield {type:'finish',reason:{kind:'tool-calls'}};
 }
 
+test('planning image views have an enforced dynamic allowance, including forged calls after hiding',async()=>{
+  const f=await setup(),events:PublicEvent[]=[];process.env.CADER_IMAGE_VIEW_BUDGET='offline-crop-budget';
+  const c=await import('@cader/config').then(m=>m.loadConfig(f.root));let step=0,ref='';
+  const runtime=await createLiveRuntime({...c,root:f.root,workspaceRoot:f.root,runDirectory:join(f.root,'.cader/runs/crop-budget'),images:{'source-fixture':join(f.root,'reference.png')},onEvent:e=>events.push(e),profiles:c.profiles.map(p=>({...p,api_key_env:'CADER_IMAGE_VIEW_BUDGET'}))});
+  runtime.ctx.on('llm/stream',async function*(request):AsyncGenerator<StreamChunk>{
+    step++;const tool=request.tools?.find(t=>t.name==='cader_view_image');
+    if(step<=2){assert.ok(tool);ref=(tool.parameters as any).properties.image_ref.enum[0];yield* call('cader_view_image',{image_ref:ref,left:0,top:0,width:128,height:128},`view-${step}`);return;}
+    assert.ok(!tool);assert.match(JSON.stringify(request.messages),/remaining_image_views.{0,12}0/);
+    if(step===3){yield* call('cader_view_image',{image_ref:ref,left:0,top:0,width:128,height:128},'forged-hidden-view');return;}
+    yield {type:'block-start',index:0,blockType:'text'};yield {type:'text-delta',index:0,text:'Fixture returned to planning'};yield {type:'block-end',index:0,block:{type:'text',text:'Fixture returned to planning'}};yield {type:'finish',reason:{kind:'stop'}};
+  });
+  try{const result=await runtime.run('MainAgent','Inspect briefly',{image:'reference.png',onlyTools:['cader_view_image'],maxImageViews:2});assert.equal(result.status,'succeeded',JSON.stringify({step,result,events:events.filter(e=>e.type==='tool.result'||e.type==='agent.error'||e.type==='model.error')}));assert.equal(step,4);assert.equal(events.filter(e=>e.type==='image.attached').length,3);assert.ok(events.some(e=>e.type==='tool.result'&&e.callId==='forged-hidden-view'&&e.isError));}
+  finally{await runtime.dispose();delete process.env.CADER_IMAGE_VIEW_BUDGET;await f.cleanup();}
+});
+
 test('reference schematic units retain all source pins/nets and share the same authorization before independent acceptance',async()=>{
   const f=await setup(),raw=await readFile(join(f.root,'reference.png')),sha256=createHash('sha256').update(raw).digest('hex');
   const pixels=await readReferenceImage(f.root,'reference.png');let target:string|null=null,created=false,approvals=0;const entities:any[]=[],unitIds:string[]=[];

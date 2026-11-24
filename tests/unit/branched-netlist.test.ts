@@ -18,6 +18,8 @@ test('external net partitions support a three-pin component and T branches witho
   assert.equal(check(wires).status,'pass');
   assert.equal(check(wires.slice(1)).status,'fail');
   assert.equal(check([...wires,wires[0]!]).status,'fail');
+  const duplicate=check([...wires,{...wires[0]!,object_id:999}]);
+  assert.ok((duplicate.details as {overlapping_wire_pairs:{wire_ids:number[];interval:number[]}[]}).overlapping_wire_pairs.some(pair=>pair.wire_ids.includes(999)&&pair.interval[1]!>pair.interval[0]!));
   assert.equal(check([...wires,wire([10,0],[10,10])]).status,'fail');
   assert.equal(check([...wires,wire([20,15],[25,15])]).status,'fail');
   assert.equal(check([...wires,wire([100,100],[110,100])]).status,'fail');
