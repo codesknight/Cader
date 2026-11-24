@@ -20,7 +20,7 @@ import * as mcpClient from '@deepseek-ai/dsh-mcp-client';
 import Attachments from '@deepseek-ai/dsh-attachment-local';
 import FileSystem from '@deepseek-ai/dsh-fs-local';
 import type { ModelProfile, RuntimeConfig, McpConfig } from '@cader/config';
-import { parseVisualReport, visualReportSchema, requireCredential, loadSkills, mcpEnvironment, workspacePath, readReferenceImage,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema,parseReferenceLabelInventory,referenceLabelInventorySchema,parseReferenceNets,referenceNetsSchema,reconcileSourceNets } from '@cader/config';
+import { parseVisualReport, visualReportSchema, requireCredential, loadSkills, mcpEnvironment, workspacePath, readReferenceImage,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema,parseReferenceLabelInventory,referenceLabelInventorySchema,parseReferenceNets,reconcileSourceNets,referenceMembershipSchema,parseReferenceMembership } from '@cader/config';
 import { ChildPool } from './pool.js';
 import { ExecutionBudget } from './budget.js';
 import type { BudgetStop } from './budget.js';
@@ -591,7 +591,7 @@ export async function createLiveRuntime(options: LiveOptions) {
         await handle?.dispose();
       }
     }
-    async function inspectReference(path:string,task:string,signal?:AbortSignal):Promise<{valid:boolean;structured:ReturnType<typeof parseReferenceObservation>|null;attempts:{id:string;status:string;valid:boolean}[];label_reviews:{id:string;indices:number[];valid:boolean;pass:number}[];label_inventory?:{id:string;valid:boolean}|null;net_review?:{id:string;valid:boolean;changed:boolean;consensus?:boolean;uncertain_nets?:{id:string;evidence?:string;pins:{object:string;terminal:number}[]}[]}|null;evidence:{path:string;sha256:string;width:number;height:number}}>{
+    async function inspectReference(path:string,task:string,signal?:AbortSignal):Promise<{valid:boolean;structured:ReturnType<typeof parseReferenceObservation>|null;attempts:{id:string;status:string;valid:boolean}[];label_reviews:{id:string;indices:number[];valid:boolean;pass:number}[];label_inventory?:{id:string;valid:boolean}|null;net_review?:{id:string;valid:boolean;changed:boolean;consensus?:boolean;report_valid?:boolean;uncertain_nets?:{id:string;evidence?:string;pins:{object:string;terminal:number}[]}[]}|null;evidence:{path:string;sha256:string;width:number;height:number}}>{
       const vision=options.profiles.find(p=>p.role==='vision'&&p.input.includes('image'));
       if(!vision)throw new Error('VISION_PROFILE_UNAVAILABLE');
       const source=await readReferenceImage(options.workspaceRoot??options.root,path);
@@ -610,11 +610,11 @@ export async function createLiveRuntime(options: LiveOptions) {
         if(signal?.aborted||(result.status!=='succeeded'&&!['OUTPUT_TRUNCATED','TIMEOUT'].includes(result.errorCode??'')))break;
       }
       const observation=structured as ReturnType<typeof parseReferenceObservation>|null;
-      let netReview:{id:string;valid:boolean;changed:boolean;consensus?:boolean;uncertain_nets?:{id:string;evidence?:string;pins:{object:string;terminal:number}[]}[]}|null=null;
+      let netReview:{id:string;valid:boolean;changed:boolean;consensus?:boolean;report_valid?:boolean;uncertain_nets?:{id:string;evidence?:string;pins:{object:string;terminal:number}[]}[]}|null=null;
       if(observation?.drawing_kind==='schematic'){
         signal?.throwIfAborted();if(++delegations>options.runtime.max_delegations)throw new Error('DELEGATION_BUDGET_EXCEEDED');
         let checked:ReturnType<typeof parseReferenceNets>|null=null;
-        const submit:ToolDefinition={name:'cader_submit_reference_nets',description:'Independently trace actual source conductors between observed terminal indices. Every net needs pixel evidence and clear/uncertain status. Do not invent return/ground connections.',parameters:referenceNetsSchema,output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args,exec){const parsed=parseReferenceNets(args);if(parsed.missing_objects?.some(o=>o.category!=='component'))throw new Error('SOURCE_DEVICES_ONLY');parseReferenceObservation({...observation,objects:[...observation.objects,...parsed.missing_objects??[]],nets:parsed.nets});if(parsed.nets.some(n=>!n.evidence||!n.certainty))throw new Error('SOURCE_NET_EVIDENCE_REQUIRED');checked=parsed;exec.concludeTurn();return JSON.stringify(parsed);}};
+        const submit:ToolDefinition={name:'cader_submit_reference_nets',description:'Independently trace actual source conductors. membership maps EVERY object:terminal key to exactly one net ID. nets supplies evidence/certainty, without pin arrays. Do not invent return/ground connections.',parameters:referenceMembershipSchema(observation),output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args,exec){const parsed=parseReferenceMembership(args,observation);if(parsed.missing_objects?.some(o=>o.category!=='component'))throw new Error('SOURCE_DEVICES_ONLY');parseReferenceObservation({...observation,objects:[...observation.objects,...parsed.missing_objects??[]],nets:parsed.nets});if(parsed.nets.some(n=>!n.evidence||!n.certainty))throw new Error('SOURCE_NET_EVIDENCE_REQUIRED');checked=parsed;exec.concludeTurn();return JSON.stringify(parsed);}};
         const quadrants=[0,1,2,3].map(index=>({path,view:{crop:{left:index%2?Math.floor(source.width*0.4):0,top:index>1?Math.floor(source.height*0.4):0,width:Math.ceil(source.width*0.6),height:Math.ceil(source.height*0.6)}},label:`Original source quadrant ${index}; preserve observed device terminal indices.`}));
         const originalNets=observation.nets??[],originalPins=new Set(observation.objects.flatMap(o=>o.terminals.map((_,i)=>`${o.id}:${i}`)));
         const partition=(nets:typeof originalNets)=>nets.map(n=>n.pins.map(p=>`${p.object}:${p.terminal}`).filter(p=>originalPins.has(p)).sort().join('|')).filter(Boolean).sort().join(';');
@@ -622,20 +622,20 @@ export async function createLiveRuntime(options: LiveOptions) {
         for(let pass=0;pass<2;pass++){
           if(pass){signal?.throwIfAborted();if(++delegations>options.runtime.max_delegations)throw new Error('DELEGATION_BUDGET_EXCEEDED');}
           const previousNets=checked;checked=null;
-        const result=await pool.run('main',()=>run(vision.id,'手稿线条可有轻微抖动、叠笔或浓淡变化，追踪可辨的连续路径，不把轻微笔触差异误判为多处断路；仍不可辨则uncertain，不用电路常识补线。'+(pass?'上次存在未确认连接；本轮附原图四个局部区域，以实际像素复核这些不确定处：'+JSON.stringify((previousNets as ReturnType<typeof parseReferenceNets>|null)?.nets.filter(n=>n.certainty!=='clear')):'')+'先独立核对整图器件覆盖，再沿原图像素导线追踪外部net，调用cader_submit_reference_nets。若初始objects漏掉可见器件或接地/连接符号，在missing_objects补报真实器件、bounds和端子索引（不可补假导线组件），并在nets包含新旧全部端子；缺失符号不能静默忽略。给定器件与端子索引只是位置索引，不能当作已验证连接。每个端子恰好归组一次，给出可见导线路径evidence和certainty。禁止按常见电路知识补全：一个接地符号不自动连接到另一条未标地、且像素上断开的回路线；T接点或折线端点直接相接无需圆点，不能仅因缺少圆点就标uncertain；两条线的内部交叉才需判断接点。真正可见的断线/无接点内部跨越分别分组。器件内部各端不短接；各电源极性端独立，三端器件保留全部端子。无法追清则uncertain，不猜闭环；不确定表示尚不能确认关系，不等于默认断开可见导线。按最可能的像素路径分组，真正的疑问留在certainty/evidence，后续仍需独立对照验收。只提交nets，不规划。原图端子索引：'+JSON.stringify(observation.objects.map(o=>({...o,terminals:o.terminals.map((position,terminal)=>({terminal,position}))}))),{image:path,sourceDetails:pass?quadrants:undefined,signal,onlyTools:[submit.name,'cader_view_image'],extraTools:[submit],resultText:()=>checked?JSON.stringify(checked):undefined}));
+        const result=await pool.run('main',()=>run(vision.id,'手稿线条可有轻微抖动、叠笔或浓淡变化，追踪可辨的连续路径，不把轻微笔触差异误判为多处断路；仍不可辨则uncertain，不用电路常识补线。'+(pass?'上次存在未确认连接；本轮附原图四个局部区域，以实际像素复核这些不确定处：'+JSON.stringify((previousNets as ReturnType<typeof parseReferenceNets>|null)?.nets.filter(n=>n.certainty!=='clear')):'')+'先独立核对整图器件覆盖，再沿原图像素导线追踪外部net，调用cader_submit_reference_nets。若初始objects漏掉可见器件或接地/连接符号，在missing_objects补报真实器件、bounds和端子索引（不可补假导线组件），并在membership包含新旧全部端子；缺失符号不能静默忽略。给定器件与端子索引只是位置索引，不能当作已验证连接。使用membership逐端子赋组：每个“object:terminal”必须作为一个属性键，值为net ID；nets仅列id、evidence及certainty，不再列pins数组。原有每个端子的属性在schema中均必填，新补器件也须加入全部端子键。给出可见导线路径evidence和certainty。禁止按常见电路知识补全：一个接地符号不自动连接到另一条未标地、且像素上断开的回路线；T接点或折线端点直接相接无需圆点，不能仅因缺少圆点就标uncertain；两条线的内部交叉才需判断接点。真正可见的断线/无接点内部跨越分别分组。器件内部各端不短接；各电源极性端独立，三端器件保留全部端子。无法追清则uncertain，不猜闭环；不确定表示尚不能确认关系，不等于默认断开可见导线。按最可能的像素路径分组，真正的疑问留在certainty/evidence，后续仍需独立对照验收。只提交membership、nets及必要missing_objects，不规划。原图端子索引：'+JSON.stringify(observation.objects.map(o=>({...o,terminals:o.terminals.map((position,terminal)=>({terminal,position}))}))),{image:path,sourceDetails:pass?quadrants:undefined,signal,onlyTools:[submit.name,'cader_view_image'],extraTools:[submit],resultText:()=>checked?JSON.stringify(checked):undefined}));
         const revised=checked as ReturnType<typeof parseReferenceNets>|null;
         const canonical=(nets:NonNullable<typeof observation.nets>)=>nets.map(n=>n.pins.map(p=>`${p.object}:${p.terminal}`).sort().join('|')).sort().join(';');
         const arbitration=revised?reconcileSourceNets(observation,revised):null;
         const consensus=arbitration?.clear_consistent??false;
         const valid=arbitration?.valid??false;
-        netReview={id:result.id,valid,consensus,changed:Boolean(revised&&canonical(revised.nets)!==canonical(originalNets)),uncertain_nets:revised?.nets.filter(n=>n.certainty!=='clear')??[]};
+        netReview={id:result.id,valid,consensus,report_valid:Boolean(revised),changed:Boolean(revised&&canonical(revised.nets)!==canonical(originalNets)),uncertain_nets:revised?.nets.filter(n=>n.certainty!=='clear')??[]};
         attempts.push({id:result.id,status:result.status,valid});
         if(valid&&revised){fallback={id:result.id,report:arbitration!.report,uncertainty:revised.nets.filter(n=>n.certainty!=='clear').length?revised.nets.filter(n=>n.certainty!=='clear'):consensus?[]:revised.nets.map(n=>({...n,certainty:'uncertain' as const,evidence:('Source observations disagree; independently verify this group against original pixels: '+(n.evidence??'')).slice(0,400)})),consensus};if(!netReview.uncertain_nets!.length)break;}
         if(result.status!=='succeeded'&&!['TIMEOUT','OUTPUT_TRUNCATED','MALFORMED_RESPONSE'].includes(result.errorCode??'')){fallback=null;break;}
         }
         if(fallback){
           const revised=fallback.report;
-          netReview={id:fallback.id,valid:true,consensus:fallback.consensus,changed:Boolean(revised.missing_objects?.length)||partition(originalNets)!==partition(revised.nets),uncertain_nets:fallback.uncertainty};
+          netReview={id:fallback.id,valid:true,report_valid:true,consensus:fallback.consensus,changed:Boolean(revised.missing_objects?.length)||partition(originalNets)!==partition(revised.nets),uncertain_nets:fallback.uncertainty};
           observation.nets=revised.nets;observation.objects.push(...revised.missing_objects??[]);
           for(const attempt of attempts){const failed=completed.find(r=>r.id===attempt.id&&r.status!=='succeeded'&&!r.recovered_by&&['TIMEOUT','OUTPUT_TRUNCATED','MALFORMED_RESPONSE'].includes(r.errorCode??''));if(failed)failed.recovered_by=fallback.id;}
         }else structured=null;

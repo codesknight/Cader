@@ -49,6 +49,26 @@ export const ReferenceObservation=z.object({
 export type ReferenceObservationData=z.infer<typeof ReferenceObservation>;
 export const referenceObservationSchema=JSON.parse(JSON.stringify(z.toJSONSchema(ReferenceObservation)));
 export function parseReferenceObservation(value:unknown){return ReferenceObservation.parse(value);}
+const SourceMembership=z.object({membership:z.record(z.string().regex(/^[a-zA-Z0-9_-]{1,32}:[0-7]$/),z.string().min(1).max(64)),
+  nets:z.array(ObservedNet.omit({pins:true})).min(1).max(64),missing_objects:z.array(SourceObject).max(8).optional()}).strict();
+/** Require each known terminal as an object key. The model cannot list the same
+ * terminal in several groups; group arrays are derived, never guessed/repaired. */
+export function referenceMembershipSchema(source:ReferenceObservationData){
+  const schema=JSON.parse(JSON.stringify(z.toJSONSchema(SourceMembership)));
+  const required=source.objects.flatMap(o=>o.terminals.map((_,i)=>`${o.id}:${i}`));
+  schema.properties.membership={type:'object',properties:Object.fromEntries(required.map(pin=>[pin,{type:'string',minLength:1,maxLength:64}])),required,
+    additionalProperties:{type:'string',minLength:1,maxLength:64},maxProperties:256,description:'Each original object:terminal appears exactly once as a key; value is its external net ID. Add keys for any missing_objects terminals too.'};
+  return schema;
+}
+export function parseReferenceMembership(value:unknown,source:ReferenceObservationData){
+  const parsed=SourceMembership.parse(value);
+  const ids=new Set(parsed.nets.map(n=>n.id));
+  if(ids.size!==parsed.nets.length||Object.values(parsed.membership).some(id=>!ids.has(id)))throw new Error('SOURCE_MEMBERSHIP_NET_ID_INVALID');
+  const nets=parsed.nets.map(n=>({...n,pins:Object.entries(parsed.membership).filter(([,id])=>id===n.id).map(([address])=>{const [object,terminal]=address.split(':');return {object:object!,terminal:Number(terminal)};})}));
+  const report=parseReferenceNets({nets,missing_objects:parsed.missing_objects});
+  parseReferenceObservation({...source,objects:[...source.objects,...report.missing_objects??[]],nets:report.nets});
+  return report;
+}
 /** Unknown connectivity is not a proven disconnection. Retain the preliminary
  * candidate only where the independent review is explicitly uncertain; every
  * clear old-pin relation must agree. The final pixel-fidelity gate is mandatory. */

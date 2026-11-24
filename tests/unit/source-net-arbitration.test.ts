@@ -1,8 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseReferenceObservation,parseReferenceNets,reconcileSourceNets} from '@cader/config';
+import {parseReferenceObservation,parseReferenceNets,reconcileSourceNets,referenceMembershipSchema,parseReferenceMembership} from '@cader/config';
 const source=parseReferenceObservation({version:1,drawing_kind:'schematic',summary:'Synthetic reference only',coordinate_system:'normalized-image-top-left-y-down',content_bounds:[[0,0],[1,1]],objects:[{id:'Q',kind:'three-pin',category:'component',bounds:[[0,0],[1,1]],terminals:[[0,0],[1,0],[1,1]],certainty:'clear'}],visible_text:[],connections:[],unknowns:[],nets:[{id:'original',pins:[0,1,2].map(terminal=>({object:'Q',terminal})),certainty:'clear'}]});
 const net=(terminal:number,certainty:'clear'|'uncertain')=>({id:`n${terminal}`,pins:[{object:'Q',terminal}],certainty,evidence:'Synthetic confidence fixture only'});
+
+test('source review schema requires every known pin; membership derives exact nonduplicated groups',()=>{
+  const schema=referenceMembershipSchema(source);
+  assert.deepEqual(schema.properties.membership.required,['Q:0','Q:1','Q:2']);
+  const report={membership:{'Q:0':'a','Q:1':'b','Q:2':'b'},nets:[{id:'a',certainty:'clear',evidence:'fixture'},{id:'b',certainty:'uncertain',evidence:'fixture'}]};
+  assert.deepEqual(parseReferenceMembership(report,source).nets.map(n=>n.pins.length),[1,2]);
+  assert.throws(()=>parseReferenceMembership({...report,membership:{'Q:0':'a','Q:1':'b'}},source),/missing/);
+  assert.throws(()=>parseReferenceMembership({...report,membership:{...report.membership,'Q:3':'b'}},source),/unknown/);
+  assert.throws(()=>parseReferenceMembership({...report,membership:{...report.membership,'Q:2':'absent'}},source),/NET_ID_INVALID/);
+  assert.throws(()=>parseReferenceMembership({...report,nets:[...report.nets,report.nets[0]]},source),/NET_ID_INVALID/);
+});
 test('uncertainty is not a proven disconnection; candidate and unresolved status are both preserved',()=>{
   const original=JSON.stringify(source),review=parseReferenceNets({nets:[net(0,'clear'),net(1,'uncertain'),net(2,'uncertain')]});
   const result=reconcileSourceNets(source,review);

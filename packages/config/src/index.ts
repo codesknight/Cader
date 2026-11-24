@@ -2,7 +2,7 @@ import { readFile, realpath, stat } from 'node:fs/promises';
 import { dirname, resolve, relative, isAbsolute } from 'node:path';
 import { parseDocument } from 'yaml';
 import { z } from 'zod';
-export { parseVisualReport, visualReportSchema, parseAcceptancePlan, acceptancePlanSchema,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema,parseReferenceLabelInventory,referenceLabelInventorySchema,parseReferenceNets,referenceNetsSchema,reconcileSourceNets } from './quality.js';
+export { parseVisualReport, visualReportSchema, parseAcceptancePlan, acceptancePlanSchema,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema,parseReferenceLabelInventory,referenceLabelInventorySchema,parseReferenceNets,referenceNetsSchema,reconcileSourceNets,referenceMembershipSchema,parseReferenceMembership } from './quality.js';
 export type { VisualReview, QualityPlan,ReferenceObservationData } from './quality.js';
 
 const Profile = z.object({

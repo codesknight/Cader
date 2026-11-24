@@ -6,6 +6,7 @@ const hints: Record<string, string> = {
   ACCEPTANCE_PLAN_MISSING: '模型未提交有效验收计划，尚未允许绘图。检查规划工具错误和模型运行记录；不会将此状态称为已绘图待验证。',
   TASK_EXECUTION_REQUIRED:'本任务没有新建图纸或实际绘图证据，已阻止使用旧图验收。请查看执行轨迹；未重放旧操作。',
   REFERENCE_INSPECTION_FAILED:'参考图未形成有效且匹配原图哈希的结构观察；尚未允许绘图。检查视觉模型响应和格式修复记录。',
+  SOURCE_NET_REPORT_INVALID:'源图连接复核未提交有效结构报告（缺失/重复端子、错误索引或格式/响应失败），尚未允许绘图；这不等于已经证明原图接线不清楚。查看复核工具错误。',
   SOURCE_TOPOLOGY_UNCERTAIN:'原图外部连接经独立复核仍不确定，尚未允许绘图；查看net_review及原图局部证据，不按电路常识猜接线。',
   SOURCE_LABEL_INVENTORY_FAILED:'原图整图标注清点未形成有效结果，尚未允许绘图；查看源图清点调用记录。',
   DRAWING_UNIT_NOT_CLOSED:'当前绘图单元未提交有效读回检查点，已停止后续单元；现有确认操作保留，不能重放整图。',
