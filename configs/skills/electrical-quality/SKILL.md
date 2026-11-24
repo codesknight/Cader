@@ -23,3 +23,5 @@ description: Electrical schematic symbol, port and local correction knowledge; n
 
 - 符号实际引线必须到达每个声明端口；多段线只凭bbox不能证明端点，需要直线引线读回证据。已证实同坐标的相邻符号端口可直接接触，不能要求零长度WIRE。
 - 原图局部uncertain不是确定断开；沿实际笔迹核对T接点与连续路径，不因手绘粗细/抖动而自行拆网。保留程序原图复核疑问及专门source_topology_fidelity最终条件；明确冲突不猜测，不改变已封存连接去迎合视觉建议。
+
+- 参考图重绘须保留观察到的符号形态，不能仅因电气功能相近而换用另一制式。逐组件读取source_appearance与封存appearance_requirements，核对轮廓、填充、极性、箭头和方向；视觉通过仍可能漏检，不能据此取消独立源图期望验证。

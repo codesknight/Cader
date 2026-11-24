@@ -30,6 +30,8 @@ BUG-060（REQ-045回归新增，#20）：第25轮源网/文字值通过后，实
 
 BUG-061（REQ-045回归新增，#20）：第26轮源网仲裁将初读explicit uncertain关系也当作known clear，独立复核虽纠正了另一处关系，却因底部仍uncertain而整份报告被拒，0 CAD写入。现只有两份观察均明确的关系参与硬冲突判断；复核已明确的关系可替代初读疑点，仍不确定处保留旧候选但不能桥接两个新明确组。后续局部复核以已有有效报告为基准，不允许无关疑点让已明确关系倒退；新增器件完整保留。188项/typecheck/DSH smoke通过；完整原图继续，初读无certainty的旧冲突fixture改为显式clear，未放宽明确冲突反例。
 
+BUG-062（REQ-045回归新增，#20）：第27轮自动11/11通过，原生同hash DWG重开77实体、8组源网及9处文字全部匹配；独立实际截图/原生轮廓核对却发现接地三角被三横线替代。原自动quality=true记录保留，另记独立外观失败，不能称完整验收。根因之一已证实：组件单元只有抽象kind，去重整份源报告后没有传原图具体kind；单元契约也只含text/entity_count，遗漏封存visual形态条件。现每组件显式绑定source_appearance，传appearance_requirements；不提供固定几何。实际DSH单元fixture扩展检查两份契约，188项/typecheck/smoke通过。视觉漏检本身仍有边界，独立源形态期望验证保留；新完整原图实测继续。
+
 2026-11-24 REQ-043 / #20 / MCP#43：BUG-045的Count/CopyFrom截图恢复分支及BUG-047视觉失败绿色勾号已修复，恢复后状态读回/备份清理/请求关联均强制，未知仍保护。实机发现非活动文档ActiveLayout可能指向活动文档，新增Layout.Document/ObjectID绑定检查，并用ModelSpace.Layout确认旧图未变。回归首轮还发现Layers.Add动态解析错误，复用只读就绪/单次调用修复；Drawing18旧unknown保留。两轮原始绘本整体通过、10次复杂图重复捕获恢复通过；另一次风格uncertain保持待验证，历史蓝图根因、文件验收和纸布局自动路由仍未宣称解决。[分层结果](../validation/2026-11-24-capture-restoration-fix.md)。
 
 2026-11-24 REQ-042 / #20：BUG-045原生截图/恢复故障在用户Drawing17复现，48次绘图确认、预算充足，export Count异常及CopyFrom/COM拒绝使恢复状态未知；无PNG或实际VisionAgent调用。保留冻结，未修复。新增BUG-047：视觉失败的控制交接isError=false导致CLI绿色勾号，visual_attempt_count还包含截图失败，需拆分业务结果及真实视觉次数。dev.10异常交接本次确已生效。[证据](../validation/2026-11-24-house-capture-audit.md)。

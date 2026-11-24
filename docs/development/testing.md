@@ -1,3 +1,5 @@
+2026-11-24追加独立检查：第27轮自动11/11及原生同hash DWG重开77实体通过，8组网表及5类9处文字匹配，但独立源外观/闭合轮廓不符，完整质量仍失败；不能将自动quality=true与文件可读当作严格源图验收。BUG-062契约修复后188项/typecheck/smoke通过，第28轮执行中。
+
 # 测试记录
 
 2026-11-24 REQ-045：`pnpm typecheck`、`pnpm test` **188/188**、`pnpm smoke`通过；smoke为真实DSH组件/确定性模型，不冒充真实模型或CAD。原始电路手稿多次真实模型+AutoCAD记录已保留：一轮完成21单元、95 committed/0 unknown，DWG23071字节/83实体经原生同hash副本只读打开及几何/文字核对，但质量待验（不是完整通过）。最新质量回归仍执行，见[逐次实际结果](../validation/2026-11-24-reference-circuit-fix.md)。此轮未修改独立AutoCAD-MCP或Cader Python产品代码；不把以前Python结果冒充本轮新验收。
