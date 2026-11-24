@@ -548,7 +548,7 @@ export async function runQualityTask(options: {
         const focused=async(id:string,instruction:string,selected:ToolDefinition,includeHints:boolean)=>{
           activePlanningUnit=id;const progress:{id:string;status:'active'|'checked_in'}={id,status:'active'};planningUnits.push(progress);await options.persist(state());
           const request={signal,keepExecutionRound:true,maxImageViews:0,onlyTools:[selected.name],extraTools:[tool,selected],resultText:()=> '当前源信息确认阶段已保存，等待后续验收规划。'};
-          try{await act(instruction,request,includeHints);}catch(error){const failed=runtime.completed().filter(r=>r.profile===options.profile).at(-1);if(signal?.aborted||failed?.errorCode!=='OUTPUT_TRUNCATED')throw error;failure=null;options.emit({type:'task.planning_retry',reason:'OUTPUT_TRUNCATED',attempt:1,unit_id:id});await act('上次本阶段输出截断；只提交当前确认，不规划或绘图。'+instruction,request,includeHints);const recovered=runtime.completed().filter(r=>r.profile===options.profile).at(-1);if(recovered?.status==='succeeded')failed.recovered_by=recovered.id;}
+          try{await act(instruction,request,includeHints);}catch(error){const failed=runtime.completed().filter(r=>r.profile===options.profile).at(-1);if(signal?.aborted||!failed||!['OUTPUT_TRUNCATED','MALFORMED_RESPONSE','TIMEOUT'].includes(failed.errorCode??''))throw error;failure=null;options.emit({type:'task.planning_retry',reason:failed!.errorCode,attempt:1,unit_id:id});await act('上次本阶段响应中断；只提交当前确认，不规划或绘图。'+instruction,request,includeHints);const recovered=runtime.completed().filter(r=>r.profile===options.profile).at(-1);if(recovered?.status==='succeeded')failed.recovered_by=recovered.id;}
           progress.status='checked_in';activePlanningUnit=null;await options.persist(state());
         };
         if(canConfirm&&/补充确认|标注确认|label clarification/i.test(task)){
@@ -571,10 +571,10 @@ export async function runQualityTask(options: {
         planningRequest);
       } catch(error) {
         const failed=runtime.completed().filter(run=>run.profile===options.profile).at(-1);
-        if(plan||signal?.aborted||failed?.errorCode!=='OUTPUT_TRUNCATED')throw error;
+        if(plan||signal?.aborted||!failed||!['OUTPUT_TRUNCATED','MALFORMED_RESPONSE','TIMEOUT'].includes(failed.errorCode??''))throw error;
         failure=null;
-        options.emit({type:'task.planning_retry',reason:'OUTPUT_TRUNCATED',attempt:1});
-        await act('上次规划被截断。仅调用cader_submit_acceptance_plan提交紧凑计划，不输出长文；保持原始需求不变、逐项引用原文。普通插画components可为空；不加入未请求的保存或图元数量上限。必要语义/颜色/布局/风格用visual，新图用new_document。参考电路使用source_layout:true，只写必要requirements，不复制整份端口和net；仍须全部源标签/拓扑/视觉条件。\n'+task,planningRequest);
+        options.emit({type:'task.planning_retry',reason:failed!.errorCode,attempt:1});
+        await act('上次规划响应中断。仅调用cader_submit_acceptance_plan提交紧凑计划，不输出长文；保持原始需求不变、逐项引用原文。普通插画components可为空；不加入未请求的保存或图元数量上限。必要语义/颜色/布局/风格用visual，新图用new_document。参考电路使用source_layout:true，只写必要requirements，不复制整份端口和net；仍须全部源标签/拓扑/视觉条件。\n'+task,planningRequest);
         const recovered=runtime.completed().filter(run=>run.profile===options.profile).at(-1);
         if(recovered?.status==='succeeded')failed.recovered_by=recovered.id;
       }

@@ -652,3 +652,5 @@ The shorter MainAgent static prompt retains stable coordination and evidence/per
 Recovery sends only the latest eight operation records to the model; full audits remain persisted. A completed unit does not reset the shared token, time, step or execution-round budget.
 
 Scheduler supplies a fresh geometry/text readback at each drawing-unit start. Explicit confirmation quotes are offered from the actual request; source indices and values remain model-selected and program-checked. Terminal recovery counts distinguish the unit allowance from the task cumulative count.
+
+Planning and confirmation allow one compact retry for truncated output, malformed responses or model-response timeout. QUOTA/authentication errors are reported directly. Original failed records remain preserved.

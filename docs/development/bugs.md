@@ -278,3 +278,12 @@ BUG-043（REQ-040，#20，已证实未修复）：review后的snapshot失败绕�
 修复：按原请求提取含明确确认标题的完整原文作为本批source_quote schema候选，仍由模型选择位置/值且执行层逐项验证真实引用，不伪造确认；参考电路优先展示compact source_layout schema，完整自定布局入口保留；每个绘图单元先由Scheduler实际查询并核对原绑定，将精简后的全图几何/文字读回提供给模型，避免无依据反复查全图，不修改CAD操作序列。完整原生读回仍审计，独立几何/拓扑/视觉不免除。终端区分本单元恢复次数与累计次数，避免出现3/2。
 
 验证：typecheck、201测试、DSH组件smoke通过；单元fixture核对实际readback进入指令；确认fixture核对真实quote schema及compact入口，未知/变连接/耗尽测试保留。第37轮同一原始手稿完整实测待执行；2M阈值及单次8192未提高。前次47cc2a2 CI push45437486692/PR45437500657均success。Issue20进度comment7137890686，保持open。
+
+
+### BUG-073：规划阶段缺少响应格式损坏/超时有限恢复
+
+第37轮原始手稿源图复核完成，首批标注确认遇MALFORMED_RESPONSE而直接blocked，0 CAD写入。规划/确认既有紧凑重试只处理OUTPUT_TRUNCATED，与绘制响应恢复范围不一致。
+
+修复：复用每阶段原有最多一次紧凑重试，覆盖MALFORMED_RESPONSE及模型响应TIMEOUT；QUOTA/鉴权及其他失败不纳入；不增加原生CAD重放、不提高输出/总额度。保留失败agent并仅在有效后继成功时链接替代记录。完整单元fixture新增规划损坏响应后继续、原确认持久化失败回滚/成功绑定等联合检查。
+
+验证：初次类型检查因新增includes条件未缩窄undefined失败，原输出保留；增加明确存在性守卫后typecheck、201/201测试及DSH组件smoke通过，证据`.cader/circuit-20261125-*-planning-recovery-fixed.txt`。a420bb9 CI push45441292913/PR45441307032均success。第38轮完整原图真实回归待执行，不将37轮源观察成功称为绘图成功。

@@ -346,3 +346,5 @@ REQ-033手稿日志审计：读取用户原始附件及实际verification/events
 2026-11-25 BUG071：`pnpm typecheck`、`pnpm test`（201/201）、`pnpm smoke`通过；本轮测试约28秒。证据`.cader/circuit-20261125-*-unit-recovery.txt`。真实第35轮失败保留，第36轮待执行。
 
 2026-11-25 BUG072：`pnpm typecheck`、`pnpm test`（201/201）、`pnpm smoke`通过，证据`.cader/circuit-20261125-*-readback*.txt`。第36轮总额暂停，待验稿不作验收通过；第37轮待执行。
+
+2026-11-25 BUG073：初始TS18048失败保留，明确guard后`pnpm typecheck`、201测试、`pnpm smoke`通过，fixed记录不覆盖失败。第37轮规划模型格式失败、CAD0写入，第38轮待执行。
