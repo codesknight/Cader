@@ -179,6 +179,8 @@ source_image_hash + stable_fact_id
 | `/resume` | 恢复可见对话/引用选择，建立新执行对象，权限回 ask | 不继承旧连接写授权、不重放 CAD |
 | Provider 真正 CONTEXT_WINDOW_EXCEEDED | 有错误分类入口，未看到自动压缩重试路径 | 未实现自动恢复 |
 
+还有一层需要单独说明：`live.ts` 的每次内部 `run()` 创建新的 DSH `sessionId`。语义单元、响应恢复和预算续轮会通过新的受控模型调用，重新注入任务状态、实际读回、必要历史/摘要和未派发结果。因此**内部 Agent 模型会话可以切换，但用户的 ChatSession 并不会自动摘要/分卷**；它也不会解除任务总预算或更换原生 CAD 写绑定。不能把“每次内部调用新session”宣传为“聊天达到上下文上限会自动压缩续接”。
+
 证据：[interactive.ts](../../packages/profile/src/interactive.ts)、[session-store.ts](../../packages/profile/src/session-store.ts)、[failure.ts](../../packages/profile/src/failure.ts)。`chars/4` 只是可见文字估算，明确排除图片和工具 token，不等于服务商真实窗口容量。当前 compact 提示目标是 ≤1500 字符，程序硬拒绝线为 12000 字符，不能把提示目标当作严格 schema 保证。
 
 ### 建议的自动压缩/分卷方案（待实施）
