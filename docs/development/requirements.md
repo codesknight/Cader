@@ -187,3 +187,5 @@ REQ-040（#20，Milestone 3，2026-11-23）：用户要求排查dev.9绘本任�
 REQ-041（#20，Milestone 3，2026-11-24）：用户明确授权实现分层预算、进度检查点、原任务/连接/图纸/授权自动续轮、整批预检和验证预留，以及视觉/读回异常交回Scheduler；总任务上限安全暂停，unknown先对账不能续写。复用DSH/Cordis/ExecutionSession，真实模型与AutoCAD验证并保留失败。[实现与分层结果](../validation/2026-11-24-budget-continuation.md)。
 
 2026-11-25 REQ-045本原稿验收完成：真实模型/AutoCAD12/12、两次格式损坏续跑和轮预算交接，76确认/0未知；DWG20474字节独立只读重开71实体，8网/9标注/倒三角通过。9标注和1连接人工确认来源保留；泛化/跨进程恢复/像素映射仍不在通过范围。#20及v0.4 Milestone整体保持open。
+
+REQ-046（#20，Milestone 3，2026-11-25）：用户要求详细记录复杂关系重绘成功的方法，并核实标注反复存疑的根治、对话上限自动续接、主动用户澄清及MCP协同。交付为[源码复盘与方案](2026-11-25-complex-redraw-engineering-review.md)及[MCP建议](../contracts/2026-11-25-cader-mcp-execution-evidence-proposal.md)。本轮仅审计/文档，不宣称新运行时功能上线。已确认聊天当前手动compact/clear，源确认恢复与主动澄清状态存在缺口；P0验收为稳定源事实和确认去重、批量待答清单/回答绑定、安全自动压缩/分卷保留原任务/连接/预算。AutoCAD-MCP建议已提交#44，复用现有HTTP/managed能力，不修改相邻源码。

@@ -35,3 +35,5 @@ dev.7：[完整质量复验 / full quality retesting](validation/2026-11-21-comp
 dev.8：[能力目录与统一视觉入口 / scoped capabilities and shared review](validation/2026-11-23-capability-routing.md) · [ADR0016](adr/0016-capability-routing-and-shared-review.md)。主Agent主动视觉、Harness兜底复用及动态任务证据，偏好/状态/继续分开路由；真实房子/树两轮通过，旧失败与屏障保留。
 
 dev.9：[原生新图与质量恢复 / native creation and quality recovery](validation/2026-11-23-native-document-create-fix.md)。原生创建单次/新图验证、父子时限与视觉交接/格式恢复；原始彩色绘本任务8/8、47确认/0unknown，历史失败与屏障保留。
+
+2026-11-25：[复杂重绘工程复盘与长会话/澄清缺口](development/2026-11-25-complex-redraw-engineering-review.md) · [AutoCAD-MCP协同建议](contracts/2026-11-25-cader-mcp-execution-evidence-proposal.md)（建议已提交MCP #44，尚未实施新能力）。

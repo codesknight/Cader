@@ -352,3 +352,5 @@ REQ-033手稿日志审计：读取用户原始附件及实际verification/events
 2026-11-25 BUG074：`pnpm typecheck`、`pnpm test`（203/203）、`pnpm smoke`通过，证据`.cader/circuit-20261125-*-verdict.txt`。第38轮全部清单pass但整体uncertain反复修正后总预算暂停；DWG20826字节保留，未算完整通过。第39轮待执行。
 
 2026-11-25 最终真实原稿回归：第39轮12/12、23语义单元、76committed/0unknown，964050tokens；两次真实MALFORMED响应安全续跑、一次轮预算续期，真实视觉pass。原生同SHA只读重开DWG20474字节、71实体匹配；独立8网/9标注/倒三角/10原生检查均通过，人工截图对照通过，5旧证据及原图hash未变。代码203测试/typecheck/DSH组件smoke及c9a17dd两套CI成功。原始证据私有保留，全部历史失败不回改。详见[完整记录](../validation/2026-11-24-reference-circuit-fix.md)。
+
+2026-11-25 REQ-046文档/源码审计：`pnpm typecheck`、`pnpm test`（203/203）通过；`git diff --check`通过；双语命令/文档链接与锚点检查通过，最终计数及CI见Issue20收据。新文档准确区分已实现、静态确认缺口、待实施设计；未改运行时代码，未单独重跑smoke、未调用新付费模型/真实CAD，不把旧原稿实测算作本轮新增功能验收。原5项证据hash再核对不变。原始检查输出及审计收据保存在`.cader/runs/review-20261125-engineering/`。[复盘](2026-11-25-complex-redraw-engineering-review.md)及[MCP #44建议](../contracts/2026-11-25-cader-mcp-execution-evidence-proposal.md)已归档。

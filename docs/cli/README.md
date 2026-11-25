@@ -659,3 +659,9 @@ Scheduler supplies a fresh geometry/text readback at each drawing-unit start. Ex
 Planning and confirmation allow one compact retry for truncated output, malformed responses or model-response timeout. QUOTA/authentication errors are reported directly. Original failed records remain preserved.
 
 A visual report cannot claim every required condition passed while its overall verdict is uncertain, even with minor advice. The model must identify an affected required condition or submit a consistent report; bounded same-image repair never converts uncertainty into success automatically.
+
+## Long conversations and user clarification: current behavior
+
+Cader does not automatically compact and start a successor conversation at its limits. Over 20000 estimated visible-text tokens (excluding images/tools), or an input over 24000 characters, prompts manual `/compact` or `/clear`. Over 1900 stored messages or 1600000 serialized bytes prompts `/clear`. These are application guards, not the provider's actual context capacity. `/compact` disables tools and preserves the dialogue archive; `/clear` disposes the execution owner and cannot seamlessly inherit drawing authority. Renewable execution-round allowances are separate from chat compaction; task-wide limits do not reset automatically.
+
+A tool-approval y/N is not factual confirmation of a source label or connection. Existing tools can bind actual confirmation text, but a complete structured pending-question, batch clarification and answer-continuation workflow is not implemented. Necessary unresolved conditions still block acceptance. Stable source facts, proactive clarification and safe automatic compaction are proposed work, documented in the [engineering review](../development/2026-11-25-complex-redraw-engineering-review.md).
