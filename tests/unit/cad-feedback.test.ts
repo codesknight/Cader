@@ -154,7 +154,7 @@ test('a successful model answer cannot hide an authoritative frozen CAD task', a
     }); return runtime;
   };
   try {
-    const report = await runTask(process.cwd(), { task: 'Report', executionState: () => ({ frozen: true, local_connection_id:null, write_state: 'frozen', freeze: null,
+    const report = await runTask(process.cwd(), { task: 'Report', executionState: () => ({ native_target:null,native_binding:null,binding_error:null,evidence_support:null,frozen: true, local_connection_id:null, write_state: 'frozen', freeze: null,
       transport: 'connected', scratch: 'Scratch', artifact: null, operations: [], counts: { unknown: 1 },
       counts_scope:'fixture',operation_mark:0,session_counts:{unknown:1},freeze_operation:null,freeze_evidence:null,barrier_resolution:null,recovery:{eligible:false,reason:'FIXTURE',guidance:'fixture'},
       cad_observation: { source: 'fixture', observed_at: null, entity_count: null, native_identity: 'unavailable', cached: true,scope:'full_document',stale_due_to_mutations:true,interpretation:'fixture' } }) }, factory);

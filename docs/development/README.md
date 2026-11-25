@@ -27,3 +27,5 @@
 当前为 `0.4.0-dev.3`：[12:32日志审计](../validation/2026-11-20-user-log-1232.md)及[代码修复/实机证据](../validation/2026-11-20-schema-preflight-fix.md)。参数漏检、状态诊断和重复输出已修复；真实Flash已越过文字绘制进入视觉，完整质量仍未通过。上段dev.2为历史记录；旧锁不自动迁移。
 
 2026-11-25：**[复杂手稿重绘：代码/提示词/证据复盘、标注稳定性、上下文续接与主动澄清](2026-11-25-complex-redraw-engineering-review.md)** · [MCP协同建议](../contracts/2026-11-25-cader-mcp-execution-evidence-proposal.md)。已修复与拟议能力分别列出，不将设计写成已实现。
+
+2026-11-25：**[Cader新回执适配、身份校验与错误分级](../validation/2026-11-25-cader-execution-evidence.md)**（REQ-047 / #20）。组件、真实服务契约和完整绘图验收分开记录。

@@ -2,6 +2,8 @@ import { mkdir, open, readFile, writeFile, unlink, lstat, readdir } from 'node:f
 import { resolve, relative, dirname, basename, extname, matchesGlob } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { createMcpClient, defineTool, inspectCadImageBorder, assertToolArguments, ToolArgumentsError, NativeCreateNotInvokedError, NativeCaptureSafeError, captureEvidence,createToolRuntime, invokeTool } from '@cader/dsh-adapter';
+import { comEvidence, parseNativeBinding, observedArguments, parseExecutionEnvelope, receiptOutcome, legacyObservedResult, ObservedMcpCallError, ExecutionReceiptError } from '@cader/dsh-adapter';
+import type { ComEvidence, NativeBinding, ObservedRequest, ExecutionReceipt } from '@cader/dsh-adapter';
 import type { ToolDefinition } from '@cader/dsh-adapter';
 import { loadMcp, workspacePath, readReferenceImage } from '@cader/config';
 import { runUserShell } from './interactive-shell.js';
@@ -13,18 +15,24 @@ import type { BarrierReview } from './legacy-barrier.js';
 
 export type PermissionMode = 'read-only' | 'ask' | 'workspace-write' | 'full-access';
 export const PERMISSION_MODES: PermissionMode[] = ['read-only', 'ask', 'workspace-write', 'full-access'];
-const reads = new Set(['get_backend_status', 'list_layers', 'list_blocks', 'list_symbol_library', 'query_entities', 'query_entities_in_region', 'get_entity', 'get_block_attributes']);
+const reads = new Set(['get_document_binding', 'get_backend_status', 'list_layers', 'list_blocks', 'list_symbol_library', 'query_entities', 'query_entities_in_region', 'get_entity', 'get_block_attributes']);
 const writes = new Set(['new_drawing', 'draw_line', 'draw_circle', 'draw_arc', 'draw_rectangle', 'draw_text', 'draw_polyline', 'draw_mtext', 'draw_hatch', 'add_dimension', 'create_layer', 'set_layer_properties', 'move_entity', 'rotate_entity', 'copy_entity', 'scale_entity', 'mirror_entity', 'delete_entity', 'save_drawing']);
 export type Approval = (description: string, cwd: string) => Promise<boolean>;
 type Client = Awaited<ReturnType<typeof createMcpClient>>;
 type Outcome = 'committed' | 'committed_observation_failed' | 'unknown' | 'blocked_not_dispatched' | 'failed_before_dispatch';
 export interface CadOperationRecord { operation_id: string; tool_call_id?: string; agent_id?: string; tool: string;
-  stage: string; outcome: Outcome; dispatched: boolean; transport_dispatched?:boolean; native_dispatched?:boolean; error?: unknown; target: string | null; duration_ms: number }
+  stage: string; outcome: Outcome; dispatched: boolean; evidence_route?:string; execution_receipt?:ExecutionReceipt; transport_dispatched?:boolean; native_dispatched?:boolean; error?: unknown; target: string | null; duration_ms: number }
 
 /** One owner and one persistent MCP process per interactive workspace. COM retains its
  * scratch document binding; a new client must never inherit write authority. */
 export class ExecutionSession {
   private client?: Client;
+  private evidence:ComEvidence|null=null;
+  private nativeTarget:{instance_id:string;document_id:string}|null=null;
+  private lastBinding:NativeBinding|null=null;
+  private bindingError:string|null=null;
+  private observedRequests=new Map<string,ObservedRequest>();
+
   private tail: Promise<unknown> = Promise.resolve();
   private scratch: string | null = null;
   private lock?: string;
@@ -122,13 +130,13 @@ export class ExecutionSession {
     await this.loadPersistedBarrier();
     this.client = await this.clientFactory(await loadMcp(path));
     this.localConnectionId=randomUUID();
-    return { connected: true, discovered: this.client.toolNames().length, exposed: this.definitions().length,
-      backend: await this.client.call('get_backend_status', {}) };
+    try{return { connected: true, discovered: this.client.toolNames().length, exposed: this.definitions().length,
+      backend: await this.discoverEvidence() };}catch(error){await this.dispose();throw error;}
   }
   async status() { return this.client ? { connected: true, discovered: this.client.toolNames().length,
     exposed: this.definitions().length, scratch: this.scratch, frozen: this.frozen,
     health: this.facts(), backend: await this.client.call('get_backend_status', {}),
-    backend_metadata_note:'COM not_probed and documents=[] are lifecycle metadata, not a native document query or evidence of disconnection.' } : { connected: false, frozen: this.frozen, health: this.facts(), hint: '/mcp use <configuration>; /mcp tools' }; }
+    backend_metadata_note:this.evidence?'COM status document labels are cached_not_live; get_document_binding explicitly observes lifecycle identity. revision remains unsupported.':'Legacy COM lifecycle metadata is not a native document query or evidence of disconnection.' } : { connected: false, frozen: this.frozen, health: this.facts(), hint: '/mcp use <configuration>; /mcp tools' }; }
   mark() { return this.operations.length; }
   async reviewLegacyBarrier(){return (await inspectLegacyBarrier(this.workspace,(this.client?.definitions()??[]).filter(tool=>writes.has(tool.name.split('__').at(-1)!)))).review;}
   async resolveLegacyBarrier(confirm?:Approval):Promise<{resolved:boolean;reason:string;review?:BarrierReview;archive?:string;receipt?:string}>{
@@ -160,13 +168,13 @@ export class ExecutionSession {
       }
     });
   }
-  toolAvailable(name: string) { return !this.frozen || (!['cader_shell','cader_apply_cad_patch','cader_review_cad_view'].includes(name) && (!name.startsWith('mcp__') || reads.has(name.split('__').at(-1)!))); }
+  toolAvailable(name: string) { if(this.bindingError&&name.startsWith('mcp__')&&writes.has(name.split('__').at(-1)!))return false;return !this.frozen || (!['cader_shell','cader_apply_cad_patch','cader_review_cad_view'].includes(name) && (!name.startsWith('mcp__') || reads.has(name.split('__').at(-1)!))); }
   controlTools(): ToolDefinition[] {
     const output = { schema: { type: 'string' as const }, render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: String(value) }] };
-    return [defineTool({ name: 'cader_cad_health', description: 'Read authoritative Cader execution/lock state. COM null status fields mean unavailable metadata, not missing binding.', parameters: {}, output,
+    return [defineTool({name:'cader_cad_execution_status',description:'Read the original current-session observed request journal, without dispatching or replaying a write. Missing/expired/foreign records do not prove non-execution. This does not lift a write barrier.',parameters:{},output,execute:async()=>JSON.stringify(await this.executionStatus())}),defineTool({ name: 'cader_cad_health', description: 'Read authoritative Cader execution/lock state. COM null status fields mean unavailable metadata, not missing binding.', parameters: {}, output,
       execute: async () => JSON.stringify(await this.status()) }),
     defineTool({ name: 'cader_cad_recover', description: 'Reconcile a mutation already acknowledged on this original connection after a failed observation. Never replays. Unknown dispatch, reconnect and legacy barriers remain frozen.', parameters: {}, output,
-      execute: async () => JSON.stringify(await this.recover()) })];
+      execute: async () => JSON.stringify(await this.recover()) })].filter(tool=>tool.name!=='cader_cad_execution_status'||Boolean(this.evidence));
   }
   async captureView(signal: AbortSignal, confirm?: Approval) {
     return this.serial(async () => {
@@ -181,18 +189,23 @@ export class ExecutionSession {
       const exporter=this.client.definitions().find(tool=>tool.name.endsWith('__export_current_view'));
       if(!exporter)throw new ToolArgumentsError('export_current_view',[{path:'/',keyword:'tool',message:'Export definition is unavailable; no request sent'}]);
       assertToolArguments(exporter,{file_path:path});
+      await this.checkIdentity(true);
       await this.acquire();
       const operationId = randomUUID();
       const captureStarted = Date.now();
-      await this.audit({ phase: 'capture_prepared', operation_id: operationId, target: this.scratch, path });
+      const evidenceRequest=this.observedRequest('export_current_view',{file_path:path},operationId);
+      await this.audit({ phase: 'capture_prepared', operation_id: operationId, target: this.scratch, path,observed_request:evidenceRequest,request_json:evidenceRequest?JSON.stringify(evidenceRequest):undefined,request_sha256:evidenceRequest?createHash('sha256').update(JSON.stringify(evidenceRequest)).digest('hex'):undefined });
+      if(evidenceRequest)this.observedRequests.set(operationId,structuredClone(evidenceRequest));
       let acknowledged = false;
       let receipt:ReturnType<typeof captureEvidence>;
       try {
-        const result = await this.client.call('export_current_view', { file_path: path }, operationId);
+        const dispatch=await this.cadCall('export_current_view',{file_path:path},operationId,evidenceRequest),result=dispatch.value;
+        if(dispatch.receipt)await this.audit({phase:'capture_execution_receipt',receipt:dispatch.receipt});
         acknowledged = true;
         const structured=result as {result?:unknown;capture?:unknown};
+        if(dispatch.receipt&&(!structured||typeof structured!=='object'||!structured.capture))throw new Error('CAD_CAPTURE_RESTORATION_PROOF_REQUIRED');
         if(structured&&typeof structured==='object'&&structured.capture){
-          receipt=captureEvidence(structured.capture,operationId,path,this.scratch);
+          receipt=captureEvidence(structured.capture,operationId,path,this.lastBinding?.name??this.scratch);
           if(!receipt||receipt.stage!=='complete')throw new Error('CAD_CAPTURE_RECEIPT_INVALID');
         }
         if (resolve(String(receipt?structured.result:result)) !== path) throw new Error('CAD_CAPTURE_PATH_MISMATCH');
@@ -204,10 +217,13 @@ export class ExecutionSession {
         await this.audit({ phase: 'capture_completed', operation_id: operationId, duration_ms: Date.now() - captureStarted, ...evidence });
         return { path, evidence };
       } catch (error) {
-        const safe=receipt??(error instanceof NativeCaptureSafeError?captureEvidence(error.evidence,operationId,path,this.scratch):undefined);
+        const observedError=error instanceof ExecutionReceiptError?error:undefined;
+        const safe=receipt??(error instanceof NativeCaptureSafeError?captureEvidence(error.evidence,operationId,path,this.lastBinding?.name??this.scratch):observedError&&observedError.outcome!=='unknown'?captureEvidence(observedError.receipt.native_detail,operationId,path,this.lastBinding?.name??this.scratch):undefined);
         const record: CadOperationRecord = { operation_id: operationId, tool: 'export_current_view', target: this.scratch,
           dispatched: true, stage: acknowledged ? 'capture_artifact' : 'capture_dispatch',
           outcome: acknowledged ? 'committed_observation_failed' : 'unknown', duration_ms: Date.now() - captureStarted, error: this.diagnostic(error) };
+        if(observedError){record.execution_receipt=observedError.receipt;record.evidence_route='autocad-execution/1';record.native_dispatched=observedError.receipt.native_invoked;record.transport_dispatched=true;record.outcome=observedError.outcome;record.dispatched=observedError.outcome!=='failed_before_dispatch';record.stage=record.dispatched?'capture_observation':'capture_native_preflight';}
+        if(observedError?.outcome==='failed_before_dispatch'){this.operations.push(record);await this.audit({...record,phase:'not_dispatched'});throw error;}
         if(safe){
           record.stage=safe.capture_mutations_started?'capture_restored':'capture_preflight';
           record.outcome=safe.capture_mutations_started?'committed_observation_failed':'failed_before_dispatch';
@@ -233,12 +249,12 @@ export class ExecutionSession {
     const count=(items:CadOperationRecord[])=>Object.fromEntries(['committed','committed_observation_failed','unknown','blocked_not_dispatched','failed_before_dispatch'].map(outcome=>[outcome,items.filter(op=>op.outcome===outcome).length]));
     const stale=this.observedAt===null||this.operations.slice(Math.max(0,this.observedOperationMark)).some(op=>op.dispatched);
     const frozenOperation=this.freeze?this.operations.find(op=>op.operation_id===this.freeze!.operation_id):undefined;
-    return { frozen: this.frozen, local_connection_id:this.localConnectionId, write_state: this.frozen ? 'frozen' : this.scratch ? 'scratch_bound' : 'new_scratch_required',
+    return { frozen: this.frozen, local_connection_id:this.localConnectionId, write_state: this.frozen ? 'frozen' : this.bindingError ? 'binding_mismatch' : this.scratch ? 'scratch_bound' : 'new_scratch_required',
       freeze: this.freeze ?? null, transport: this.client ? 'connected' : 'disconnected',
       cad_observation: { source: 'last_successful_full_query', observed_at: this.observedAt, entity_count: this.observedCount,
-        native_identity: 'legacy_COM_name_guard; no authoritative instance/revision', cached: true, scope:'full_document',stale_due_to_mutations:stale,
+        native_identity: this.evidence?'canonical_iunknown_lifecycle; COM revision unsupported':'legacy_COM_name_guard; no authoritative instance/revision', cached: true, scope:'full_document',stale_due_to_mutations:stale,
         interpretation:stale?'Cached count is stale; it does not describe the current drawing. Controlled reads remain available.':'Last full observation; not a native revision guarantee.' },
-      scratch: this.scratch, artifact: this.lastArtifact, operations,
+      scratch: this.scratch, native_target:this.nativeTarget?{...this.nativeTarget}:null,native_binding:this.lastBinding?{...this.lastBinding,observation:'last_verified_not_live'}:null,binding_error:this.bindingError,evidence_support:this.evidence?structuredClone(this.evidence):null,artifact: this.lastArtifact, operations,
       counts:count(operations),counts_scope:since===0?'session':'since_operation_mark',operation_mark:since,session_counts:count(this.operations),
       freeze_operation:frozenOperation?structuredClone(frozenOperation):null,
       freeze_evidence:this.freeze?{source:frozenOperation?'current_session':'persisted_barrier',tool:frozenOperation?.tool??this.persistedBarrier?.tool,error:frozenOperation?.error??this.persistedBarrier?.error}:null,
@@ -246,7 +262,7 @@ export class ExecutionSession {
       recovery:this.recoveryEligibility() };
   }
   private recoveryEligibility(){
-    const eligible=Boolean(this.frozen&&this.client&&this.freeze?.sameConnection&&this.freeze.outcome==='committed_observation_failed'&&this.freeze.stage==='postflight');
+    const eligible=Boolean(this.frozen&&this.client&&this.freeze?.sameConnection&&this.freeze.outcome==='committed_observation_failed'&&this.freeze.stage==='postflight'&&(!this.evidence||Boolean(this.nativeTarget&&this.scratch)));
     return {eligible,reason:!this.frozen?'NOT_FROZEN':eligible?'ACKNOWLEDGED_WRITE_READBACK_FAILED':!this.client||!this.freeze?.sameConnection?'ORIGINAL_CONNECTION_REQUIRED':'DISPATCH_OUTCOME_UNCONFIRMED',
       guidance:!this.frozen?'No recovery is needed.':eligible?'Only re-query on the original connection; never replay.':'Repeated recovery, reconnecting or restarting CAD cannot establish a missing acknowledgement. Preserve the barrier; controlled reads remain available.'};
   }
@@ -261,23 +277,73 @@ export class ExecutionSession {
       `最近全图缓存：${observation.entity_count??'未观测'}，时间 ${observation.observed_at??'无'}；${observation.stale_due_to_mutations?'已过时，不能代表当前实体数':'不是原生revision保证'}。过滤查询不覆盖此全图缓存。`,
       `自动恢复资格：${facts.recovery.eligible?'可在原连接只重查':'不可自动恢复'}（${facts.recovery.reason}）。`,
       facts.frozen?'受控只读查询仍可用；未知写入不重放，重连/重启不会解除屏障。':'',
-      'COM的not_probed和documents=[]只是生命周期元数据，不代表图纸为空或连接失效。'
+      this.evidence?`COM生命周期身份：${this.nativeTarget?.document_id??'未绑定工作图'}；状态标签为缓存，实时检查使用get_document_binding；revision不支持。${this.bindingError?' 绑定核对失败，禁止写入：'+this.bindingError:''}`:'COM的not_probed和documents=[]只是生命周期元数据，不代表图纸为空或连接失效。'
     ].filter(Boolean).join('\n'));
   }
   private diagnostic(error: unknown) {
     const e = error as { name?: string; message?: string; code?: unknown; stack?: string; failure?: unknown };
     const native = JSON.stringify(e?.failure ?? e?.message ?? '').match(/\((-?\d{8,}),/);
-    const hresult = native ? Number(native[1]) : null;
+    const nativeError=error instanceof ExecutionReceiptError?error.receipt.error as {hresult?:unknown}|null:null;
+    const hresult=typeof nativeError?.hresult==='number'?nativeError.hresult:native?Number(native[1]):null;
     return JSON.parse(this.clean(JSON.stringify({ name: e?.name, message: e?.message?.slice(0, 4000), code: e?.code,
       hresult, native_code: hresult === -2147418111 ? 'RPC_E_CALL_REJECTED' : null,
-      stack: e?.stack?.slice(0, 8000), protocol_failure: e?.failure })));
+      stack: e?.stack?.slice(0, 8000), protocol_failure: e?.failure,execution_receipt:error instanceof ExecutionReceiptError?error.receipt:undefined,client_observation_error:error instanceof ExecutionReceiptError?error.processing_error:undefined })));
   }
   /** Retry only a known transient COM rejection of a READ. A mutation is
    * invoked once regardless of whether its acknowledgement can be observed. */
+  private async discoverEvidence(){
+    const status=await this.client!.call('get_backend_status',{});
+    this.evidence=comEvidence(status,this.client!.toolNames());return status;
+  }
+  private async checkIdentity(writing=false){
+    if(!this.evidence||!this.nativeTarget)return;
+    try{
+      const binding=parseNativeBinding(await this.client!.call('get_document_binding',{}),this.nativeTarget,writing);
+      this.lastBinding=binding;this.bindingError=null;
+      await this.audit({phase:'native_binding_checked',binding,writing});
+    }catch(error){this.bindingError=(error as Error).message;throw error;}
+  }
+  private observedRequest(name:string,payload:Record<string,unknown>,requestId:string):ObservedRequest|undefined{
+    if(!this.evidence)return;
+    const mapped=observedArguments(name,{...payload,...(name==='export_current_view'?{request_id:requestId}:{})});
+    if(!mapped||!this.evidence.operations.includes(mapped.operation))return;
+    if(mapped.operation!=='new_document'&&!this.nativeTarget)return; // read-only attached drawing is not adopted.
+    return {instance_id:this.evidence.instance_id,request_id:requestId,...mapped,document_id:mapped.operation==='new_document'?null:this.nativeTarget!.document_id};
+  }
+  private async cadCall(name:string,payload:Record<string,unknown>,requestId:string,prepared?:ObservedRequest){
+    const request=prepared??this.observedRequest(name,payload,requestId);
+    if(!request)return {value:await this.client!.call(name,payload,requestId),route:'legacy',receipt:undefined as ExecutionReceipt|undefined};
+    if(!prepared){const json=JSON.stringify(request);await this.audit({phase:'evidence_request_prepared',request_json:json,request_sha256:createHash('sha256').update(json).digest('hex')});}
+    let envelope:unknown,failed=false;
+    try{envelope=await this.client!.call('execute_observed_operation',request as unknown as Record<string,unknown>,requestId);}
+    catch(error){if(!(error instanceof ObservedMcpCallError))throw error;envelope=error.envelope;failed=true;}
+    const result=parseExecutionEnvelope(envelope,request,failed);
+    if(result.receipt.stage!=='completed')throw new ExecutionReceiptError(result.receipt,receiptOutcome(result.receipt));
+    let value:unknown;
+    try{value=legacyObservedResult(name,result.result,result.receipt);}catch(error){throw new ExecutionReceiptError(result.receipt,'committed_observation_failed',(error as Error).message);}
+    if(name==='new_drawing')this.nativeTarget={instance_id:request.instance_id,document_id:result.receipt.result_document_id!};
+    return {value,route:'autocad-execution/1',receipt:result.receipt};
+  }
+  async executionStatus(){return this.serial(async()=>{
+    const id=this.freeze?.operation_id??[...this.observedRequests.keys()].at(-1),request=id?this.observedRequests.get(id):undefined;
+    if(!this.client||!this.evidence||!request||this.freeze&&!this.freeze.sameConnection)return {recovered:false,reason:'NO_CURRENT_OBSERVED_REQUEST'};
+    const value=await this.client.call('get_execution_status',{instance_id:request.instance_id,request_id:request.request_id});
+    const raw=value as {status?:string;contract?:string;backend?:string;instance_id?:string;request_id?:string;replay_safe?:boolean};
+    if(raw?.status==='unresolved'){
+      if(raw.contract!=='autocad-execution/1'||raw.backend!=='com'||raw.instance_id!==request.instance_id||raw.request_id!==request.request_id||raw.replay_safe!==false)throw new Error('MCP_EXECUTION_STATUS_IDENTITY_MISMATCH');
+      await this.audit({phase:'execution_status_unresolved',request_id:request.request_id,result:value});return {recovered:false,reason:'RECORD_UNRESOLVED',evidence:value};
+    }
+    const {receipt}=parseExecutionEnvelope({receipt:value},request);
+    const prior=this.operations.find(op=>op.operation_id===request.request_id)?.execution_receipt;
+    if(prior&&prior.service_request_fingerprint!==receipt.service_request_fingerprint)throw new Error('MCP_EXECUTION_FINGERPRINT_CHANGED');
+    await this.audit({phase:'execution_status_observed',request_id:request.request_id,receipt});
+    return {recovered:false,replayed:false,reason:'OBSERVATION_ONLY_BARRIER_UNCHANGED',receipt};
+  });}
   private async readBack(name:'query_entities'|'get_entity',args:Record<string,unknown>,correlation?:string){
     if(!this.client)throw new Error('MCP_NOT_CONNECTED');
+    const baseId=correlation??randomUUID();
     for(let attempt=0;;attempt++){
-      try{return await this.client.call(name,args,correlation);}
+      try{await this.checkIdentity();const result=await this.cadCall(name,args,attempt?`${baseId}-retry-${attempt}`:baseId);if(result.receipt)await this.audit({phase:'evidence_read_result',receipt:result.receipt});return result.value;}
       catch(error){
         const diagnostic=this.diagnostic(error);
         if(attempt>=3||![-2147418111,-2147417846].includes(diagnostic.hresult))throw error;
@@ -289,7 +355,7 @@ export class ExecutionSession {
   async probe() {
     return this.serial(async () => {
       if (!this.client) throw new Error('MCP_NOT_CONNECTED');
-      const entities = await this.client.call('query_entities', {});
+      const entities = await this.readBack('query_entities', {});
       this.observedAt = new Date().toISOString(); this.observedCount = Array.isArray(entities) ? entities.length : null;
       this.observedOperationMark=this.operations.length;
       await this.audit({ phase: 'probe', source: 'query_entities', scratch: this.scratch, entity_count: this.observedCount });
@@ -301,11 +367,12 @@ export class ExecutionSession {
       if (!this.frozen) {await this.audit({phase:'recovery_refused',reason:'NOT_FROZEN'});return { recovered: false, reason: 'NOT_FROZEN', ...this.facts() };}
       // Only a successful mutation acknowledgement plus a later failed read can be
       // reconciled through this still-owned connection. Dispatch errors/timeouts cannot.
-      if (!this.client || !this.freeze?.sameConnection || this.freeze.outcome !== 'committed_observation_failed' || this.freeze.stage !== 'postflight'){
+      if (!this.client || !this.freeze?.sameConnection || this.freeze.outcome !== 'committed_observation_failed' || this.freeze.stage !== 'postflight'||this.evidence&&(!this.nativeTarget||!this.scratch)){
         await this.audit({phase:'recovery_refused',operation_id:this.freeze?.operation_id,eligibility:this.recoveryEligibility()});
         return { recovered: false, reason: 'AUTHORITATIVE_OUTCOME_OR_ORIGINAL_CONNECTION_REQUIRED', ...this.facts() };
       }
       try {
+        await this.checkIdentity(true);
         const observed = await this.readBack('query_entities', {});
         await this.audit({ phase: 'reconciled', operation_id: this.freeze.operation_id, outcome: 'committed', observed });
         this.observedAt = new Date().toISOString(); this.observedCount = Array.isArray(observed) ? observed.length : null;
@@ -384,7 +451,8 @@ export class ExecutionSession {
             exec.signal.throwIfAborted();
             try {
               assertToolArguments(tool,args);
-              const result = await this.client!.call(name, payload, operationId);
+              await this.checkIdentity();
+              const result=name==='get_document_binding'&&this.evidence?parseNativeBinding(await this.client!.call(name,payload,operationId),this.nativeTarget??{instance_id:this.evidence.instance_id}):(await this.cadCall(name,payload,operationId)).value;
               if (name === 'query_entities' && !payload.entity_type) { this.observedAt = new Date().toISOString(); this.observedCount = Array.isArray(result) ? result.length : null; this.observedOperationMark=this.operations.length; }
               await this.audit({ ...correlation, phase: 'read_result', tool: name, args: payload, result, duration_ms: Date.now() - started });
               return JSON.stringify(result);
@@ -401,6 +469,7 @@ export class ExecutionSession {
             if(this.taskGrant?.requireNew&&name!=='new_drawing')throw new Error('NEW_TASK_DRAWING_REQUIRED: call new_drawing before editing; old drawing cannot satisfy this task');
             if(name==='new_drawing'&&this.taskGrant&&!this.taskGrant.newAllowed)throw new Error('TASK_DRAWING_ALREADY_CREATED: continue local editing; do not rebuild');
             if (name !== 'new_drawing' && !this.scratch) throw new Error('NEW_SCRATCH_DRAWING_REQUIRED');
+            if(name!=='new_drawing')await this.checkIdentity(true);
             await this.validateDependencies(name,payload,operationId);
             let destructive = name === 'delete_entity' || payload.erase_source === true;
             let output: string | undefined;
@@ -418,11 +487,16 @@ export class ExecutionSession {
                 createHash('sha256').update(await readFile(output)).digest('hex')===this.lastArtifact.sha256)destructive=false;
             }
             await this.authorize(this.clean(`CAD ${name}\n${JSON.stringify(payload)}\nTarget: ${this.scratch ?? 'new scratch drawing'}`), destructive, confirm,false,{name,payload});
-            exec.signal.throwIfAborted(); await this.acquire();
-            await this.audit({ ...record, phase: 'prepared', request: operationId, args: payload });
+            const evidenceRequest=this.observedRequest(name,payload,operationId);
+            exec.signal.throwIfAborted();
+            if(name!=='new_drawing')await this.checkIdentity(true); // Approval can outlive the document binding.
+            await this.acquire();
+            await this.audit({ ...record, phase: 'prepared', request: operationId, args: payload,observed_request:evidenceRequest,request_json:evidenceRequest?JSON.stringify(evidenceRequest):undefined,request_sha256:evidenceRequest?createHash('sha256').update(JSON.stringify(evidenceRequest)).digest('hex'):undefined });
+            if(evidenceRequest)this.observedRequests.set(operationId,structuredClone(evidenceRequest));
             record.stage = 'dispatch'; record.dispatched = true;record.transport_dispatched=true;
             // Cancellation after dispatch never abandons, automatically retries or replays a mutation.
-            const result = await this.client!.call(name, payload, operationId);
+            const dispatched=await this.cadCall(name,payload,operationId,evidenceRequest),result=dispatched.value;
+            record.evidence_route=dispatched.route;record.execution_receipt=dispatched.receipt;record.native_dispatched=dispatched.receipt?.native_invoked;
             acknowledged = true; record.outcome = 'committed'; record.stage = 'acknowledgement';
             if (name === 'new_drawing') this.scratch = String(result);
             if(name==='new_drawing'&&this.taskGrant){this.taskGrant.target=this.scratch;this.taskGrant.newAllowed=false;this.taskGrant.created.clear();}
@@ -433,6 +507,7 @@ export class ExecutionSession {
             record.target = this.scratch;
             await this.audit({ ...record, phase: 'mutation_acknowledged', result });
             record.stage = 'postflight';
+            await this.checkIdentity(true);
             const objectId = Number(payload.object_id ?? String(result).match(/object_id=(\d+)/)?.[1]);
             const targeted = name !== 'delete_entity' && Number.isSafeInteger(objectId) && objectId > 0;
             const observed = targeted ? [await this.readBack('get_entity', { object_id: objectId }, operationId + '-query')]
@@ -452,10 +527,17 @@ export class ExecutionSession {
             return JSON.stringify({ operation: record, result, observed, observation_scope, artifact: output ? this.lastArtifact : null,
               verification: 'queried-after-write; geometric/semantic/visual/file-reopen acceptance is separate' });
           } catch (error) {
+            if(error instanceof ExecutionReceiptError&&error.receipt.request_id===operationId){
+              record.execution_receipt=error.receipt;record.evidence_route='autocad-execution/1';record.native_dispatched=error.receipt.native_invoked;
+              acknowledged=error.outcome==='committed_observation_failed';
+              if(error.outcome==='failed_before_dispatch'){record.dispatched=false;record.stage='native_preflight';record.outcome='failed_before_dispatch';}
+              else if(acknowledged){record.stage='postflight';if(this.taskGrant)for(const id of error.receipt.affected_entities.created){const n=Number(id);if(Number.isSafeInteger(n)&&n>0)this.taskGrant.created.add(n);}}
+              if(name==='new_drawing'&&error.receipt.native_invoked){this.scratch=null;this.nativeTarget=null;record.target=null;record.stage=acknowledged?'acknowledged_unbound':'dispatch';}
+            }
             if(!acknowledged&&name==='new_drawing'&&error instanceof NativeCreateNotInvokedError&&error.requestId===operationId){
               record.dispatched=false;record.native_dispatched=false;record.stage='native_preflight';record.outcome='failed_before_dispatch';
             }
-            if(!acknowledged&&error instanceof ToolArgumentsError){record.dispatched=false;record.stage='preflight';record.outcome='failed_before_dispatch';}
+            if(!acknowledged&&error instanceof ToolArgumentsError){record.dispatched=false;record.transport_dispatched=false;record.stage='preflight';record.outcome='failed_before_dispatch';}
             if (!record.dispatched && this.frozen) record.outcome = 'blocked_not_dispatched';
             record.error = this.diagnostic(error); record.duration_ms = Date.now() - started;
             if (record.dispatched) {
@@ -546,6 +628,6 @@ export class ExecutionSession {
     await this.tail; await this.client?.dispose(); this.client = undefined; this.scratch = null;
     if (this.lock && !this.frozen) await unlink(this.lock);
     this.lock = undefined;
-    this.taskGrant=undefined;this.taskEntities.clear();this.localConnectionId=null;
+    this.taskGrant=undefined;this.taskEntities.clear();this.localConnectionId=null;this.evidence=null;this.nativeTarget=null;this.lastBinding=null;this.bindingError=null;this.observedRequests.clear();
   }
 }

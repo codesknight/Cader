@@ -5,6 +5,20 @@
 
 **Applies to Cader 0.4.0-dev.12 · Updated 2026-11-25**
 
+2026-11-25 execution evidence: when a COM server advertises `autocad-backend-evidence/1`, the execution owner selects its new receipt entrypoint per operation. Models retain the controlled CAD tools. Requests are persisted before dispatch; instance/document/request identity, native ACKs, observation stages and affected entity sets are checked. Uncovered operations such as polylines and layers retain their legacy entrypoints with working-document identity checks, without equivalent receipt guarantees. Old servers remain compatible. Broken advertised contracts fail connection; a failed dispatch never falls back to another mutator.
+
+Document names are labels. Different IDs with the same name block writes; SaveAs on the same ID does not transfer ownership. Status distinguishes cached labels from the last explicit identity observation. COM revision remains unsupported. New drawing creation does not require an active document; only a verified working document created by this connection gains write authority.
+
+| Valid receipt evidence | Execution behavior |
+| --- | --- |
+| `not_dispatched`, no native invocation or claimed effects | Pre-dispatch failure without freezing; corrections use a fresh request ID |
+| All native actions ACKed, then `observation_failed` | Committed with failed observation; read-only reconciliation requires the original connection/document |
+| Missing ACK, contradictory/foreign/missing receipt or dispatch timeout | Unknown and frozen; no replay or automatic unlocking |
+
+With this contract, the main Agent can call `cader_cad_execution_status` to read its original current-connection request; it cannot supply an arbitrary request ID. The terminal states that this is read-only and leaves the barrier unchanged. Missing, expired, restarted or foreign records never prove non-execution. This entry does not automatically promote unknown outcomes. Capture still requires the independent plot-state restoration receipt; an execution ACK does not replace it.
+
+Opt-in contract check: `pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --execution-evidence`. It uses no paid model, valid drawing operation or existing-document adoption. It performs real discovery, explicit read-only binding observation, deliberately invalid pre-native admission and journal negative checks. Without an active document, binding checks remain unevaluated and the command exits nonzero while retaining the other results. This is not drawing or quality acceptance. [Implementation, actual results and limits](../validation/2026-11-25-cader-execution-evidence.md).
+
 2026-11-25 validation: the original complex reference circuit passed 12/12 checks with real models and AutoCAD, including safe response/budget continuation. Independent native DWG-copy reopening, eight nets, nine human-confirmed labels and source-symbol outline checks passed. This is one assisted reference case, not general OCR/physical-scale certification. Default CLI saving checks headers/hash/post-save CAD; native reopening was an additional regression check. [Evidence and limits](../validation/2026-11-24-reference-circuit-fix.md).
 
 dev.12: reference circuits use model-planned components, named pins and external netlists, including branches and three-terminal devices. Harness schedules component, net and label units with readback checkpoints; all units still require independent geometry, topology, source-image and DWG acceptance. A unit check-in is progress, never task acceptance. The terminal reports unit progress and truncation retries.

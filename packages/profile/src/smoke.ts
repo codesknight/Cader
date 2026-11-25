@@ -77,3 +77,5 @@ export { ExecutionSession, PERMISSION_MODES } from './execution.js';
 export { validateCadArguments } from './cad-arguments.js';
 export { replyTextAfterStreaming, toolResultLine } from './terminal-output.js';
 export { referencedPaths, importReferenceImage, referenceOutput,referenceLayoutHints,sourcePlanLayout } from './reference-input.js';
+
+export { runExecutionEvidenceSmoke } from './execution-evidence-smoke.js';

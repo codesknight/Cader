@@ -9,6 +9,7 @@ import { invokeTool } from './tool-call.js';
 import { assertToolArguments, ToolArgumentsError } from './tool-validation.js';
 import { randomUUID } from 'node:crypto';
 import { nativeCreateRejection } from './native-create.js';
+import { ObservedMcpCallError } from './execution-evidence.js';
 import { captureEvidence } from './capture-evidence.js';
 import type { CaptureReceipt } from './capture-evidence.js';
 
@@ -64,6 +65,10 @@ export async function createMcpClient(config: McpConfig) {
             const evidence=captureEvidence(JSON.parse(result.error.message),requestId,String(args.file_path));
             if(evidence)throw new NativeCaptureSafeError(evidence);
           }catch(error){if(error instanceof NativeCaptureSafeError)throw error;}
+        }
+        if(result.isError&&name==='execute_observed_operation'){
+          let envelope:unknown;try{envelope=JSON.parse(result.error.message);}catch{/* Unstructured failure cannot prove a native outcome. */}
+          if(envelope&&typeof envelope==='object')throw new ObservedMcpCallError(envelope);
         }
         if (result.isError) throw new McpCallError(name, { error: result.error,
           content: result.content.filter(block => block.type === 'text') });

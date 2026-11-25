@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { runHarnessSmoke, runLiveSmoke, runExecutionSmoke, runReliabilitySmoke, runVisualSmoke, runFaultSmoke, runQualitySmoke, runTask, failureFromError, runControlledCad,
+import { runHarnessSmoke, runLiveSmoke, runExecutionEvidenceSmoke, runExecutionSmoke, runReliabilitySmoke, runVisualSmoke, runFaultSmoke, runQualitySmoke, runTask, failureFromError, runControlledCad,
   reconcileControlledCad, contractSchemas, validateAssessment, assessmentSchemas, CAD_DRAFT_REVISION } from '@cader/profile';
 import { recordSmoke } from './record.js';
 import { loadConfig, loadSkills, redactSecrets, workspacePath } from '@cader/config';
@@ -7,7 +7,7 @@ import { readFile } from 'node:fs/promises';
 import { runTerminal } from './terminal.js';
 
 const command = process.argv[2];
-const usage = 'Cader CLI (permission: ask by default)\nexec "<task>" [--permissions read-only|ask|workspace-write|full-access] [--intent assess|redraw] [--mcp <local.yaml>] [--skill <name>] [--image <local.png|jpg>] [--crop x,y,w,h] [--rotate 0|90|180|270]\nredraw requires an image, connected MCP and write permission; quality and DWG file verification are reported separately.\nskills list | skills show <name> [--resource <id>] | doctor | models | harness-smoke\nlive-smoke --mcp <local.yaml> [--execution | --reliability | --faults | --visual | --quality [--task <request>] [--round-cad-budget <1..64>] [--round-cad-budget <1..64>] | --image <file> --expected-image <json>]\ncad-contract\ncad-test --backend http --mcp <local.yaml> --plan <plan.json> --output .cader/artifacts/<name>.dwg [--authorize-write]\ncad-reconcile --run <managed-run-directory> --mcp <local.yaml>\nassessment-check --assessment <json> --expect <independent.json>';
+const usage = 'Cader CLI (permission: ask by default)\nexec "<task>" [--permissions read-only|ask|workspace-write|full-access] [--intent assess|redraw] [--mcp <local.yaml>] [--skill <name>] [--image <local.png|jpg>] [--crop x,y,w,h] [--rotate 0|90|180|270]\nredraw requires an image, connected MCP and write permission; quality and DWG file verification are reported separately.\nskills list | skills show <name> [--resource <id>] | doctor | models | harness-smoke\nlive-smoke --mcp <local.yaml> [--execution-evidence | --execution | --reliability | --faults | --visual | --quality [--task <request>] [--round-cad-budget <1..64>] [--round-cad-budget <1..64>] | --image <file> --expected-image <json>]\ncad-contract\ncad-test --backend http --mcp <local.yaml> --plan <plan.json> --output .cader/artifacts/<name>.dwg [--authorize-write]\ncad-reconcile --run <managed-run-directory> --mcp <local.yaml>\nassessment-check --assessment <json> --expect <independent.json>';
 function flags(keys: string[], booleans: string[] = []) {
   const result = new Map<string, string>();
   const args = process.argv.slice(3);
@@ -39,6 +39,7 @@ try {
     permissionMode?: 'read-only' | 'ask' | 'workspace-write' | 'full-access';
     imageView?: { rotation?: 0 | 90 | 180 | 270; crop?: { left: number; top: number; width: number; height: number } } } | undefined;
   let smokeInput: { mcpPath: string; image?: string; expectedImage?: string; task?:string;roundCadBudget?:number } | undefined;
+  let evidenceSmoke = false;
   let executionSmoke = false;
   let reliabilitySmoke = false;
   let visualSmoke = false;
@@ -49,6 +50,7 @@ try {
     const args = process.argv.slice(3);
     for (let index = 0; index < args.length; index += 2) {
       const flag = args[index]!, value = args[index + 1];
+      if (flag === '--execution-evidence' && !evidenceSmoke) { evidenceSmoke = true; index--; continue; }
       if (flag === '--execution' && !executionSmoke) { executionSmoke = true; index--; continue; }
       if (flag === '--reliability' && !reliabilitySmoke) { reliabilitySmoke = true; index--; continue; }
       if (flag === '--visual' && !visualSmoke) { visualSmoke = true; index--; continue; }
@@ -58,7 +60,7 @@ try {
         || !value?.trim() || value.startsWith('--')) throw new Error('USAGE_ERROR');
       flags.set(flag, value);
     }
-    if (!flags.has('--mcp') || (flags.has('--expected-image') && !flags.has('--image')) || ((executionSmoke || reliabilitySmoke || visualSmoke || faultSmoke || qualitySmoke) && flags.has('--image')) || [executionSmoke,reliabilitySmoke,visualSmoke,faultSmoke,qualitySmoke].filter(Boolean).length > 1) throw new Error('USAGE_ERROR');
+    if (!flags.has('--mcp') || (flags.has('--expected-image') && !flags.has('--image')) || ((evidenceSmoke || executionSmoke || reliabilitySmoke || visualSmoke || faultSmoke || qualitySmoke) && flags.has('--image')) || [evidenceSmoke,executionSmoke,reliabilitySmoke,visualSmoke,faultSmoke,qualitySmoke].filter(Boolean).length > 1) throw new Error('USAGE_ERROR');
     if(flags.has('--task')&&!qualitySmoke)throw new Error('USAGE_ERROR');
     const roundCadBudget=flags.has('--round-cad-budget')?Number(flags.get('--round-cad-budget')):undefined;
     if(roundCadBudget!==undefined&&(!qualitySmoke||!Number.isInteger(roundCadBudget)||roundCadBudget<1||roundCadBudget>64))throw new Error('USAGE_ERROR');
@@ -153,7 +155,7 @@ try {
       console.log(redactSecrets(JSON.stringify({ ok: true, runtime: config.runtime, profiles: config.profiles.map(profile =>
         ({ ...profile, credentialConfigured: Boolean(process.env[profile.api_key_env]?.trim()) })) }, null, 2), config.profiles));
     } else if (command === 'live-smoke') {
-      const result = qualitySmoke ? await runQualitySmoke(process.cwd(), smokeInput!.mcpPath,smokeInput!.task,smokeInput!.roundCadBudget) : faultSmoke ? await runFaultSmoke(process.cwd(), smokeInput!.mcpPath) : visualSmoke ? await runVisualSmoke(process.cwd(), smokeInput!.mcpPath) : reliabilitySmoke ? await runReliabilitySmoke(process.cwd(), smokeInput!.mcpPath) : executionSmoke ? await runExecutionSmoke(process.cwd(), smokeInput!.mcpPath) : await runLiveSmoke(process.cwd(), smokeInput!);
+      const result = evidenceSmoke ? await runExecutionEvidenceSmoke(process.cwd(), smokeInput!.mcpPath) : qualitySmoke ? await runQualitySmoke(process.cwd(), smokeInput!.mcpPath,smokeInput!.task,smokeInput!.roundCadBudget) : faultSmoke ? await runFaultSmoke(process.cwd(), smokeInput!.mcpPath) : visualSmoke ? await runVisualSmoke(process.cwd(), smokeInput!.mcpPath) : reliabilitySmoke ? await runReliabilitySmoke(process.cwd(), smokeInput!.mcpPath) : executionSmoke ? await runExecutionSmoke(process.cwd(), smokeInput!.mcpPath) : await runLiveSmoke(process.cwd(), smokeInput!);
       console.log(JSON.stringify(result, null, 2));
       process.exitCode = result.ok ? 0 : 1;
     } else {

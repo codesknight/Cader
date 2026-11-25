@@ -189,3 +189,6 @@ REQ-041（#20，Milestone 3，2026-11-24）：用户明确授权实现分层预�
 2026-11-25 REQ-045本原稿验收完成：真实模型/AutoCAD12/12、两次格式损坏续跑和轮预算交接，76确认/0未知；DWG20474字节独立只读重开71实体，8网/9标注/倒三角通过。9标注和1连接人工确认来源保留；泛化/跨进程恢复/像素映射仍不在通过范围。#20及v0.4 Milestone整体保持open。
 
 REQ-046（#20，Milestone 3，2026-11-25）：用户要求详细记录复杂关系重绘成功的方法，并核实标注反复存疑的根治、对话上限自动续接、主动用户澄清及MCP协同。交付为[源码复盘与方案](2026-11-25-complex-redraw-engineering-review.md)及[MCP建议](../contracts/2026-11-25-cader-mcp-execution-evidence-proposal.md)。本轮仅审计/文档，不宣称新运行时功能上线。已确认聊天当前手动compact/clear，源确认恢复与主动澄清状态存在缺口；P0验收为稳定源事实和确认去重、批量待答清单/回答绑定、安全自动压缩/分卷保留原任务/连接/预算。AutoCAD-MCP建议已提交#44，复用现有HTTP/managed能力，不修改相邻源码。
+
+
+REQ-047（#20，Milestone 3，2026-11-25）：用户明确启动“Cader 新回执适配＋身份校验＋错误分级测试”，依据独立MCP aed49a7 / PR45 的执行证据P0报告。复用DSH、ExecutionSession、Scheduler/Recovery；能力协商、十项白名单映射、派发前请求持久化、COM生命周期身份和回执因果校验、未派发/ACK后失败/unknown分级及原请求只读查询。验收包含实际stdio传输反例、旧接口兼容、截图恢复证明、原屏障保留及显式真实MCP契约检查；本批不追溯解锁旧unknown，不修改相邻MCP，不将组件夹具冒充完整原手稿/绘本联合验收。[实现与实际结果](../validation/2026-11-25-cader-execution-evidence.md)。

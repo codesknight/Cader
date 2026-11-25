@@ -306,3 +306,16 @@ BUG-043（REQ-040，#20，已证实未修复）：review后的snapshot失败绕�
 - G046-C：布尔工具审批与源事实确认工具不等于正式真人澄清流程；缺少结构化待答清单、问题去重/持久化/答复绑定和Harness漏问兜底。
 
 方案及待实现验收见[详细复盘](2026-11-25-complex-redraw-engineering-review.md)，均保持open；本轮未通过新增代码解决这些缺口。
+
+
+## 2026-11-25 REQ-047：新执行证据适配与分级
+
+### BUG-075：新回执未消费，明确原生前拒绝仍可能冻结
+
+确认根因：旧受控路径仅收到普通工具成功/错误，无法利用MCP新增的生命周期身份、逐动作ACK和journal。DSH MCP插件对isError抛出文本异常，不能假定失败structuredContent会保留。适配器仅对精确新入口解析JSON错误信封，再由ExecutionSession验证完整schema、当前请求/文档/实例和因果关系；不按错误文字猜测未执行。未覆盖的旧入口继续保守unknown，不承诺消除所有屏障。
+
+### BUG-076：ACK后读回错误覆盖写入证据（本轮开发发现）
+
+新适配初版将独立读回的ExecutionReceiptError按原写入处理，可能用读回request_id覆盖已ACK的写入并错误降为unknown。修复为仅匹配原写入operation_id的回执才改变原生分级；后续读回失败另留证据，保留原写入ACK和committed_observation_failed。实际stdio夹具包含终止读回失败及繁忙只读新ID重试，恢复不重放原写入。
+
+截图新执行入口还必须保留并校验autocad-capture/1；缺失恢复证明继续待验/冻结，外层unknown不能被内层“恢复成功”文字覆盖。未发现证据就不自动解除历史屏障。上述代码及夹具结果见[分层验收](../validation/2026-11-25-cader-execution-evidence.md)；真实服务已通过原生前拒绝和journal检查，当前无活动文档使实时绑定两项未执行，完整绘本/原手稿联合测试尚未执行。
