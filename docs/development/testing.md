@@ -361,3 +361,8 @@ REQ-033手稿日志审计：读取用户原始附件及实际verification/events
 显式`pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --execution-evidence`使用真实独立MCP47工具；5项通过（发现、缺参原生前拒绝、journal一致、错实例拒绝、查无不推导重放）；AutoCAD仅开始页，无活动文档，2项绑定为null，整体exit1，不记完整通过。真实run execution-evidence-f7dcddc3-bd59-4235-a354-f22d235a3908；前两轮绑定失败不覆盖。该入口无有效绘图、无付费模型；真实有效写入/视觉/DWG/HTTP本批未执行。
 
 早期typed fixture缺字段、离线工具目录、标准JSONRPC额外方法及标量structuredContent夹具失败均保留，最终修复后通过。原始输出归档`.cader/runs/receipt-adaptation-20261125/checks/`；旧真实unknown不重放/不清除，真实历史锁另只读记录，不伪称前后hash验收。见[实施报告](../validation/2026-11-25-cader-execution-evidence.md)，当前提交CI在Issue20补记。
+
+
+2026-11-25 REQ-048：基线14ada93，显式`pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task <原任务>`，真实模型/AutoCAD三次任务。冷态绘本blocked（Add ACK后Name观测失败）；热态绘本7/7、34确认/0未知、35实体/21116字节DWG同SHA只读重开；原始手稿93确认/0未知、2 MALFORMED/2 OUTPUT_TRUNCATED/1轮额度续接，修正后10项非视觉/8网/9标注/79实体DWG22697字节独立通过，视觉uncertain、整体pending。严格联合验收未通过。源图/16旧屏障/旧通过收据/旧DWG均不变，绘本原生几何在手稿后未变。
+
+显式`--execution-evidence`在活动图纸下7/7、exit0；原无文档失败保留不回改。`pnpm typecheck`、`pnpm test` **241/241**（27.95秒）通过，原始输出在`.cader/runs/joint-regression-20261125/`。本批无运行时代码变更，不重复组件smoke/本地Python工程回归；额外Python仅独立原生读取/自建同SHA文件副本只读打开。当前报告提交的CI另在Issue20补记。[分层结果/BUG077–078](../validation/2026-11-25-original-joint-regression.md)。

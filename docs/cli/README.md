@@ -5,6 +5,8 @@
 
 **Applies to Cader 0.4.0-dev.12 · Updated 2026-11-25**
 
+Latest original-task regression (14ada93): the warm house/red-roof/blue-wall/tree case passed 7/7 and independent DWG reopening. Cold new-document creation failed during MCP name observation. The original circuit passed eight-net/nine-label/native-DWG checks, but visual layout acceptance remains pending. Custom reference layouts currently do not remap source-projected label guides consistently; this gap remains unfixed. The read-only receipt contract passed 7/7 with an active document, which is separate from drawing acceptance. [Current results and open defects](../validation/2026-11-25-original-joint-regression.md). Earlier original-circuit success refers to another historical run.
+
 2026-11-25 execution evidence: when a COM server advertises `autocad-backend-evidence/1`, the execution owner selects its new receipt entrypoint per operation. Models retain the controlled CAD tools. Requests are persisted before dispatch; instance/document/request identity, native ACKs, observation stages and affected entity sets are checked. Uncovered operations such as polylines and layers retain their legacy entrypoints with working-document identity checks, without equivalent receipt guarantees. Old servers remain compatible. Broken advertised contracts fail connection; a failed dispatch never falls back to another mutator.
 
 Document names are labels. Different IDs with the same name block writes; SaveAs on the same ID does not transfer ownership. Status distinguishes cached labels from the last explicit identity observation. COM revision remains unsupported. New drawing creation does not require an active document; only a verified working document created by this connection gains write authority.

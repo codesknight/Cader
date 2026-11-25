@@ -319,3 +319,16 @@ BUG-043（REQ-040，#20，已证实未修复）：review后的snapshot失败绕�
 新适配初版将独立读回的ExecutionReceiptError按原写入处理，可能用读回request_id覆盖已ACK的写入并错误降为unknown。修复为仅匹配原写入operation_id的回执才改变原生分级；后续读回失败另留证据，保留原写入ACK和committed_observation_failed。实际stdio夹具包含终止读回失败及繁忙只读新ID重试，恢复不重放原写入。
 
 截图新执行入口还必须保留并校验autocad-capture/1；缺失恢复证明继续待验/冻结，外层unknown不能被内层“恢复成功”文字覆盖。未发现证据就不自动解除历史屏障。上述代码及夹具结果见[分层验收](../validation/2026-11-25-cader-execution-evidence.md)；真实服务已通过原生前拒绝和journal检查，当前无活动文档使实时绑定两项未执行，完整绘本/原手稿联合测试尚未执行。
+
+
+## 2026-11-25 REQ-048：原始两任务联合回归发现（均 open）
+
+### BUG-077 / 独立MCP：冷态新建 ACK 后直接名称读取失败
+
+真实产品stdio、AutoCAD无活动文档开始页，Documents.Add ACK=true 后 `<unknown>.Name`，结果文档ID未回传；Cader正确记为committed_observation_failed/acknowledged_unbound，非unknown，不自动接管/重放。后续binding可读新空图不等于可回改原回执。热态独立任务完成绘本与DWG，不能作为冷态已修复。已确认COMSession.execute直接document.Name；具体包装缓存/就绪根因尚未证实。[MCP最小建议与复验](../contracts/2026-11-25-mcp-new-document-label-feedback.md)保留，本轮没有改相邻源码或清除首轮屏障。
+
+### BUG-078 / Cader：自定参考布局与源投影标注坐标未统一
+
+本轮真实手稿选择完整自定components/nets（source_layout=null），布局相对原图偏移；quality.ts的标签单元仍直接使用referenceLayoutHints的投影框，没有依自定布局重映射。初稿出现标注偏远和压线；自主局部移动修复压线后，视觉仍对相对布局/标注归属给uncertain。几何/8网/9标注/实际DWG只读重开通过，但整体quality_accepted=false。没有用提高额度或人工允许偏差替代修复，没有把旧成功当作本次通过。
+
+后续需在CAD前统一/验证坐标映射，默认复用source_layout；自定布局必须显式映射且组件、端口、标注使用同一坐标框架。缺陷定位与视觉分歧对账仍待补齐。当前nonActionableUncertainty安全暂停符合既有规则，不将未执行到3轮称为预算耗尽。见[实际联合回归](../validation/2026-11-25-original-joint-regression.md)，两缺口尚未修复。

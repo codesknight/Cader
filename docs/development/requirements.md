@@ -192,3 +192,6 @@ REQ-046（#20，Milestone 3，2026-11-25）：用户要求详细记录复杂关�
 
 
 REQ-047（#20，Milestone 3，2026-11-25）：用户明确启动“Cader 新回执适配＋身份校验＋错误分级测试”，依据独立MCP aed49a7 / PR45 的执行证据P0报告。复用DSH、ExecutionSession、Scheduler/Recovery；能力协商、十项白名单映射、派发前请求持久化、COM生命周期身份和回执因果校验、未派发/ACK后失败/unknown分级及原请求只读查询。验收包含实际stdio传输反例、旧接口兼容、截图恢复证明、原屏障保留及显式真实MCP契约检查；本批不追溯解锁旧unknown，不修改相邻MCP，不将组件夹具冒充完整原手稿/绘本联合验收。[实现与实际结果](../validation/2026-11-25-cader-execution-evidence.md)。
+
+
+REQ-048（#20，Milestone3，2026-11-25）：用户要求执行原始房子/红屋顶蓝墙/大树和原始复杂手稿完整联合回归。以14ada93新回执适配、真实模型自主选择工具及真实AutoCAD验证几何/拓扑/自动视觉、DWG及独立只读重开；沿用已有9标注和1回线真实确认，不重放旧unknown，不修改相邻MCP，全部失败保留。运行记录见[联合回归及未通过原因](../validation/2026-11-25-original-joint-regression.md)。
