@@ -1,0 +1,130 @@
+{
+  "version": 1,
+  "date": "2026-11-25",
+  "requirement": "REQ-049",
+  "Cader_runtime_commit": "b062b51",
+  "MCP_runtime_commit": "4496834",
+  "note": "Cold house preceded later reference-only and review-status hardening; both final cases used b062b51. Real model and native AutoCAD, isolated actual COM instance; no simulated tool results. Raw evidence/private drawings remain local.",
+  "cases": [
+    {
+      "case": "cold_house",
+      "run": "quality-f035f47d-e46c-4d95-8cd0-09b49e4dce22",
+      "quality_accepted": true,
+      "checks_passed": 5,
+      "checks_total": 5,
+      "committed": 34,
+      "unknown": 0,
+      "correction_rounds": 1,
+      "cad_visual_calls": 2,
+      "native_entities": 32,
+      "artifact_bytes": 21083,
+      "artifact_sha256": "509c0613c78be88fe92a5002aaa0b90b5af70b819bb892c1ab8a790d6f1d6c56",
+      "read_only_reopen_matches": true,
+      "other_documents_unchanged": true,
+      "required_colors": {
+        "A-ROOF": {
+          "expected_ACI": 1,
+          "actual": [
+            1
+          ]
+        },
+        "A-WALL": {
+          "expected_ACI": 5,
+          "actual": [
+            5
+          ]
+        },
+        "A-TREE": {
+          "expected_ACI": 3,
+          "actual": [
+            3,
+            3,
+            3
+          ]
+        }
+      },
+      "evidence_sha256": {
+        "quality": "c41c362722a175e3c1607c7d5d4953f2c2714461a5096c8fc6945863e336cb48",
+        "events": "fb1e90b8f36cbd8e9fb509795b7a91554ff2bf5ac805c99e7ca28ad0836b8151",
+        "independent_native": "d95a160266b694e68349364b1b934c627131e4942d8dd9a1dba246db941f0df8"
+      }
+    },
+    {
+      "case": "final_house",
+      "run": "quality-abf5d143-f9b1-4e5f-9fe4-184f742addab",
+      "quality_accepted": true,
+      "checks_passed": 7,
+      "checks_total": 7,
+      "committed": 49,
+      "unknown": 0,
+      "correction_rounds": 2,
+      "cad_visual_calls": 3,
+      "native_entities": 48,
+      "artifact_bytes": 21428,
+      "artifact_sha256": "82fe4d93c71e43367a2e919b7f1e67b95315d1bea9c0e3395519394a96ebb2ff",
+      "read_only_reopen_matches": true,
+      "other_documents_unchanged": true,
+      "required_colors": {
+        "ROOF": {
+          "expected_ACI": 1,
+          "actual": [
+            1
+          ]
+        },
+        "WALL": {
+          "expected_ACI": 5,
+          "actual": [
+            5
+          ]
+        },
+        "TREE": {
+          "expected_ACI": 3,
+          "actual": [
+            3,
+            3,
+            3
+          ]
+        }
+      },
+      "evidence_sha256": {
+        "quality": "7887a4cb75d6ba74fa54560f22743277256af4dd2f1553398e2e79c8d5458232",
+        "events": "39feda58db31e8dd3d249c377c6b6b086b89c4a255b6ed34e9a4412e3e2e49cb",
+        "independent_native": "c9c6cda389f90573c5b95067c99ad3ccaa756898b484345b1c1785632557bf93"
+      }
+    },
+    {
+      "case": "original_circuit",
+      "run": "quality-5f2dceb4-fa20-4c7b-b033-3c377ae1566e",
+      "quality_accepted": true,
+      "checks_passed": 12,
+      "checks_total": 12,
+      "committed": 82,
+      "unknown": 0,
+      "correction_rounds": 0,
+      "cad_visual_calls": 1,
+      "native_entities": 77,
+      "artifact_bytes": 20506,
+      "artifact_sha256": "6a05acb30485adfc42c51bd5731acad3cdfb3857eccb9e2e94a80c6f09479faf",
+      "read_only_reopen_matches": true,
+      "other_documents_unchanged": true,
+      "required_colors": null,
+      "evidence_sha256": {
+        "quality": "01eaa44e4ee2ec5c8c94c250430afd5bb0f97d6c3cc32fa19a214aaecb0899e2",
+        "events": "5e4944f3670a7827a7d346ddd95bd6d47dea6536ceffec018aca2c8c6580d625",
+        "independent_native": "271dd2a4517c5403541e4be618367043780e5a909048eb73187e2b1ee0f2fc36",
+        "independent_source": "6216b25f4c953418bb56304044f39feece5d5aa638e6f53210841d799f1dc155"
+      }
+    }
+  ],
+  "preservation": {
+    "old_barriers_unchanged": 17,
+    "source_sha256_unchanged": "e73426e0fac2dcb60a654a7ca17128332a956e561ee3b5c1c985a99bc0d76f71",
+    "unrelated_MCP_tracked_changes_unchanged": 3
+  },
+  "offline": {
+    "Cader_tests_passed": 258,
+    "MCP_passed": 279,
+    "MCP_skipped": 33,
+    "full_DSH_app_profile_evaluated": false
+  }
+}

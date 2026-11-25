@@ -5,6 +5,8 @@
 
 **Applies to Cader 0.4.0-dev.12 · Updated 2026-11-25**
 
+Final live regression (b062b51): the original red-roof/blue-wall/tree case passed 7/7 and the original complex sketch 12/12, including automatic quality checks and independent read-only DWG reopening. Original drawings and old barriers remain intact. [Results and limits](../validation/2026-11-25-p0-quality-fixes.md).
+
 The current P0 patch adds these behaviors; full live-regression results are tracked separately:
 
 - A complete custom reference-schematic plan must share one global axis scale/translation with the source observation. Components, pins and label guides use the same transform. Drift is rejected before CAD dispatch; `source_layout:true` remains available. Arbitrary per-component rearrangement or rotation is not supported by this entry.
