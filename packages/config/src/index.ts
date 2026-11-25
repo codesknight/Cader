@@ -4,7 +4,7 @@ import { parseDocument } from 'yaml';
 import { z } from 'zod';
 export { parseVisualReport, visualReportSchema, parseAcceptancePlan, acceptancePlanSchema,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema,parseReferenceLabelInventory,referenceLabelInventorySchema,parseReferenceNets,referenceNetsSchema,reconcileSourceNets,referenceMembershipSchema,parseReferenceMembership,sourceConnectionReviewSchema,parseSourceConnectionReview,mergeConfirmedSourceConnections } from './quality.js';
 export type {ConfirmedSourceConnection} from './quality.js';
-export {reconcileSourceLabels} from './quality.js';
+export {reconcileSourceLabels,assertSourceBodyLayout,sourceBodyMarginOverlapMax} from './quality.js';
 export {referenceComponentInventorySchema,parseReferenceComponentInventory,reconcileSourceComponents} from './quality.js';
 export type { VisualReview, QualityPlan,ReferenceObservationData } from './quality.js';
 

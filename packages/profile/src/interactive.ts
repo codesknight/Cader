@@ -299,7 +299,8 @@ export class InteractiveSession {
       return remember(negative?'质量验收不能通过规则说明关闭。现有检查策略保留；未创建绘图任务、未调用CAD。':`已记录：${automatic?'按任务复杂度自动检查，必要视觉验收仍强制执行':'本会话后续绘图均要求视觉检查'}，恢复会话后仍保留。主Agent可主动调用，遗漏时Harness补验；未创建绘图任务、未调用CAD。`);
     }
     if(intent==='status'&&/视觉|vision/i.test(line)&&/是否|有没有|几次|多少|结果|状态|之前|此前|做过|用过|调用过|使用过|检查过|验证过|校验过|了吗|have you|did you|status/i.test(line)){
-      return remember(priorQuality?`当前任务视觉模型请求 ${qualityTaskContext(priorQuality).visual_call_count} 次，截图尝试 ${qualityTaskContext(priorQuality).capture_attempt_count} 次。以下为已保存的任务证据，不代表当前图纸的实时状态：\n${JSON.stringify(qualityTaskContext(priorQuality),null,2)}`:'当前会话没有已记录的质量任务；不能据此判断其他会话是否执行过视觉检查。');
+      const userReview=priorQuality?await userReviewStatus(this.state.workspace,this.state.qualityRun!,this.state.qualityReview):null;
+      return remember(priorQuality?`当前任务视觉模型请求 ${qualityTaskContext(priorQuality).visual_call_count} 次，截图尝试 ${qualityTaskContext(priorQuality).capture_attempt_count} 次。以下为已保存的任务证据，不代表当前图纸的实时状态：\n${JSON.stringify({...qualityTaskContext(priorQuality),acceptance:userReview?.accepted?'accepted_by_user':qualityTaskContext(priorQuality).acceptance,user_review:userReview},null,2)}`:'当前会话没有已记录的质量任务；不能据此判断其他会话是否执行过视觉检查。');
     }
     if(intent==='continue'&&priorQuality&&(await userReviewStatus(this.state.workspace,this.state.qualityRun!,this.state.qualityReview)).accepted)return remember('本任务DWG已人工验收，文件和证据仍匹配；未重放绘图。修改请提出明确新需求。');
     if(intent==='continue'&&!this.state.redrawTask&&priorQuality){

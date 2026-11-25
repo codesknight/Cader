@@ -1,7 +1,7 @@
 import { lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { readReferenceImage, workspacePath } from '@cader/config';
+import { readReferenceImage, workspacePath, sourceBodyMarginOverlapMax } from '@cader/config';
 import type { ReferenceObservationData,QualityPlan } from '@cader/config';
 
 export interface ReferenceTask {
@@ -84,7 +84,7 @@ export function sourcePlanLayout(source:ReferenceObservationData,image:{width:nu
     if(overlaps.some(v=>v<=0))continue;
     const options=[0,1].map(axis=>({axis,ratio:overlaps[axis]!/Math.min(a.bounds[1]![axis]!-a.bounds[0]![axis]!,b.bounds[1]![axis]!-b.bounds[0]![axis]!)})).sort((x,y)=>x.ratio-y.ratio);
     const {axis,ratio}=options[0]!;
-    if(ratio>0.15)throw new Error('SOURCE_SYMBOL_BOUNDS_OVERLAP: materially overlapping observed symbol bodies need a new source inspection');
+    if(ratio>sourceBodyMarginOverlapMax)throw new Error('SOURCE_SYMBOL_BOUNDS_OVERLAP: materially overlapping observed symbol bodies need a new source inspection');
     const [left,right]=(a.bounds[0]![axis]!+a.bounds[1]![axis]!)<(b.bounds[0]![axis]!+b.bounds[1]![axis]!)?[a,b]:[b,a];
     const boundary=Number(((left.bounds[1]![axis]!+right.bounds[0]![axis]!)/2).toFixed(3));
     left.bounds[1]![axis]=boundary;right.bounds[0]![axis]=boundary;
@@ -102,7 +102,7 @@ export function sourcePlanLayout(source:ReferenceObservationData,image:{width:nu
       if(Math.hypot(q[0]-p[0]!,q[1]-p[1]!)>1e-6)normalized_ports.push({component:o.id,terminal,original:p,planned:q});
       return q;
     });
-    return {id:o.id,source_id:o.id,kind:o.kind,bounds,ports,pin_names:ports.map((_,i)=>`p${i}`),source_terminals:ports.map((_,i)=>i)};
+    return {id:o.id,source_id:o.id,kind:o.kind.slice(0,64),bounds,ports,pin_names:ports.map((_,i)=>`p${i}`),source_terminals:ports.map((_,i)=>i)};
   });
   const nets:NonNullable<QualityPlan['nets']>=(source.nets??[]).map(n=>({id:n.id,pins:n.pins.map(p=>({component:p.object,pin:`p${p.terminal}`}))}));
   return {components,nets,normalized_ports,normalized_bounds};

@@ -373,4 +373,4 @@ REQ-033手稿日志审计：读取用户原始附件及实际verification/events
 
 ## 2026-11-25 REQ-049 / 前四 P0
 
-`pnpm typecheck`、`pnpm test` 257/257、`pnpm smoke`（DSH组件）通过；最后源OCR别名保守certainty断言和最终完整手稿仍在复验。MCP独立279通过/33跳过、33专项及改动文件Ruff I,F通过。实际命令、早期失败、真实模型/真实CAD/人工入口边界与产物摘要见[联合记录](../validation/2026-11-25-p0-quality-fixes.md)。原始房子冷态5/5，34确认/0未知，DWG同hash只读重开32实体一致；旧用户明确通过的两张同hash成品，正式人工入口2/2通过，原自动manifest不改写。不是full DSH app profile验收。
+`pnpm typecheck`、`pnpm test` 258/258、`pnpm smoke`（DSH组件）通过；源OCR别名保守certainty、源本体入口、人工状态查询均通过，最终完整手稿仍在复验。MCP独立279通过/33跳过、33专项及改动文件Ruff I,F通过。实际命令、早期失败、真实模型/真实CAD/人工入口边界与产物摘要见[联合记录](../validation/2026-11-25-p0-quality-fixes.md)。原始房子冷态5/5，34确认/0未知，DWG同hash只读重开32实体一致；旧用户明确通过的两张同hash成品，正式人工入口2/2通过，原自动manifest不改写。不是full DSH app profile验收。

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseReferenceObservation,parseReferenceNets,reconcileSourceNets,referenceMembershipSchema,parseReferenceMembership,mergeConfirmedSourceConnections,parseReferenceComponentInventory,reconcileSourceComponents,parseReferenceLabelInventory,reconcileSourceLabels} from '@cader/config';
+import {assertSourceBodyLayout,parseReferenceObservation,parseReferenceNets,reconcileSourceNets,referenceMembershipSchema,parseReferenceMembership,mergeConfirmedSourceConnections,parseReferenceComponentInventory,reconcileSourceComponents,parseReferenceLabelInventory,reconcileSourceLabels} from '@cader/config';
 const source=parseReferenceObservation({version:1,drawing_kind:'schematic',summary:'Synthetic reference only',coordinate_system:'normalized-image-top-left-y-down',content_bounds:[[0,0],[1,1]],objects:[{id:'Q',kind:'three-pin',category:'component',bounds:[[0,0],[1,1]],terminals:[[0,0],[1,0],[1,1]],certainty:'clear'}],visible_text:[],connections:[],unknowns:[],nets:[{id:'original',pins:[0,1,2].map(terminal=>({object:'Q',terminal})),certainty:'clear'}]});
 const net=(terminal:number,certainty:'clear'|'uncertain')=>({id:`n${terminal}`,pins:[{object:'Q',terminal}],certainty,evidence:'Synthetic confidence fixture only'});
 
@@ -84,4 +84,12 @@ test('same-position same-literal OCR aliases do not create extra required labels
  assert.equal(reconcileSourceLabels([a],[a,{...alias,certainty:'uncertain'}])[0]!.certainty,'uncertain');
  assert.equal(reconcileSourceLabels([a],[{...alias,text:'47KΩ'}]).length,1);
  assert.equal(reconcileSourceLabels([a],[{...alias,text:'48kΩ'}]).length,1);
+});
+
+test('material source body overlap is rejected before planning; non-schematic and edge margins remain allowed',()=>{
+ const a={...source.objects[0]!,bounds:[[0.1,0.1],[0.3,0.3]] as [[number,number],[number,number]]};
+ const b={...a,id:'other',bounds:[[0.2,0.2],[0.4,0.4]] as typeof a.bounds};
+ assert.throws(()=>assertSourceBodyLayout({...source,objects:[a,b]}),/SOURCE_SYMBOL_BODY_CONFLICT/);
+ assert.doesNotThrow(()=>assertSourceBodyLayout({...source,drawing_kind:'other',objects:[a,b]}));
+ assert.doesNotThrow(()=>assertSourceBodyLayout({...source,objects:[a,{...b,bounds:[[0.29,0.1],[0.4,0.3]]}]}));
 });

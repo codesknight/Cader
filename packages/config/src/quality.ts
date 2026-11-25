@@ -77,6 +77,18 @@ export const ReferenceObservation=z.object({
     if(missing.length||unknown.length||duplicate.length||new Set(value.nets.map(n=>n.id)).size!==value.nets.length)ctx.addIssue({code:'custom',message:'Observed terminal partition invalid; include every actual terminal exactly once. '+JSON.stringify({missing,unknown,duplicate,duplicate_net_ids:new Set(value.nets.map(n=>n.id)).size!==value.nets.length})});
   }
 });
+export const sourceBodyMarginOverlapMax=0.15;
+/** Reject conflicting symbol bodies while the observing model can still repair
+ * its own pixel report, before immutable source facts reach CAD planning. */
+export function assertSourceBodyLayout(source:z.infer<typeof ReferenceObservation>){
+  if(source.drawing_kind!=='schematic')return;
+  const bodies=source.objects.filter(o=>o.terminals.length);
+  for(let i=0;i<bodies.length;i++)for(let j=i+1;j<bodies.length;j++){
+    const a=bodies[i]!,b=bodies[j]!,overlaps=[0,1].map(axis=>Math.min(a.bounds[1][axis]!,b.bounds[1][axis]!)-Math.max(a.bounds[0][axis]!,b.bounds[0][axis]!));
+    if(overlaps.every(v=>v>0)&&Math.min(...overlaps.map((v,axis)=>v/Math.min(a.bounds[1][axis]!-a.bounds[0][axis]!,b.bounds[1][axis]!-b.bounds[0][axis]!)))>sourceBodyMarginOverlapMax)
+      throw new Error(`SOURCE_SYMBOL_BODY_CONFLICT: ${a.id} and ${b.id} overlap. Reinspect actual pixels: bounds enclose each symbol body only, excluding external wires, nearby labels and adjacent ground/reference symbols; terminals belong to that symbol, not a remote wire junction.`);
+  }
+}
 export type ReferenceObservationData=z.infer<typeof ReferenceObservation>;
 export const referenceObservationSchema=JSON.parse(JSON.stringify(z.toJSONSchema(ReferenceObservation)));
 export function parseReferenceObservation(value:unknown){return ReferenceObservation.parse(value);}
