@@ -31,3 +31,5 @@
 2026-11-25：**[Cader新回执适配、身份校验与错误分级](../validation/2026-11-25-cader-execution-evidence.md)**（REQ-047 / #20）。组件、真实服务契约和完整绘图验收分开记录。
 
 2026-11-25：**[原始房子/复杂手稿联合回归](../validation/2026-11-25-original-joint-regression.md)**（REQ-048）：热态绘本通过，冷态新建失败，手稿结构通过但视觉待验；BUG077–078保持open。
+
+REQ-048人工验收补充：用户确认两最终DWG均无问题，hash一致；两成品人工通过，原自动历史和冷态问题分别保留，见[报告补充](../validation/2026-11-25-original-joint-regression.md)。

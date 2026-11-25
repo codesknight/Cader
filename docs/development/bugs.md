@@ -332,3 +332,6 @@ BUG-043（REQ-040，#20，已证实未修复）：review后的snapshot失败绕�
 本轮真实手稿选择完整自定components/nets（source_layout=null），布局相对原图偏移；quality.ts的标签单元仍直接使用referenceLayoutHints的投影框，没有依自定布局重映射。初稿出现标注偏远和压线；自主局部移动修复压线后，视觉仍对相对布局/标注归属给uncertain。几何/8网/9标注/实际DWG只读重开通过，但整体quality_accepted=false。没有用提高额度或人工允许偏差替代修复，没有把旧成功当作本次通过。
 
 后续需在CAD前统一/验证坐标映射，默认复用source_layout；自定布局必须显式映射且组件、端口、标注使用同一坐标框架。缺陷定位与视觉分歧对账仍待补齐。当前nonActionableUncertainty安全暂停符合既有规则，不将未执行到3轮称为预算耗尽。见[实际联合回归](../validation/2026-11-25-original-joint-regression.md)，两缺口尚未修复。
+
+
+2026-11-25 REQ-048人工复核补充：用户确认两张最终DWG“没有问题”，重新只读hash与原产物一致，成品均人工接受。BUG078的初稿坐标框架缺口仍有证据、代码未修复；但最终视觉uncertain不能继续当作最终图纸存在已证实缺陷，应纳入视觉判断/证据对账与停止策略校准。原quality_accepted=false保留，与独立人工通过并列，不伪造模型pass。BUG077冷态故障不在该人工确认范围，继续open。[验收补充](../validation/2026-11-25-original-joint-regression.md)。

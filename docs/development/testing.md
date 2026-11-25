@@ -366,3 +366,6 @@ REQ-033手稿日志审计：读取用户原始附件及实际verification/events
 2026-11-25 REQ-048：基线14ada93，显式`pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --task <原任务>`，真实模型/AutoCAD三次任务。冷态绘本blocked（Add ACK后Name观测失败）；热态绘本7/7、34确认/0未知、35实体/21116字节DWG同SHA只读重开；原始手稿93确认/0未知、2 MALFORMED/2 OUTPUT_TRUNCATED/1轮额度续接，修正后10项非视觉/8网/9标注/79实体DWG22697字节独立通过，视觉uncertain、整体pending。严格联合验收未通过。源图/16旧屏障/旧通过收据/旧DWG均不变，绘本原生几何在手稿后未变。
 
 显式`--execution-evidence`在活动图纸下7/7、exit0；原无文档失败保留不回改。`pnpm typecheck`、`pnpm test` **241/241**（27.95秒）通过，原始输出在`.cader/runs/joint-regression-20261125/`。本批无运行时代码变更，不重复组件smoke/本地Python工程回归；额外Python仅独立原生读取/自建同SHA文件副本只读打开。当前报告提交的CI另在Issue20补记。[分层结果/BUG077–078](../validation/2026-11-25-original-joint-regression.md)。
+
+
+2026-11-25 REQ-048人工验收补充：用户检查两最终DWG后明确无问题；只读重算SHA分别匹配8e44cb…e0c8/21116字节、fa7346…e0d/22697字节。新增独立human-acceptance.json，不回写原自动quality/summary，不重跑真实模型/CAD；两成品人工通过，冷态故障与通用自主链路未因此通过。文档校验、typecheck/test与当前提交CI在Issue20补记。
