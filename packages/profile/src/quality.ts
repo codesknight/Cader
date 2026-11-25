@@ -4,7 +4,7 @@ import type { QualityPlan } from '@cader/config';
 import type { createLiveRuntime, ToolDefinition, PublicEvent, ImageView } from '@cader/dsh-adapter';
 import type { ExecutionSession, Approval } from './execution.js';
 import type { ReferenceTask } from './reference-input.js';
-import { referenceLayoutHints,sourcePlanLayout } from './reference-input.js';
+import { referenceLayoutHints,sourcePlanLayout,referencePlanHints } from './reference-input.js';
 import {crossesInterior} from './cad-arguments.js';
 import { taskIntent } from './task-intent.js';
 import {verifyNetlist,missingSymbolPorts} from './netlist.js';
@@ -38,7 +38,7 @@ export function requiresQuality(task: string) {
   return /画|绘制|重绘|复现|临摹|描绘|布局|添加.*(?:文字|标注)|(?:创建|设计|生成|制作|搭建|做).*(?:电路|图|符号|组件)|\bdraw\b|\bredraw\b|\btrace\b|\breproduce\b|\brecreate\b|\bdiagram\b|\bschematic\b/i.test(task);
 }
 type VisualResult = Awaited<ReturnType<Awaited<ReturnType<typeof createLiveRuntime>>['reviewCadView']>>;
-type VisualCall = { source: 'agent' | 'harness'; observed_state_hash: string; review: VisualResult };
+type VisualCall = { source: 'agent' | 'harness'; observed_state_hash: string; review: VisualResult;adjudication_of?:string };
 
 /** Compact evidence for model steps and status queries. Saved evidence is
  * historical, never a fresh native revision or authority to resume writes. */
@@ -234,6 +234,7 @@ export async function runQualityTask(options: {
   const sourceStrokeRequested=/手绘风格|手写风格|手写字体|铅笔效果|(?:保留|保持|模仿|照搬).{0,8}(?:笔触|笔迹)|sketch[- ]style|hand[- ]drawn style|handwritten font|preserve.{0,16}strokes?/i.test(task);
   const renderingContract=()=>referenceObservation?.structured?.drawing_kind!=='schematic'?{output:'editable CAD',requirements:'Follow the original requested visual features; do not invent output-style requirements.'}:({output:'editable CAD',source_is_not_output_style:true,preserve_stroke_texture:sourceStrokeRequested,preserve_source_font:sourceStrokeRequested,
     requirements:'Preserve symbols, literal labels, connections and relative layout. Hand-drawn describes the input medium; do not require rough strokes or handwriting in CAD unless explicitly requested.'});
+  let sourceFrameEvidence:ReturnType<typeof referencePlanHints>['frame']|null=null;
   let artifact:Awaited<ReturnType<ExecutionSession['saveTaskArtifact']>>|null=null;
   let accepted=false;
   let referenceObservation:Awaited<ReturnType<NonNullable<typeof runtime>['inspectReference']>>|null=null;
@@ -257,7 +258,7 @@ export async function runQualityTask(options: {
   const taskId = options.resume?.task_id ?? randomUUID();
   const state = () => ({ version: 1, task_id: taskId, phase, original_request: task, request_sha256: hash, plan, round, checks, visual, reviews, visual_calls: visualCalls, visual_attempt_count:visualAttempts,
     visual_model_call_count:runtime?.reviewStats?priorModelCalls+runtime.reviewStats().model_calls:visualCalls.reduce((sum,call)=>sum+(call.review.attempts?.length??1),0),
-    visual_error:visualError,transitions, failure,reference_task:referenceTask??null,reference_observation:referenceObservation,label_confirmations:labelConfirmations,unconfirmed_label_reviews:unconfirmedLabelReviews,connection_confirmations:connectionConfirmations,unconfirmed_connection_reviews:unconfirmedConnectionReviews,artifact,quality_accepted:accepted, model_runs: modelRuns, checkpoints,drawing_units:drawingUnits,active_drawing_unit:activeUnit,active_planning_unit:activePlanningUnit,planning_units:planningUnits,source_layout:sourceLayoutEvidence, budget:runtime?.budgetState?.(),execution: owner.facts() });
+    visual_error:visualError,transitions, failure,reference_task:referenceTask??null,reference_observation:referenceObservation,label_confirmations:labelConfirmations,unconfirmed_label_reviews:unconfirmedLabelReviews,connection_confirmations:connectionConfirmations,unconfirmed_connection_reviews:unconfirmedConnectionReviews,artifact,quality_accepted:accepted, model_runs: modelRuns, checkpoints,drawing_units:drawingUnits,active_drawing_unit:activeUnit,active_planning_unit:activePlanningUnit,planning_units:planningUnits,source_layout:sourceLayoutEvidence,source_frame:sourceFrameEvidence, budget:runtime?.budgetState?.(),execution: owner.facts() });
   const publish = () => { const facts=owner.facts();const context = {...qualityTaskContext(state()),
     execution_budget:runtime?.budgetState?.(),checkpoint_count:checkpoints.length,active_drawing_unit:activeUnit,active_planning_unit:activePlanningUnit,planning_units:planningUnits,drawing_units:drawingUnits,source_label_confirmations:labelConfirmations,source_connection_confirmations:connectionConfirmations.map(({pins,source_quote,image_sha256})=>({pins,source_quote,image_sha256})),unconfirmed_source_label_reviews:unconfirmedLabelReviews,rendering_contract:referenceTask?renderingContract():null,
     visual_evidence_requires_recheck: !cachedReview || facts.frozen || reviewedWrites!==JSON.stringify([facts.local_connection_id,facts.scratch,facts.session_counts]),
@@ -265,7 +266,7 @@ export async function runQualityTask(options: {
   const act = async (instruction: string, request?: Parameters<Awaited<ReturnType<typeof createLiveRuntime>>['run']>[2],includeSourceHints=true) => {
     if(!runtime)throw new Error('QUALITY_RUNTIME_REQUIRED');
     await sourceUnchanged();
-    const sourceHints=referenceObservation?.structured?referenceLayoutHints(referenceObservation.structured,referenceObservation.evidence):null;
+    const sourceHints=referenceObservation?.structured?(plan&&referenceObservation.structured.drawing_kind==='schematic'?referencePlanHints(referenceObservation.structured,referenceObservation.evidence,plan):referenceLayoutHints(referenceObservation.structured,referenceObservation.evidence)):null;
     let continuation=false;
     let continuationContext='';
     let continuationBinding:{connection:string|null;document:string|null}|undefined;
@@ -392,17 +393,29 @@ export async function runQualityTask(options: {
         const right=Math.min(sourceImage.width,Math.ceil((Math.max(...points.map(p=>p[0]))+0.12)*sourceImage.width)),bottom=Math.min(sourceImage.height,Math.ceil((Math.max(...points.map(p=>p[1]))+0.12)*sourceImage.height));
         return [{path:referenceTask.image.path,view:{crop:{left,top,width:right-left,height:bottom-top}},label:`ORIGINAL Image A detail for independent connection verification; NOT a CAD result. The following pins locate a region, not an assertion that they share a net: ${JSON.stringify(net.pins)}. Follow actual wire strokes; slight pen irregularity is not proof of disconnection.`}];
       }):undefined;
-      const review = await runtime.reviewCadView(JSON.stringify({ original_request: task,
-        requirements: plan.requirements.filter(r => r.check === 'visual'), geometry, domain_guidance: guidance,
+      const reviewQuestion={ original_request: task,
+        requirements: plan.requirements.filter(r => r.check === 'visual'), geometry, domain_guidance: guidance, source_frame:sourceFrameEvidence,
         source_connection_review:{independent_check_required:Boolean(referenceTask),regions_to_inspect:referenceObservation?.net_review?.uncertain_nets?.map(n=>({pins:n.pins}))??[],
           note:'Preliminary model opinions are not authoritative and are deliberately withheld. Independently compare actual original pixels and CAD. The supplied region pins are locations, not a claim of connectivity.'},rendering_contract:referenceTask?renderingContract():null,
         source_terminal_index:observedSource&&sourceImage?{sha256:sourceImage.sha256,objects:observedSource.objects.map(({id,bounds,terminals})=>({id,bounds,terminals}))}:null,
         source_connection_confirmations:connectionConfirmations.map(({pins,source_quote})=>({pins,source_quote})),
         cad_external_netlist:plan.domain==='electrical-schematic'?{verified:geometry.some(c=>c.status==='pass'&&plan!.requirements.find(r=>r.id===c.id)?.check==='netlist'),components:plan.components,nets:plan.nets,wire_layer:plan.wire_layer}:null,
         entity_snapshot: before.entities, observed_state_hash: digest, document_revision: null,
-        note: 'Image evidence checks appearance. Queried coordinates/IDs are authoritative; ambiguous pixels remain uncertain.',reference:referenceTask?.image??null }),reviewSignal,referenceTask?.image.path,sourceDetails);
+        note: 'Image evidence checks appearance. Queried coordinates/IDs are authoritative; ambiguous pixels remain uncertain.',reference:referenceTask?.image??null };
+      let review=await runtime.reviewCadView(JSON.stringify(reviewQuestion),reviewSignal,referenceTask?.image.path,sourceDetails);
       visual = review;
       visualCalls.push({source,observed_state_hash:digest,review});
+      const deterministicReady=geometry.filter(c=>!['visual','saved_dwg'].includes(plan!.requirements.find(r=>r.id===c.id)?.check??'')).every(c=>c.status==='pass');
+      if(review.review_valid&&review.structured?.verdict==='uncertain'&&deterministicReady&&runtime.reassessCadView&&typeof (review.evidence as {sha256?:unknown}).sha256==='string'){
+        const check=await owner.snapshot();
+        if(digest!==createHash('sha256').update(JSON.stringify(check.entities)).digest('hex'))throw new Error('VISUAL_OBSERVATION_CHANGED');
+        options.emit({type:'task.visual_adjudication',image_ref:review.image_ref,reason:'UNCERTAIN_WITH_VERIFIED_GEOMETRY'});
+        const first=review;
+        try{
+          review=await runtime.reassessCadView(JSON.stringify({...reviewQuestion,adjudication:{previous_report:first.structured,unresolved_requirement_ids:first.structured!.checklist.filter(c=>c.status!=='pass').map(c=>c.requirement_id),policy:'Independently re-check only disputed required conditions with the same actual images and native evidence. Separate required fidelity from optional style preferences. Do not demand exact pixel placement, handwriting or photorealism unless requested. Native verified values/topology need not be re-proven from ambiguous pixels. Do not inherit the prior verdict or force pass: concrete defects fail; genuinely unresolved required evidence stays uncertain for the user.'}}),first.image_ref,reviewSignal,referenceTask?.image.path,sourceDetails);
+          visualCalls.push({source:'harness',observed_state_hash:digest,review,adjudication_of:first.image_ref});visual=review;
+        }catch(error){visualError='VISUAL_ADJUDICATION_FAILED: '+(error as Error).message;review=first;visual=first;}
+      }
       candidateReview={key,review};
       const after = await owner.snapshot();
       reviewSignal?.throwIfAborted();
@@ -439,7 +452,13 @@ export async function runQualityTask(options: {
         const source=referenceObservation?.structured;if(!referenceTask||source?.drawing_kind!=='schematic'||!source.nets?.length)throw new Error('SOURCE_LAYOUT_UNAVAILABLE');
         layout=sourcePlanLayout(source,referenceObservation!.evidence);
         const compact=args as {requirements:QualityPlan['requirements'];wire_layer?:string};
-        input={version:1,domain:'electrical-schematic',wire_layer:compact.wire_layer??'WIRE',visual_required:true,components:layout.components,nets:layout.nets,requirements:compact.requirements};
+        const requirements=[...compact.requirements];
+        // These deterministic guards are mandatory for every schematic, not an
+        // optional model memory test. User-specific visual/label criteria remain
+        // independently authored and validated below.
+        for(const check of ['netlist','no_wire_through_component','text_clearance'] as const)
+          if(!requirements.some(r=>r.check===check))requirements.push({id:`required_${check}`,check,source_quote:compact.requirements[0]?.source_quote??task.slice(0,200),description:`Required schematic safety check: ${check}`});
+        input={version:1,domain:'electrical-schematic',wire_layer:compact.wire_layer??'WIRE',visual_required:true,components:layout.components,nets:layout.nets,requirements};
       }
       const parsed = parseAcceptancePlan(input);
       if(parsed.requirements.some(r => !task.toLowerCase().includes(r.source_quote.toLowerCase())))
@@ -487,6 +506,7 @@ export async function runQualityTask(options: {
           if(canonical(expected)!==canonical(actual))throw new Error('SOURCE_NETLIST_MISMATCH: planned external nets must preserve observed source terminal partition');
         }
       }
+      if(referenceObservation?.structured?.drawing_kind==='schematic')sourceFrameEvidence=referencePlanHints(referenceObservation.structured,referenceObservation.evidence,parsed).frame;
       plan = parsed;sourceLayoutEvidence=layout;
       exec.concludeTurn();
       return JSON.stringify(plan);
@@ -544,7 +564,7 @@ export async function runQualityTask(options: {
       const canConfirmConnections=Boolean(hasConnectionClarification&&referenceObservation?.structured?.nets?.length);
       if(referenceObservation?.structured?.drawing_kind==='schematic'){
         tool.parameters={anyOf:[{type:'object',properties:{source_layout:{const:true},requirements:acceptancePlanSchema.properties.requirements,wire_layer:{type:'string',minLength:1,maxLength:80}},required:['source_layout','requirements'],additionalProperties:false},acceptancePlanSchema]};
-        tool.description+=' For a reference schematic prefer {source_layout:true,requirements:[...],wire_layer?:...}: reuse the already model-observed and independently reviewed source layout/net groups. The program normalizes boundary ports and runs the same plan checks before approval; never submit operation sequences or duplicate the whole graph.';
+        tool.description+=' Custom bounds/ports must share a globally consistent source-to-CAD axis scale/translation, checked before drawing; labels use that same frame. For a reference schematic prefer {source_layout:true,requirements:[...],wire_layer?:...}: reuse the already model-observed and independently reviewed source layout/net groups. The program normalizes boundary ports and runs the same plan checks before approval; never submit operation sequences or duplicate the whole graph.';
         const focused=async(id:string,instruction:string,selected:ToolDefinition,includeHints:boolean)=>{
           activePlanningUnit=id;const progress:{id:string;status:'active'|'checked_in'}={id,status:'active'};planningUnits.push(progress);await options.persist(state());
           const request={signal,keepExecutionRound:true,maxImageViews:0,onlyTools:[selected.name],extraTools:[tool,selected],resultText:()=> '当前源信息确认阶段已保存，等待后续验收规划。'};
@@ -594,7 +614,7 @@ export async function runQualityTask(options: {
     if(!options.resume&&referenceTask&&plan.domain==='electrical-schematic'){
       // These units come from the model's accepted semantic plan, not a fixed
       // geometry/script. Every symbol and wire route is still generated by DSH.
-      const layoutHints=referenceObservation?.structured?referenceLayoutHints(referenceObservation.structured,referenceObservation.evidence):null;
+      const layoutHints=referenceObservation?.structured?referencePlanHints(referenceObservation.structured,referenceObservation.evidence,plan):null;
       const labels=layoutHints?.visible_text.filter(t=>t.certainty==='clear'&&/[\p{L}\p{N}]/u.test(t.text))??[];
       const unitContract={required_layers:[...new Set([plan.wire_layer,...plan.requirements.map(r=>r.layer)].filter((layer):layer is string=>Boolean(layer)))],
         appearance_requirements:plan.requirements.filter(r=>r.check==='visual').map(({id,description})=>({id,description})),

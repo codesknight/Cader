@@ -1,0 +1,15 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {cp,mkdtemp,mkdir,readFile,writeFile,rm} from 'node:fs/promises';
+import {resolve,join} from 'node:path';
+import {createHash} from 'node:crypto';
+import {loadConfig} from '@cader/config';
+import {createLiveRuntime} from '@cader/dsh-adapter';
+import type {StreamChunk} from '@cader/dsh-adapter';
+for(const changed of [false,true])test(`reassessment reuses only its verified capture and is bounded: image changed=${changed}`,async()=>{
+ const parent=resolve('.cader/tests');await mkdir(parent,{recursive:true});const root=await mkdtemp(join(parent,'reassessment-'));await cp('configs',join(root,'configs'),{recursive:true,filter:p=>!/\.local\.(yaml|json)$/.test(p)});await cp('benchmark/fixtures/vision-calibration.png',join(root,'capture.png'));
+ process.env.CADER_REASSESS_FIXTURE='offline-only';const cfg=await loadConfig(root),path=join(root,'capture.png'),digest=createHash('sha256').update(await readFile(path)).digest('hex');let captures=0,requests=0;
+ const runtime=await createLiveRuntime({...cfg,root,workspaceRoot:root,runDirectory:join(root,'.cader/runs/review'),profiles:cfg.profiles.map(p=>({...p,api_key_env:'CADER_REASSESS_FIXTURE'})),captureCadView:async()=>{captures++;return {path,evidence:{document:'Fixture.dwg',sha256:digest}};}});
+ runtime.ctx.on('llm/stream',async function*(request):AsyncGenerator<StreamChunk>{assert.ok(request.tools?.some(t=>t.name==='cader_submit_visual_report'));const first=requests++===0;const value={verdict:first?'uncertain':'pass',defects:[],uncertainties:first?['Fixture unresolved requirement']:[],checklist:[{requirement_id:'appearance',status:first?'uncertain':'pass',evidence:'Deterministic fixture, not real vision'}]};const id='fixture-review' as Extract<StreamChunk,{type:'tool-call-delta'}>['id'];yield {type:'block-start',index:0,blockType:'tool-call'};yield {type:'tool-call-delta',index:0,id,name:'cader_submit_visual_report',argumentsDelta:JSON.stringify(value)};yield {type:'block-end',index:0,block:{type:'tool-call',id,name:'cader_submit_visual_report',arguments:JSON.stringify(value)}};yield {type:'finish',reason:{kind:'tool-calls'}};});
+ try{const question=JSON.stringify({requirements:[{id:'appearance'}],entity_snapshot:[]});const first=await runtime.reviewCadView(question);assert.equal(first.structured!.verdict,'uncertain');if(changed){await writeFile(path,'invalid changed image');await assert.rejects(runtime.reassessCadView(question,first.image_ref));assert.equal(requests,1);}else{const second=await runtime.reassessCadView(question,first.image_ref);assert.equal(second.structured!.verdict,'pass');assert.equal(second.image_ref,first.image_ref);assert.equal((second.evidence as {sha256?:string}).sha256,(first.evidence as {sha256?:string}).sha256);await assert.rejects(runtime.reassessCadView(question,first.image_ref),/REUSE_DENIED/);assert.equal(requests,2);}assert.equal(captures,1);assert.equal(runtime.reviewStats().capture_attempts,1);}finally{await runtime.dispose();delete process.env.CADER_REASSESS_FIXTURE;await rm(root,{recursive:true});}
+});

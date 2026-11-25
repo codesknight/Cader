@@ -37,3 +37,5 @@ dev.8：[能力目录与统一视觉入口 / scoped capabilities and shared revi
 dev.9：[原生新图与质量恢复 / native creation and quality recovery](validation/2026-11-23-native-document-create-fix.md)。原生创建单次/新图验证、父子时限与视觉交接/格式恢复；原始彩色绘本任务8/8、47确认/0unknown，历史失败与屏障保留。
 
 2026-11-25：[复杂重绘工程复盘与长会话/澄清缺口](development/2026-11-25-complex-redraw-engineering-review.md) · [AutoCAD-MCP协同建议](contracts/2026-11-25-cader-mcp-execution-evidence-proposal.md)（建议已提交MCP #44，尚未实施新能力）。
+
+2026-11-25：[前四项 P0 修复与真实两案例回归](validation/2026-11-25-p0-quality-fixes.md)。

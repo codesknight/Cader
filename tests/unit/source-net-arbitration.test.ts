@@ -14,10 +14,10 @@ test('source review schema requires every known pin; membership derives exact no
   assert.throws(()=>parseReferenceMembership({...report,membership:{...report.membership,'Q:2':'absent'}},source),/NET_ID_INVALID/);
   assert.throws(()=>parseReferenceMembership({...report,nets:[...report.nets,report.nets[0]]},source),/NET_ID_INVALID/);
 });
-test('uncertainty is not a proven disconnection; candidate and unresolved status are both preserved',()=>{
+test('uncertainty stays explicit without synthesizing a connection absent from the reviewed candidate',()=>{
   const original=JSON.stringify(source),review=parseReferenceNets({nets:[net(0,'clear'),net(1,'uncertain'),net(2,'uncertain')]});
   const result=reconcileSourceNets(source,review);
-  assert.equal(result.valid,true);assert.equal(result.clear_consistent,true);assert.equal(result.report.nets.length,1);assert.equal(result.report.nets[0]!.pins.length,3);assert.equal(result.report.nets[0]!.certainty,'uncertain');assert.equal(JSON.stringify(source),original);
+  assert.equal(result.valid,true);assert.equal(result.clear_consistent,true);assert.deepEqual(result.report,review);assert.equal(result.report.nets.filter(n=>n.certainty==='uncertain').length,2);assert.equal(JSON.stringify(source),original);
 });
 test('known clear contradictions cannot be hidden by uncertainty elsewhere',()=>{
   const result=reconcileSourceNets(source,parseReferenceNets({nets:[net(0,'clear'),net(1,'clear'),net(2,'uncertain')]}));
@@ -33,7 +33,7 @@ test('clear rereading corrects initial uncertainty without resolving an unrelate
 });
 test('independently clear new-device connection extends a compatible candidate without inventing a wire component',()=>{
   const review=parseReferenceNets({missing_objects:[{id:'X',kind:'合法连接符号，描述中提及邻近导线',category:'component',bounds:[[0.1,0.1],[0.2,0.2]],terminals:[[0.15,0.1]],certainty:'clear'}],nets:[{...net(0,'clear'),pins:[{object:'Q',terminal:0},{object:'X',terminal:0}]},net(1,'uncertain'),net(2,'uncertain')]});
-  const result=reconcileSourceNets(source,review);assert.equal(result.valid,true);assert.equal(result.report.nets[0]!.pins.length,4);assert.equal(result.report.nets[0]!.certainty,'uncertain');
+  const result=reconcileSourceNets(source,review);assert.equal(result.valid,true);assert.equal(result.report.nets[0]!.pins.length,2);assert.equal(result.report.nets[0]!.certainty,'clear');assert.deepEqual(result.report,review);
   assert.equal(reconcileSourceNets(source,{...review,missing_objects:[{...review.missing_objects![0]!,kind:'wire',category:'wire'}]}).valid,false);
 });
 test('a fully clear changed interpretation still records disagreement; missing pins fail validation',()=>{
@@ -65,4 +65,23 @@ test('label observations match one-to-one despite shifted boxes; SI case conflic
   const prior=parseReferenceLabelInventory({visible_text:[{text:'3mF',bounds:[[0.1,0.1],[0.2,0.2]],certainty:'clear'},{text:'3mF',bounds:[[0.1,0.5],[0.2,0.6]],certainty:'clear'},{text:'9V',bounds:[[0.8,0.8],[0.9,0.9]],certainty:'clear'}]}).visible_text;
   const inventory=parseReferenceLabelInventory({visible_text:[{text:'3MF',bounds:[[0.22,0.1],[0.32,0.2]],certainty:'clear'},{text:'3mF',bounds:[[0.22,0.5],[0.32,0.6]],certainty:'clear'}]}).visible_text;
   const before=JSON.stringify({prior,inventory}),merged=reconcileSourceLabels(prior,inventory);assert.equal(merged.length,3);assert.equal(merged[0]!.text,'3MF');assert.equal(merged[0]!.certainty,'uncertain');assert.deepEqual(merged[0]!.bounds,inventory[0]!.bounds);assert.equal(merged[1]!.certainty,'clear');assert.equal(merged[2]!.text,'9V');assert.equal(JSON.stringify({prior,inventory}),before);
+});
+
+test('uncertain return never absorbs a separately observed reference net before user confirmation',()=>{
+ const pins=[0,1,2].map(terminal=>({object:'Q',terminal}));
+ const prior=parseReferenceObservation({...source,nets:[{id:'old-guess',pins:[pins[0],pins[1]],certainty:'uncertain'},net(2,'clear')]});
+ const reread=parseReferenceNets({nets:[{id:'reference',pins:[pins[0]],certainty:'clear',evidence:'Separate reference'}, {id:'return',pins:[pins[1],pins[2]],certainty:'uncertain',evidence:'Uncertain return'}]});
+ const result=reconcileSourceNets(prior,reread);assert.equal(result.valid,true);assert.deepEqual(result.report,reread);
+ const confirmed=mergeConfirmedSourceConnections(result.report.nets,[{pins:[pins[1]!,pins[2]!],source_quote:'User confirmed return'}]);assert.equal(confirmed.length,2);assert.equal(confirmed.find(n=>n.pins.some(p=>p.terminal===0))!.pins.length,1);
+});
+
+test('same-position same-literal OCR aliases do not create extra required labels; distinct occurrences remain',()=>{
+ const a={text:'47kΩ',bounds:[[0.1,0.1],[0.2,0.2]] as [[number,number],[number,number]],certainty:'clear' as const};
+ const alias={...a,bounds:[[0.101,0.101],[0.201,0.201]] as typeof a.bounds};
+ const second={...a,bounds:[[0.1,0.4],[0.2,0.5]] as typeof a.bounds};
+ assert.equal(reconcileSourceLabels([a,alias,second],[a,second]).length,2);
+ assert.equal(reconcileSourceLabels([a],[a,alias,second]).length,2);
+ assert.equal(reconcileSourceLabels([a],[a,{...alias,certainty:'uncertain'}])[0]!.certainty,'uncertain');
+ assert.equal(reconcileSourceLabels([a],[{...alias,text:'47KΩ'}]).length,1);
+ assert.equal(reconcileSourceLabels([a],[{...alias,text:'48kΩ'}]).length,1);
 });

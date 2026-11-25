@@ -602,12 +602,13 @@ export async function createLiveRuntime(options: LiveOptions) {
         await handle?.dispose();
       }
     }
-    async function inspectReference(path:string,task:string,signal?:AbortSignal):Promise<{valid:boolean;structured:ReturnType<typeof parseReferenceObservation>|null;attempts:{id:string;status:string;valid:boolean}[];label_reviews:{id:string;indices:number[];valid:boolean;pass:number}[];label_inventory?:{id:string;valid:boolean}|null;component_inventory?:{id:string;valid:boolean;added:string[]}|null;net_review?:{id:string;valid:boolean;changed:boolean;consensus?:boolean;report_valid?:boolean;uncertain_nets?:{id:string;evidence?:string;pins:{object:string;terminal:number}[]}[]}|null;evidence:{path:string;sha256:string;width:number;height:number}}>{
+    async function inspectReference(path:string,task:string,signal?:AbortSignal):Promise<{valid:boolean;structured:ReturnType<typeof parseReferenceObservation>|null;attempts:{id:string;status:string;valid:boolean}[];label_reviews:{id:string;indices:number[];valid:boolean;pass:number}[];label_inventory?:{id:string;valid:boolean}|null;component_inventory?:{id:string;valid:boolean;added:string[]}|null;net_review?:{id:string;valid:boolean;changed:boolean;consensus?:boolean;report_valid?:boolean;uncertain_nets?:{id:string;evidence?:string;pins:{object:string;terminal:number}[]}[]}|null;source_net_history?:{id:string;before:ReturnType<typeof parseReferenceNets>['nets'];reviewed:ReturnType<typeof parseReferenceNets>['nets']|null;valid:boolean}[];evidence:{path:string;sha256:string;width:number;height:number}}>{
       const vision=options.profiles.find(p=>p.role==='vision'&&p.input.includes('image'));
       if(!vision)throw new Error('VISION_PROFILE_UNAVAILABLE');
       const source=await readReferenceImage(options.workspaceRoot??options.root,path);
       let structured:ReturnType<typeof parseReferenceObservation>|null=null;
       const attempts:{id:string;status:string;valid:boolean}[]=[];
+      const sourceNetHistory:{id:string;before:ReturnType<typeof parseReferenceNets>['nets'];reviewed:ReturnType<typeof parseReferenceNets>['nets']|null;valid:boolean}[]=[];
       for(let attempt=0;attempt<2;attempt++){
         signal?.throwIfAborted();
         reserveSourceReview();
@@ -637,6 +638,11 @@ export async function createLiveRuntime(options: LiveOptions) {
         let checked:ReturnType<typeof parseReferenceNets>|null=null;
         const submit:ToolDefinition={name:'cader_submit_reference_nets',description:'Independently trace actual source conductors. membership maps EVERY object:terminal key to exactly one net ID. nets supplies evidence/certainty, without pin arrays. Do not invent return/ground connections.',parameters:referenceMembershipSchema(observation),output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args,exec){const parsed=parseReferenceMembership(args,observation);if(parsed.missing_objects?.some(o=>o.category!=='component'))throw new Error('SOURCE_DEVICES_ONLY');parseReferenceObservation({...observation,objects:[...observation.objects,...parsed.missing_objects??[]],nets:parsed.nets});if(parsed.nets.some(n=>!n.evidence||!n.certainty))throw new Error('SOURCE_NET_EVIDENCE_REQUIRED');checked=parsed;exec.concludeTurn();return JSON.stringify(parsed);}};
         const quadrants=[0,1,2,3].map(index=>({path,view:{crop:{left:index%2?Math.floor(source.width*0.4):0,top:index>1?Math.floor(source.height*0.4):0,width:Math.ceil(source.width*0.6),height:Math.ceil(source.height*0.6)}},label:`Original source quadrant ${index}; preserve observed device terminal indices.`}));
+        const terminalDetails=observation.objects.filter(o=>o.terminals.length>2||o.terminals.length===1).slice(0,4).map(o=>{
+          const [a,b]=o.bounds,mx=Math.max(0.12,(b[0]-a[0])*1.5),my=Math.max(0.12,(b[1]-a[1])*1.5);
+          const left=Math.max(0,Math.floor((a[0]-mx)*source.width)),top=Math.max(0,Math.floor((a[1]-my)*source.height)),right=Math.min(source.width,Math.ceil((b[0]+mx)*source.width)),bottom=Math.min(source.height,Math.ceil((b[1]+my)*source.height));
+          return {path,view:{crop:{left,top,width:right-left,height:bottom-top}},label:`ORIGINAL source component ${o.id}. This is positional evidence, not connectivity. Preserve these exact terminal indices while tracing each lead to its actual peers: ${JSON.stringify(o.terminals.map((position,terminal)=>({address:o.id+':'+terminal,position})))}. Component IDs are arbitrary; do not infer left/right, polarity or terminal identity from their names.`};
+        });
         const originalNets=observation.nets??[],originalPins=new Set(observation.objects.flatMap(o=>o.terminals.map((_,i)=>`${o.id}:${i}`)));
         const partition=(nets:typeof originalNets)=>nets.map(n=>n.pins.map(p=>`${p.object}:${p.terminal}`).filter(p=>originalPins.has(p)).sort().join('|')).filter(Boolean).sort().join(';');
         let hadDisagreement=false;
@@ -644,13 +650,14 @@ export async function createLiveRuntime(options: LiveOptions) {
         for(let pass=0;pass<2;pass++){
           if(pass){signal?.throwIfAborted();reserveSourceReview();}
           const previousNets=checked;checked=null;
-        const result=await pool.run('main',()=>run(vision.id,'手稿线条可有轻微抖动、叠笔或浓淡变化，追踪可辨的连续路径，不把轻微笔触差异误判为多处断路；仍不可辨则uncertain，不用电路常识补线。'+(pass?'上次存在未确认连接；本轮附原图四个局部区域，以实际像素复核这些不确定处：'+JSON.stringify({prior_candidate:observation.nets?.map(n=>({id:n.id,pins:n.pins,certainty:n.certainty})),last_review:(previousNets as ReturnType<typeof parseReferenceNets>|null)?.nets.map(n=>({id:n.id,pins:n.pins,certainty:n.certainty}))}):'')+'先独立核对整图器件覆盖，再沿原图像素导线追踪外部net，调用cader_submit_reference_nets。若初始objects漏掉可见器件或接地/连接符号，在missing_objects补报真实器件、bounds和端子索引（不可补假导线组件），并在membership包含新旧全部端子；缺失符号不能静默忽略。给定器件与端子索引只是位置索引，不能当作已验证连接。使用membership逐端子赋组：每个“object:terminal”必须作为一个属性键，值为net ID；nets仅列id、evidence及certainty，不再列pins数组。原有每个端子的属性在schema中均必填，新补器件也须加入全部端子键。给出可见导线路径evidence和certainty。禁止按常见电路知识补全：一个接地符号不自动连接到另一条未标地、且像素上断开的回路线；T接点或折线端点直接相接无需圆点，不能仅因缺少圆点就标uncertain；两条线的内部交叉才需判断接点。真正可见的断线/无接点内部跨越分别分组。器件内部各端不短接；各电源极性端独立，三端器件保留全部端子。无法追清则uncertain，不猜闭环；不确定表示尚不能确认关系，不等于默认断开可见导线。按最可能的像素路径分组，真正的疑问留在certainty/evidence，后续仍需独立对照验收。只提交membership、nets及必要missing_objects，不规划。用户原始请求及明确澄清：'+task+'。明确的用户连接确认优先于模糊笔触，但证据须注明来自用户确认，不能伪装纯像素识别。原图端子索引：'+JSON.stringify(observation.objects.map(o=>({...o,terminals:o.terminals.map((position,terminal)=>({terminal,position}))}))),{image:path,maxImageViews:2,sourceDetails:pass?quadrants:undefined,signal,onlyTools:[submit.name,'cader_view_image'],extraTools:[submit],resultText:()=>checked?JSON.stringify(checked):undefined}));
+        const result=await pool.run('main',()=>run(vision.id,'手稿线条可有轻微抖动、叠笔或浓淡变化，追踪可辨的连续路径，不把轻微笔触差异误判为多处断路；仍不可辨则uncertain，不用电路常识补线。'+(pass?'上次存在未确认连接；本轮附原图四个局部区域，以实际像素复核这些不确定处：'+JSON.stringify({prior_candidate:observation.nets?.map(n=>({id:n.id,pins:n.pins,certainty:n.certainty})),last_review:(previousNets as ReturnType<typeof parseReferenceNets>|null)?.nets.map(n=>({id:n.id,pins:n.pins,certainty:n.certainty}))}):'')+'先独立核对整图器件覆盖，再沿原图像素导线追踪外部net，调用cader_submit_reference_nets。若初始objects漏掉可见器件或接地/连接符号，在missing_objects补报真实器件、bounds和端子索引（不可补假导线组件），并在membership包含新旧全部端子；缺失符号不能静默忽略。给定器件与端子索引只是位置索引，不能当作已验证连接。使用membership逐端子赋组：每个“object:terminal”必须作为一个属性键，值为net ID；nets仅列id、evidence及certainty，不再列pins数组。原有每个端子的属性在schema中均必填，新补器件也须加入全部端子键。给出可见导线路径evidence和certainty。禁止按常见电路知识补全：一个接地符号不自动连接到另一条未标地、且像素上断开的回路线；T接点或折线端点直接相接无需圆点，不能仅因缺少圆点就标uncertain；两条线的内部交叉才需判断接点。真正可见的断线/无接点内部跨越分别分组。器件内部各端不短接；各电源极性端独立，三端器件保留全部端子。无法追清则uncertain，不猜闭环；不确定表示尚不能确认关系，不等于默认断开可见导线。按最可能的像素路径分组，真正的疑问留在certainty/evidence，后续仍需独立对照验收。只提交membership、nets及必要missing_objects，不规划。用户原始请求及明确澄清：'+task+'。明确的用户连接确认优先于模糊笔触，但证据须注明来自用户确认，不能伪装纯像素识别。原图端子索引：'+JSON.stringify(observation.objects.map(o=>({...o,terminals:o.terminals.map((position,terminal)=>({terminal,position}))}))),{image:path,maxImageViews:2,sourceDetails:terminalDetails.length?terminalDetails:pass?quadrants:undefined,signal,onlyTools:[submit.name,'cader_view_image'],extraTools:[submit],resultText:()=>checked?JSON.stringify(checked):undefined}));
         const revised=checked as ReturnType<typeof parseReferenceNets>|null;
         const canonical=(nets:NonNullable<typeof observation.nets>)=>nets.map(n=>n.pins.map(p=>`${p.object}:${p.terminal}`).sort().join('|')).sort().join(';');
         const baseline:ReturnType<typeof parseReferenceObservation>=fallback?{...observation,objects:[...observation.objects,...fallback.report.missing_objects??[]],nets:fallback.report.nets}:observation;
         let arbitration:ReturnType<typeof reconcileSourceNets>|null=revised?reconcileSourceNets(baseline,{...revised,missing_objects:revised.missing_objects?.filter(o=>!baseline.objects.some(prior=>prior.id===o.id))}):null;
         if(revised){hadDisagreement ||= partition(originalNets)!==partition(revised.nets);const initial=reconcileSourceNets(observation,revised);if(initial.valid&&initial.clear_consistent&&(observation.nets??[]).every(n=>n.certainty==='clear')&&revised.nets.every(n=>n.certainty==='clear')&&partition(originalNets)===partition(revised.nets)&&!arbitration?.clear_consistent)arbitration=initial;}
 
+        sourceNetHistory.push({id:result.id,before:structuredClone(baseline.nets??[]),reviewed:revised?structuredClone(revised.nets):null,valid:arbitration?.valid??false});
         const consensus=arbitration?.clear_consistent??false;
         const valid=arbitration?.valid??false;
         netReview={id:result.id,valid,consensus,report_valid:Boolean(revised),changed:Boolean(revised&&canonical(revised.nets)!==canonical(originalNets)),uncertain_nets:revised?.nets.filter(n=>n.certainty!=='clear')??[]};
@@ -707,18 +714,27 @@ export async function createLiveRuntime(options: LiveOptions) {
           }
         }
       }
-      const result={valid:structured!==null,structured,attempts,label_reviews:labelReviews,label_inventory:labelInventory,component_inventory:componentInventory,net_review:netReview,evidence:{path,sha256:createHash('sha256').update(source.data).digest('hex'),width:source.width,height:source.height}};
+      const result={valid:structured!==null,structured,attempts,label_reviews:labelReviews,label_inventory:labelInventory,component_inventory:componentInventory,net_review:netReview,source_net_history:sourceNetHistory,evidence:{path,sha256:createHash('sha256').update(source.data).digest('hex'),width:source.width,height:source.height}};
       emit({type:'reference.inspected',...structuredClone(result)});return result;
     }
-    async function reviewCadView(question: string, signal?: AbortSignal, parent?: Agent, referenceImage?:string,referenceDetails?:{path:string;view:ImageView;label:string}[]) {
+    const reviewCaptures=new Map<string,Awaited<ReturnType<NonNullable<LiveOptions['captureCadView']>>>>();
+    const adjudicatedCaptures=new Set<string>();
+    async function reviewCadView(question: string, signal?: AbortSignal, parent?: Agent, referenceImage?:string,referenceDetails?:{path:string;view:ImageView;label:string}[],reuseImageRef?:string) {
       if(referenceDetails?.some(detail=>detail.path!==referenceImage))throw new Error('SOURCE_DETAIL_MISMATCH');
       if (!options.captureCadView) throw new Error('CAD_VIEW_EXPORT_UNAVAILABLE');
-      if (++visualReviews > options.runtime.max_visual_reviews_per_turn) throw new Error('VISUAL_REVIEW_BUDGET_EXCEEDED');
+      if (!reuseImageRef && ++visualReviews > options.runtime.max_visual_reviews_per_turn) throw new Error('VISUAL_REVIEW_BUDGET_EXCEEDED');
       const vision = options.profiles.find(profile => profile.role === 'vision' && profile.input.includes('image'));
       if (!vision) throw new Error('VISION_PROFILE_UNAVAILABLE');
-      const capture = await options.captureCadView(signal ?? lifetime.signal);
-      const ref = `cad-view-${randomUUID()}`; images.set(ref, capture.path);
-      emit({ type: 'cad.view', evidence: capture.evidence, image_ref: ref });
+      const capture = reuseImageRef?reviewCaptures.get(reuseImageRef):await options.captureCadView(signal ?? lifetime.signal);
+      if(!capture||reuseImageRef&&adjudicatedCaptures.has(reuseImageRef))throw new Error('CAD_REVIEW_REUSE_DENIED');
+      if(reuseImageRef){
+        const pixels=await readReferenceImage(options.workspaceRoot??options.root,capture.path);
+        if(createHash('sha256').update(pixels.data).digest('hex')!==(capture.evidence as {sha256?:string}).sha256)throw new Error('CAD_REVIEW_IMAGE_CHANGED');
+        adjudicatedCaptures.add(reuseImageRef);
+      }
+      const ref = reuseImageRef??`cad-view-${randomUUID()}`; images.set(ref, capture.path);
+      if(!reuseImageRef){reviewCaptures.set(ref,structuredClone(capture));emit({ type: 'cad.view', evidence: capture.evidence, image_ref: ref });}
+      else emit({type:'cad.review_reused_capture',image_ref:ref});
       const attempts: { id:string; status: string; text: string; valid: boolean }[] = [];
       let structured: ReturnType<typeof parseVisualReport> | null = null;
       let knownIds:Set<number>|undefined;
@@ -785,7 +801,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       emit({ type: 'cad.review', ...result }); return result;
     }
 
-    return { ctx, run, reviewStats:()=>({capture_attempts:visualReviews,model_calls:visualModelCalls,source_review_reservations:sourceReviewReservations,source_review_limit:sourceReviewLimit,agent_delegations:delegations}),enableTaskBudget:()=>{scheduled=true;},budgetState:()=>({...budget.snapshot(),agent_delegations:delegations,source_review_reservations:sourceReviewReservations,source_review_limit:sourceReviewLimit,pending:structuredClone(pending)}),inspectReference,reviewCadView:(question:string,signal?:AbortSignal,referenceImage?:string,referenceDetails?:{path:string;view:ImageView;label:string}[])=>reviewCadView(question,signal,undefined,referenceImage,referenceDetails), pool, completed: () => completed.slice(), toolNames: () => ctx.tools.schemas().map(tool => tool.name),
+    return { ctx, run, reviewStats:()=>({capture_attempts:visualReviews,model_calls:visualModelCalls,source_review_reservations:sourceReviewReservations,source_review_limit:sourceReviewLimit,agent_delegations:delegations}),enableTaskBudget:()=>{scheduled=true;},budgetState:()=>({...budget.snapshot(),agent_delegations:delegations,source_review_reservations:sourceReviewReservations,source_review_limit:sourceReviewLimit,pending:structuredClone(pending)}),inspectReference,reviewCadView:(question:string,signal?:AbortSignal,referenceImage?:string,referenceDetails?:{path:string;view:ImageView;label:string}[])=>reviewCadView(question,signal,undefined,referenceImage,referenceDetails), reassessCadView:(question:string,imageRef:string,signal?:AbortSignal,referenceImage?:string,referenceDetails?:{path:string;view:ImageView;label:string}[])=>reviewCadView(question,signal,undefined,referenceImage,referenceDetails,imageRef),pool, completed: () => completed.slice(), toolNames: () => ctx.tools.schemas().map(tool => tool.name),
       async dispose() { clearTimeout(deadline); lifetime.abort(); await ctx.fiber.dispose(); } };
   } catch (error) { clearTimeout(deadline); await ctx.fiber.dispose(); throw error; }
 }

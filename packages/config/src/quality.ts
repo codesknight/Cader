@@ -26,11 +26,18 @@ export function parseReferenceLabelInventory(value:unknown){return ReferenceLabe
 /** Associate observations one-to-one; case folding locates a reading only,
  * never proves a case-sensitive SI value. Independent inventory boxes prevail. */
 export function reconcileSourceLabels(prior:z.infer<typeof SourceLabel>[],inventory:z.infer<typeof SourceLabel>[]){
-  const labels=structuredClone(inventory),key=(s:string)=>s.normalize('NFKC').replaceAll('\u2212','-').replace(/\s+/g,'');
+  const key=(s:string)=>s.normalize('NFKC').replaceAll('\u2212','-').replace(/\s+/g,'');
+  const duplicate=(a:z.infer<typeof SourceLabel>,b:z.infer<typeof SourceLabel>)=>{
+    if(key(a.text)!==key(b.text))return false;
+    const [p,q]=a.bounds,[r,s]=b.bounds,area=Math.max(0,Math.min(q[0],s[0])-Math.max(p[0],r[0]))*Math.max(0,Math.min(q[1],s[1])-Math.max(p[1],r[1]));
+    return area/Math.max((q[0]-p[0])*(q[1]-p[1]),(s[0]-r[0])*(s[1]-r[1]))>=0.75;
+  };
+  const labels=structuredClone(inventory.filter((label,i)=>!inventory.slice(0,i).some(other=>duplicate(label,other))));
+  for(const label of labels)if([...prior,...inventory].some(other=>duplicate(label,other)&&other.certainty==='uncertain'))label.certainty='uncertain';
   const candidates=prior.flatMap((p,i)=>labels.flatMap((label,j)=>{const [a,b]=p.bounds,[c,d]=label.bounds,area=Math.max(0,Math.min(b[0],d[0])-Math.max(a[0],c[0]))*Math.max(0,Math.min(b[1],d[1])-Math.max(a[1],c[1])),overlap=area/Math.min((b[0]-a[0])*(b[1]-a[1]),(d[0]-c[0])*(d[1]-c[1])),gap=Math.hypot((a[0]+b[0]-c[0]-d[0])/2,(a[1]+b[1]-c[1]-d[1])/2),same=key(p.text).toLowerCase()===key(label.text).toLowerCase();return overlap>0.2||same&&gap<0.25?[{i,j,score:(same?2:0)+overlap-gap}]:[];})).sort((a,b)=>b.score-a.score);
   const seen=new Set<number>(),used=new Set<number>();
   for(const {i,j} of candidates){if(seen.has(i)||used.has(j))continue;seen.add(i);used.add(j);if(key(prior[i]!.text)!==key(labels[j]!.text)||prior[i]!.certainty==='uncertain')labels[j]!.certainty='uncertain';}
-  for(let i=0;i<prior.length;i++)if(!seen.has(i))labels.push(structuredClone(prior[i]!));
+  for(let i=0;i<prior.length;i++)if(!seen.has(i)&&!labels.some(label=>duplicate(prior[i]!,label)))labels.push(structuredClone(prior[i]!));
   return labels.sort((a,b)=>a.bounds[0][1]-b.bounds[0][1]||a.bounds[0][0]-b.bounds[0][0]);
 }
 const ObservedNet=z.object({id:z.string().min(1).max(64),pins:z.array(z.object({object:z.string().max(32),terminal:z.number().int().min(0).max(7)}).strict()).min(1).max(64),evidence:z.string().min(1).max(400).optional(),certainty:z.enum(['clear','uncertain']).optional()}).strict();
@@ -116,8 +123,8 @@ export function mergeConfirmedSourceConnections(nets:ReturnType<typeof parseRefe
   });
 }
 /** Unknown connectivity is not a proven disconnection. Retain the preliminary
- * candidate only where the independent review is explicitly uncertain; every
- * clear old-pin relation must agree. The final pixel-fidelity gate is mandatory. */
+ * and reviewed candidates separately; every clear old-pin relation must agree.
+ * Never synthesize extra connectivity by unioning uncertain observations. The final pixel-fidelity gate is mandatory. */
 export function reconcileSourceNets(source:ReferenceObservationData,review:ReturnType<typeof parseReferenceNets>){
   parseReferenceObservation({...source,objects:[...source.objects,...review.missing_objects??[]],nets:review.nets});
   const uncertain=review.nets.filter(n=>n.certainty!=='clear');
@@ -133,21 +140,11 @@ export function reconcileSourceNets(source:ReferenceObservationData,review:Retur
   for(let i=0;i<known.length;i++)for(let j=i+1;j<known.length;j++)if((original.get(address(known[i]!))===original.get(address(known[j]!)))!==(reviewed.get(address(known[i]!))===reviewed.get(address(known[j]!))))consistent=false;
   if(!uncertain.length)return {valid:true,report:review,clear_consistent:consistent};
   if(!consistent)return {valid:false,report:review,clear_consistent:false};
-  const pins=[...old,...(review.missing_objects??[]).flatMap(o=>o.terminals.map((_,terminal)=>({object:o.id,terminal})))];
-  const parent=pins.map((_,i)=>i),indices=new Map(pins.map((p,i)=>[address(p),i]));
-  const root=(i:number):number=>parent[i]===i?i:(parent[i]=root(parent[i]!));
-  // A clear rereading can replace an initially uncertain relation, even while
-  // another group stays unresolved. Retain old candidate relations only where
-  // the rereading is still uncertain; never bridge two newly clear groups.
-  const retained=(source.nets??[]).filter(n=>n.pins.some(p=>unknown.has(address(p)))&&new Set(n.pins.filter(p=>!unknown.has(address(p))).map(p=>reviewed.get(address(p)))).size<=1);
-  for(const net of [...retained,...review.nets.filter(n=>n.certainty==='clear')]){
-    const ids=net.pins.map(p=>indices.get(address(p))!);for(const i of ids)parent[root(i)]=root(ids[0]!);
-  }
-  const groups=new Map<number,typeof pins>();pins.forEach((p,i)=>{const id=root(i);groups.set(id,[...groups.get(id)??[],p]);});
-  const nets=[...groups.values()].map((pins,i)=>({id:`observed_net_${i}`,pins,certainty:pins.some(p=>unknown.has(address(p)))?'uncertain' as const:'clear' as const,
-    evidence:review.nets.filter(n=>n.pins.some(p=>pins.some(q=>address(q)===address(p)))).map(n=>n.evidence??'').join(' | ').slice(0,400)||'Consistent clear relations; uncertain source membership retained for final pixel review'}));
-  parseReferenceObservation({...source,objects:[...source.objects,...review.missing_objects??[]],nets});
-  return {valid:true,clear_consistent:true,report:{...review,nets}};
+  // An uncertain rereading is a candidate, never proof of disconnection.
+  // Keep both observations in the caller's evidence history. Do not union old
+  // guesses into the new candidate: that can attach an uncertain return to a
+  // clearly separate reference net, producing a partition no model observed.
+  return {valid:true,clear_consistent:true,report:structuredClone(review)};
 }
 const ReferenceLabels=z.object({labels:z.array(z.object({index:z.number().int().nonnegative(),text:Text,certainty:z.enum(['clear','uncertain']),bounds:NormalBox.optional()}).strict()).min(1).max(4)}).strict();
 export const referenceLabelsSchema=JSON.parse(JSON.stringify(z.toJSONSchema(ReferenceLabels)));

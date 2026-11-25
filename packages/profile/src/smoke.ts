@@ -76,6 +76,8 @@ export { taskIntent } from './task-intent.js';
 export { ExecutionSession, PERMISSION_MODES } from './execution.js';
 export { validateCadArguments } from './cad-arguments.js';
 export { replyTextAfterStreaming, toolResultLine } from './terminal-output.js';
-export { referencedPaths, importReferenceImage, referenceOutput,referenceLayoutHints,sourcePlanLayout } from './reference-input.js';
+export { referencedPaths, importReferenceImage, referenceOutput,referenceLayoutHints,sourcePlanLayout,referencePlanHints } from './reference-input.js';
 
 export { runExecutionEvidenceSmoke } from './execution-evidence-smoke.js';
+
+export { acceptQualityByUser,userReviewStatus } from './quality-acceptance.js';

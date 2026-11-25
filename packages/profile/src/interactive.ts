@@ -9,9 +9,10 @@ import { SessionStore, newSession, privateDirectory, environmentRedactor, termin
 import type { ChatSession } from './session-store.js';
 import { runUserShell } from './interactive-shell.js';
 import { ExecutionSession, PERMISSION_MODES } from './execution.js';
-import type { PermissionMode } from './execution.js';
+import type { Approval,PermissionMode } from './execution.js';
 import type { QualityResume } from './quality.js';
 import { qualityTaskContext } from './quality.js';
+import { acceptQualityByUser,userReviewStatus,userReviewCandidate } from './quality-acceptance.js';
 import { taskIntent } from './task-intent.js';
 import { importReferenceImage, referencedPaths, referenceOutput, wantsRedraw } from './reference-input.js';
 
@@ -20,7 +21,7 @@ export const SLASH_COMMANDS = [
   ['/status', '工作区与CAD状态'], ['/model', '查看或切换配置模型'], ['/mcp', 'list / use <配置> / tools / doctor / recover / barrier / resolve / off'],
   ['/skills', 'list / use <技能> / off'], ['/domain', '查看或切换专业'], ['/context', '上下文统计'],
   ['/compact', '用模型总结上下文，保留原始对话'], ['/clear', '保存并新建空白会话'], ['/resume', '列出或恢复会话ID'],
-  ['/quality','查看质量、截图尝试/视觉请求与证据；resume 安全重验，不重放绘图'],
+  ['/quality','查看质量；resume 安全重验；accept [说明] 人工复核DWG，不授予写权'],
   ['/undo', '检查受控撤销能力'], ['/checkpoint', '创建会话与工程引用检查点'], ['/permissions', 'read-only | ask | workspace-write | full-access；shell ask|deny'], ['/exit', '保存并退出'],
 ] as const;
 const Domains = z.object({ version: z.literal(1), domains: z.array(z.object({ id: z.string().regex(/^[a-z][a-z0-9-]*$/),
@@ -28,7 +29,7 @@ const Domains = z.object({ version: z.literal(1), domains: z.array(z.object({ id
 const hash = (value: Buffer) => createHash('sha256').update(value).digest('hex');
 export interface ChatReply { text: string; afterStream?:string; error?: boolean; exit?: boolean; note?: string }
 export interface ChatCallbacks { signal?: AbortSignal; onEvent?: (event: PublicEvent) => void;
-  confirm?: (command: string, cwd: string) => Promise<boolean> }
+  confirm?: (command: string, cwd: string) => Promise<boolean>; review?: Approval }
 export type TaskRunner = typeof runTask;
 
 /** Application service shared by the terminal and deterministic command tests. */
@@ -148,6 +149,7 @@ export class InteractiveSession {
       return { text: this.clean(`${result.output}\nShell exit=${result.code}${result.cancelled ? ' · 已取消，可能存在已发生的副作用，不自动重跑' : ''}${result.timedOut ? ' · 超时' : ''}${result.capped ? ' · 输出达到64KiB上限' : ''}`),
         error: result.code !== 0 || result.cancelled || result.timedOut || result.capped };
     }
+    if(this.state.qualityRun&&/^(?:我)?(?:已|已经).*(?:人工|检查|查看|复核).*(?:没有问题|没问题|验收通过|确认符合)/.test(line))return this.dispatch('/quality accept '+line,callbacks);
     if (line.startsWith('/')) {
       const match = line.match(/^(\S+)(?:\s+([\s\S]*))?$/)!;
       const name = match[1]!, arg = (match[2] ?? '').trim().replace(/^"(.*)"$/, '$1');
@@ -158,8 +160,16 @@ export class InteractiveSession {
           const path=await workspacePath(this.state.workspace,this.state.qualityRun);
           if((await stat(path)).size>2_000_000)throw new Error('QUALITY_MANIFEST_TOO_LARGE');
           const saved=JSON.parse(await readFile(path,'utf8'));
-          if(!arg)return {text:this.clean(JSON.stringify({...qualityTaskContext(saved),path},null,2))};
-          if(arg!=='resume')return {text:'/quality 或 /quality resume',error:true};
+          const userReview=await userReviewStatus(this.state.workspace,path,this.state.qualityReview);
+          if(!arg)return {text:this.clean(JSON.stringify({...qualityTaskContext(saved),acceptance:userReview.accepted?'accepted_by_user':qualityTaskContext(saved).acceptance,user_review:userReview,path},null,2))};
+          if(arg==='accept'||arg.startsWith('accept ')){
+            if(userReview.accepted)return {text:'该DWG已由用户人工验收，文件与证据摘要仍匹配。'};
+            this.state.qualityReview=await acceptQualityByUser(this.state.workspace,path,this.execution,callbacks.review??callbacks.confirm,arg.slice(6).trim()||undefined);
+            await this.store.event(this.state,{kind:'quality-user-acceptance',review:this.state.qualityReview});await this.store.save(this.state);callbacks.onEvent?.({type:'task.user_review_completed',acceptance:'accepted_by_user',review:this.state.qualityReview});
+            return {text:'本任务DWG已记录为用户人工验收通过；原自动视觉结果保留。此确认仅绑定该文件，不解除屏障、不授予继续写入权限。'};
+          }
+          if(userReview.accepted)return {text:'该文件已人工验收；若需要修改请明确提出新需求，原确认不授予续写权限。'};
+          if(arg!=='resume')return {text:'/quality /quality resume /quality accept [复核说明]',error:true};
           if(saved.phase==='complete')return {text:'该任务已验收，无需重放。'};
           return this.converse(saved.original_request,callbacks,saved as QualityResume);
         }
@@ -291,6 +301,7 @@ export class InteractiveSession {
     if(intent==='status'&&/视觉|vision/i.test(line)&&/是否|有没有|几次|多少|结果|状态|之前|此前|做过|用过|调用过|使用过|检查过|验证过|校验过|了吗|have you|did you|status/i.test(line)){
       return remember(priorQuality?`当前任务视觉模型请求 ${qualityTaskContext(priorQuality).visual_call_count} 次，截图尝试 ${qualityTaskContext(priorQuality).capture_attempt_count} 次。以下为已保存的任务证据，不代表当前图纸的实时状态：\n${JSON.stringify(qualityTaskContext(priorQuality),null,2)}`:'当前会话没有已记录的质量任务；不能据此判断其他会话是否执行过视觉检查。');
     }
+    if(intent==='continue'&&priorQuality&&(await userReviewStatus(this.state.workspace,this.state.qualityRun!,this.state.qualityReview)).accepted)return remember('本任务DWG已人工验收，文件和证据仍匹配；未重放绘图。修改请提出明确新需求。');
     if(intent==='continue'&&!this.state.redrawTask&&priorQuality){
       if(priorQuality.phase==='complete')return remember('当前任务已验收通过，未重复绘图。请明确描述新的绘图需求。');
       if(!priorQuality.plan)return remember('当前任务尚未建立有效验收计划，请重新发送完整绘图需求；未重放CAD操作。');
@@ -355,14 +366,28 @@ export class InteractiveSession {
       domain: this.domains.find(domain => domain.id === this.state.domain)!.instruction,
       signal: callbacks.signal, onEvent: event => { if (event.type === 'model.usage' && event.role === 'main') this.lastUsage = event.usage; callbacks.onEvent?.(event); } });
     this.state.messages[userIndex]!.status = report.run_status;
-    if(report.quality)this.state.qualityRun=join(report.runDirectory,'quality.json');
+    if(report.quality){this.state.qualityRun=join(report.runDirectory,'quality.json');this.state.qualityReview=null;}
+
     if(referenceTask&&report.quality)this.state.redrawTask={...referenceTask,qualityRun:join(report.runDirectory,'quality.json')};
     this.state.messages.push({ role: 'assistant', content: this.clean(report.text || (report.run_status === 'cancelled' ? '[已取消，未形成完整结论]' : `[失败 ${report.errorCode ?? 'UNKNOWN'}]`)),
       status: report.run_status, at: new Date().toISOString() });
     await this.store.save(this.state);
+    let reviewNote='';
+    if(report.quality?.phase==='pending_verification'&&!this.execution.facts().frozen){
+      try{
+        const candidate=await userReviewCandidate(this.state.workspace,this.state.qualityRun!);
+        callbacks.onEvent?.({type:'task.user_review_required',...candidate});
+        reviewNote='\n需要用户复核上述DWG及未决视觉条件；实际检查后可使用 /quality accept [复核说明]，文件变化会使确认失效。';
+        if(callbacks.review){
+          try{this.state.qualityReview=await acceptQualityByUser(this.state.workspace,this.state.qualityRun!,this.execution,callbacks.review);await this.store.event(this.state,{kind:'quality-user-acceptance',review:this.state.qualityReview});await this.store.save(this.state);callbacks.onEvent?.({type:'task.user_review_completed',acceptance:'accepted_by_user',review:this.state.qualityReview});
+            return {text:'本任务DWG经用户人工复核通过。原自动视觉结论保留，确认仅绑定该交付文件，不授予续写或解除屏障。',error:false};
+          }catch(error){if((error as Error).message!=='HUMAN_REVIEW_NOT_CONFIRMED')reviewNote+='\n人工确认未记录：'+(error as Error).message;}
+        }
+      }catch{/* Structural/source/unknown failures remain program-blocked, not a manual visual override. */}
+    }
     const facts=this.execution.facts(executionMark),counts=facts.counts,total=facts.session_counts;
     const status=!report.ok?this.clean(`${report.errorCode ?? report.blocked_reasons[0] ?? report.run_status}: ${report.hint ?? (report.blocked_reasons.includes('CAD_WRITE_FROZEN') ? `程序写屏障仍有效；自动恢复资格：${facts.recovery.eligible?'可对账':'不具备'}（${facts.recovery.reason}）。受控查询仍可用，重连/重启不能解除。` : report.blocked_reasons.join(', '))}`):'';
-    return {text:this.clean(report.text)+(status?'\n'+status:''),afterStream:status,error:!report.ok,
+    return {text:this.clean(report.text)+(status?'\n'+status:'')+reviewNote,afterStream:status+reviewNote,error:!report.ok,
       note:`${this.state.permission} · CAD ${facts.write_state} · 本轮确认 ${counts.committed} / 未知 ${counts.unknown} / 未派发阻断 ${counts.blocked_not_dispatched} · 会话确认 ${total.committed} / 未知 ${total.unknown} · 模型回复不等于独立验收`};
   }
   async dispose() { await this.execution.dispose(); }

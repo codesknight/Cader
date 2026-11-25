@@ -5,6 +5,13 @@
 
 **Applies to Cader 0.4.0-dev.12 · Updated 2026-11-25**
 
+The current P0 patch adds these behaviors; full live-regression results are tracked separately:
+
+- A complete custom reference-schematic plan must share one global axis scale/translation with the source observation. Components, pins and label guides use the same transform. Drift is rejected before CAD dispatch; `source_layout:true` remains available. Arbitrary per-component rearrangement or rotation is not supported by this entry.
+- When required deterministic checks pass but vision remains uncertain, Harness permits one additional evidence review using the same verified capture. Original reports remain intact; the program does not force a pass. Remaining uncertainty stays pending.
+- `/quality accept [review comment]` is a user-only final-DWG review entry. Explicit natural-language manual-review declarations use the same confirmation flow. The terminal proactively asks for review when a verified DWG has only visual conditions unresolved. CAD-tool approval does not count as human acceptance.
+- Human acceptance binds the task, original automatic manifest, source/image evidence and DWG hashes. Changed files or evidence invalidate it. `/quality` shows automatic and human results separately. Acceptance covers only the delivered DWG; it grants no continuation authority, does not clear unknown barriers and cannot override structural failures. File review after restarting does not adopt an old CAD document.
+
 2026-11-25 human acceptance: the user inspected both final DWGs and confirmed no issues. Their hashes still match the regression artifacts; both deliverables are now human-accepted. Historical automatic visual uncertainty is retained separately, without claiming a model pass or treating it as proof of a final drawing defect. The cold-start creation fault and initial coordinate-frame gap remain open. [Human acceptance and automatic history](../validation/2026-11-25-original-joint-regression.md).
 
 Recorded automatic regression (14ada93): the warm house/red-roof/blue-wall/tree case passed 7/7 and independent DWG reopening. Cold new-document creation failed during MCP name observation. The original circuit passed eight-net/nine-label/native-DWG checks, but visual layout acceptance remains pending. Custom reference layouts currently do not remap source-projected label guides consistently; this gap remains unfixed. The read-only receipt contract passed 7/7 with an active document, which is separate from drawing acceptance. [Current results and open defects](../validation/2026-11-25-original-joint-regression.md). Earlier original-circuit success refers to another historical run.

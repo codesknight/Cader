@@ -71,7 +71,7 @@ export async function runTerminal(options: { workspace?: string; stdio?: boolean
   const confirm = async (command: string, cwd: string) => {
     if (!tty || active?.signal.aborted) return false;
     queue.length = 0; // Never consume pasted/type-ahead text as a permission decision or a later model task.
-    write(command.startsWith('人工审定历史参数拒绝')
+    write(command.startsWith('人工图纸复核') ? `\n人工图纸复核 · ${cwd}\n${command}\n已查看并确认符合需求？[y/N] ` : command.startsWith('人工审定历史参数拒绝')
       ? `\n历史屏障复核 · ${cwd}\n${command}\n确认以上事实并批准归档？[y/N] `
       : `\n工具审批 · ${cwd}\n${command}\nAgent工具结果会返回模型；Shell以本机账号执行（非沙箱）。允许本次执行？[y/N] `);
     return new Promise<boolean>(resolve => { confirmation = resolve; });
@@ -84,9 +84,11 @@ export async function runTerminal(options: { workspace?: string; stdio?: boolean
       const stream = new SafeTextStream(session.secrets, chunk => { streamed = true; output.write(chunk); });
       try {
         if (!line.startsWith('/') && !line.startsWith('!') && line.trim()) write('\nCader · 正在处理（Esc 中断）\n');
-        const reply = await session.execute(line, { signal: active.signal, confirm, onEvent: event => {
+        const reply = await session.execute(line, { signal: active.signal, confirm, review:confirm, onEvent: event => {
           if (event.type === 'assistant.delta' && event.role === 'main') stream.push(String(event.text ?? ''));
           else if(event.type==='task.phase') write(`\n  阶段：${({reference:'读取手稿',planning:'规划',drawing:'绘制',geometry:'几何验证',topology:'拓扑验证',vision:event.has_reference?'源图对照验证':'视觉验证',correcting:'局部修正',saving:'保存DWG',complete:'验收完成',pending_verification:'待验证',blocked:'阻塞'} as Record<string,string>)[String(event.phase)]??String(event.phase)}\n`);
+          else if(event.type==='task.visual_adjudication')write('\n  视觉证据仲裁：复用同一截图，核对未决必要条件。\n');
+          else if(event.type==='task.user_review_required')write(`\n  待人工复核：${JSON.stringify(event.artifact)}\n`);
           else if(event.type==='task.visual') write(`\n  视觉检查 · ${event.source==='agent'?'Agent主动调用':'Harness验收'} · ${event.reused?'复用有效报告':`第${event.call_count}次`} · ${event.review_valid?String(event.verdict):'报告无效，待验证'}\n`);
           else if(event.type==='task.planning_retry')write('\n  规划输出被截断，正在进行一次紧凑重试（尚未绘图）。\n');
           else if(event.type==='task.output_retry')write(`\n  模型响应中断（${String(event.reason)}） · 已核对账本及图纸 · 短批续跑 ${event.scope_attempt??event.attempt}/2${event.recovery_scope&&event.recovery_scope!=='task'?` · 单元 ${String(event.recovery_scope)}`:''}（累计${event.attempt}次，不重放已确认操作）。\n`);

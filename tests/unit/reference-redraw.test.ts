@@ -137,7 +137,7 @@ test('reference schematic units retain all source pins/nets and share the same a
   const f=await setup(),raw=await readFile(join(f.root,'reference.png')),sha256=createHash('sha256').update(raw).digest('hex');
   const pixels=await readReferenceImage(f.root,'reference.png');let target:string|null=null,created=false,approvals=0;const entities:any[]=[],unitIds:string[]=[];
   const recoveredRuns:any[]=[],attempts=new Map<string,number>();
-  const source=parseReferenceObservation({...observation,drawing_kind:'schematic',objects:[{id:'Q',kind:'three-pin',bounds:[[0,0],[0.4,0.4]],terminals:[[0,0],[0,0.2],[0.4,0.4]],certainty:'clear'},{id:'R',kind:'two-pin',bounds:[[0.6,0],[1,0.4]],terminals:[[0.6,0],[1,0.4]],certainty:'clear'}],nets:[{id:'joint',pins:[{object:'Q',terminal:0},{object:'R',terminal:0}]},...['Q:1','Q:2','R:1'].map(id=>({id,pins:[{object:id.split(':')[0],terminal:Number(id.split(':')[1])}]}))]});
+  const source=parseReferenceObservation({...observation,drawing_kind:'schematic',objects:[{id:'Q',kind:'three-pin',bounds:[[0,0],[2/14,0.5]],terminals:[[2/14,0.5],[0,0.25],[2/14,0]],certainty:'clear'},{id:'R',kind:'two-pin',bounds:[[12/14,0],[1,0.5]],terminals:[[12/14,0.5],[1,0]],certainty:'clear'}],nets:[{id:'joint',pins:[{object:'Q',terminal:0},{object:'R',terminal:0}]},...['Q:1','Q:2','R:1'].map(id=>({id,pins:[{object:id.split(':')[0],terminal:Number(id.split(':')[1])}]}))]});
   const proposed={version:1,domain:'electrical-schematic',wire_layer:'WIRE',visual_required:true,components:[{id:'Q',source_id:'Q',source_terminals:[0,1,2],kind:'three-pin',bounds:[[-2,0],[0,4]],ports:[[0,0],[-2,2],[0,4]],pin_names:['B','C','E']},{id:'R',source_id:'R',source_terminals:[0,1],kind:'two-pin',bounds:[[10,0],[12,4]],ports:[[10,0],[12,4]],pin_names:['1','2']}],nets:[{id:'joint',pins:[{component:'Q',pin:'B'},{component:'R',pin:'1'}]},...['Q:C','Q:E','R:2'].map(id=>({id,pins:[{component:id.split(':')[0],pin:id.split(':')[1]}]}))],requirements:['netlist','visual','no_wire_through_component','text_clearance','new_document','saved_dwg','source_topology_fidelity'].map(check=>({id:check,check:check==='source_topology_fidelity'?'visual':check,description:check,source_quote:'复现电路'}))};
   const facts=()=>({frozen:false,local_connection_id:'original',scratch:target,session_counts:{committed:entities.length+(created?1:0),unknown:0}});
   const runtime={completed:()=>recoveredRuns,async inspectReference(){return {valid:true,structured:source,net_review:{id:'fixture-source-review',valid:true,changed:false,consensus:true,uncertain_nets:[{...source.nets![0]!,evidence:'PRELIMINARY_OPINION_MUST_NOT_PRIME_REVIEW'}]},evidence:{path:join(f.root,'reference.png'),sha256,width:pixels.width,height:pixels.height}};},async run(_profile:string,_instruction:string,request:any){
@@ -147,6 +147,7 @@ test('reference schematic units retain all source pins/nets and share the same a
       const lost=structuredClone(proposed);lost.components[0]!.ports.pop();lost.components[0]!.pin_names.pop();lost.components[0]!.source_terminals.pop();lost.nets=lost.nets.filter(n=>n.id!=='Q:E');
       await assert.rejects(request.extraTools[0].execute(lost,{concludeTurn(){}}),/SOURCE_TERMINALS_MUST_BE_PRESERVED/);
       const wrong=structuredClone(proposed);wrong.components[0]!.source_terminals=[1,0,2];await assert.rejects(request.extraTools[0].execute(wrong,{concludeTurn(){}}),/SOURCE_NETLIST_MISMATCH/);
+      const drift=structuredClone(proposed);drift.components[1]!.bounds.forEach(p=>p[1]!+=100);drift.components[1]!.ports.forEach(p=>p[1]!+=100);await assert.rejects(request.extraTools[0].execute(drift,{concludeTurn(){}}),/SOURCE_LAYOUT_FRAME_MISMATCH/);assert.equal(approvals,0);
       await request.extraTools[0].execute(proposed,{concludeTurn(){}});return {status:'succeeded',text:'plan',tools:[]};
     }
     const finish=request.extraTools.find((t:ToolDefinition)=>t.name==='cader_finish_drawing_unit');assert.ok(finish);assert.equal(request.keepExecutionRound,true);
@@ -203,7 +204,7 @@ test('an inapplicable user clarification is reviewed without clearing a differen
 
 for(const persistFails of [false,true])test(`source connection confirmation precedes sealing and rolls back failed persistence: ${persistFails}`,async()=>{
   const f=await setup(),pixels=await readReferenceImage(f.root,'reference.png'),sha256=createHash('sha256').update(pixels.data).digest('hex'),quote='连接确认：A与B连通',task='复现参考电路。'+quote;let grants=0;
-  const source=parseReferenceObservation({...observation,drawing_kind:'schematic',objects:['A','B'].map((id,i)=>({id,kind:'terminal',category:'component',bounds:[[i*0.5,0],[i*0.5+0.4,0.4]],terminals:[[i*0.5,0]],certainty:'clear'})),nets:['A','B'].map(object=>({id:object,pins:[{object,terminal:0}],certainty:object==='A'?'clear':'uncertain'}))});
+  const source=parseReferenceObservation({...observation,drawing_kind:'schematic',objects:['A','B'].map((id,i)=>({id,kind:'terminal',category:'component',bounds:[[i*0.3,0],[i*0.3+0.1,0.1]],terminals:[[i*0.3,0.1]],certainty:'clear'})),nets:['A','B'].map(object=>({id:object,pins:[{object,terminal:0}],certainty:object==='A'?'clear':'uncertain'}))});
   const plan={version:1,domain:'electrical-schematic',wire_layer:'WIRE',visual_required:true,components:['A','B'].map((id,i)=>({id,source_id:id,source_terminals:[0],kind:'terminal',bounds:[[i*3,0],[i*3+1,1]],ports:[[i*3,0]],pin_names:['p']})),nets:[{id:'joined',pins:['A','B'].map(component=>({component,pin:'p'}))}],requirements:['visual','netlist','no_wire_through_component','text_clearance'].map(check=>({id:check,check,description:'Synthetic condition',source_quote:'复现参考电路'}))};
   const runtime={completed:()=>[],async inspectReference(){return {valid:true,structured:structuredClone(source),evidence:{path:join(f.root,'reference.png'),sha256,width:pixels.width,height:pixels.height}};},async run(_p:string,_i:string,request:any){
     if(request.onlyTools[0]==='cader_submit_acceptance_plan'){await request.extraTools[0].execute(plan,{concludeTurn(){}});return {status:'succeeded',text:'fixture plan',tools:[]};}
@@ -291,7 +292,7 @@ test('source label formatting has bounded repair and remains uncertain without a
   finally{await runtime.dispose();delete process.env.CADER_REPAIR_FIXTURE;await f.cleanup();}
 });
 
-for(const kind of ['complete','pending','quota','source-uncertain','budget','capture-error'])test(`actual DSH reference task binds fresh CAD and verified DWG: ${kind}`,async()=>{
+for(const kind of ['complete','pending','adjudicated','quota','source-uncertain','budget','capture-error'])test(`actual DSH reference task binds fresh CAD and verified DWG: ${kind}`,async()=>{
   const initiallyPending=kind==='pending';
   const f=await setup(); const previous=process.env.CADER_REDRAW_FIXTURE;process.env.CADER_REDRAW_FIXTURE='offline-redraw-only';
   const events:PublicEvent[]=[],calls:string[]=[];let target='Old.dwg',steps=0,planningImages=0,reviewImages=0,reviewCalls=0,reportAttempts=0;
@@ -331,7 +332,7 @@ for(const kind of ['complete','pending','quota','source-uncertain','budget','cap
         if(reportAttempts===2){assert.match(JSON.stringify(request.messages),/UNKNOWN_REVIEW_ENTITY_ID/);yield* call('cader_submit_visual_report',{verdict:'pass',defects:[],uncertainties:[],checklist:[{requirement_id:'invented-condition',status:'pass',evidence:'Must be rejected'}]},'bad-checklist');return;}
         if(reportAttempts===3){assert.match(JSON.stringify(request.messages),/REVIEW_CHECKLIST_MISMATCH/);yield* call('cader_submit_visual_report',{verdict:'uncertain',defects:[],uncertainties:['Unrequested reference missing'],checklist:[{requirement_id:'appearance',status:'pass',evidence:'All required observations passed'}]},'global-uncertainty');return;}
         if(reportAttempts===4)assert.match(JSON.stringify(request.messages),/UNCERTAINTY_MUST_AFFECT_REQUIRED_CHECK/);
-        const pending=initiallyPending&&reviewCalls++===0;
+        const pending=initiallyPending?reviewCalls++<2:kind==='adjudicated'&&reviewCalls++===0;
         yield* call('cader_submit_visual_report',{verdict:pending?'uncertain':'pass',defects:[],uncertainties:pending?['Synthetic unresolved appearance']:[],checklist:[{requirement_id:'appearance',status:pending?'uncertain':'pass',evidence:'Synthetic report only, not a real visual judgement'}]},'review');return;
       }
       assert.ok(!request.tools?.some(t=>t.name.endsWith('__save_drawing')),'model cannot choose another output path');
@@ -377,6 +378,7 @@ for(const kind of ['complete','pending','quota','source-uncertain','budget','cap
     const manifest=JSON.parse(await readFile(chat.state.qualityRun!,'utf8'));
     assert.equal(result.error,false,result.text+'\n'+JSON.stringify(manifest.visual));assert.match(result.text,/DWG已生成并校验/);
     assert.ok(planningImages);assert.equal(reviewImages,2);assert.equal(approvals,initiallyPending?2:1);
+    if(kind==='adjudicated'){assert.equal(calls.filter(n=>n==='export_current_view').length,1);assert.ok(events.some(e=>e.type==='task.visual_adjudication'));}
     assert.equal(calls.filter(n=>n==='draw_line').length,1);assert.equal(calls.filter(n=>n==='new_drawing').length,1);
     assert.deepEqual(old,[{object_id:7,type:'AcDbCircle',layer:'0'}]);
     assert.equal(manifest.phase,'complete');assert.equal(manifest.execution.frozen,false);
@@ -417,7 +419,7 @@ test('semantic units receive sealed custom symbol and label layers rather than l
 
 test('a clear source partition conflict returns to Scheduler without geometric correction against a wrong frozen contract',async()=>{
   const f=await setup(),path=join(f.root,'reference.png'),pixels=await readReferenceImage(f.root,path),sha256=createHash('sha256').update(pixels.data).digest('hex');
-  const task='复现电路',source=parseReferenceObservation({...observation,drawing_kind:'schematic',objects:['A','B'].map((id,i)=>({id,kind:'one-pin fixture',category:'component',bounds:[[0.1+i*0.5,0.2],[0.2+i*0.5,0.4]],terminals:[[0.1+i*0.5,0.2]],certainty:'clear'})),nets:[{id:'joined',pins:['A','B'].map(object=>({object,terminal:0})),certainty:'clear'}]});
+  const task='复现电路',source=parseReferenceObservation({...observation,drawing_kind:'schematic',objects:['A','B'].map((id,i)=>({id,kind:'one-pin fixture',category:'component',bounds:[[0.1+i*0.3,0.2],[0.2+i*0.3,0.4]],terminals:[[0.1+i*0.3,0.4]],certainty:'clear'})),nets:[{id:'joined',pins:['A','B'].map(object=>({object,terminal:0})),certainty:'clear'}]});
   const plan={version:1,domain:'electrical-schematic',wire_layer:'WIRE',visual_required:true,components:['A','B'].map((id,i)=>({id,source_id:id,source_terminals:[0],kind:'fixture',bounds:[[i*3,0],[i*3+1,1]],ports:[[i*3,0]],pin_names:['p']})),nets:[{id:'joined',pins:['A','B'].map(component=>({component,pin:'p'}))}],requirements:['source_topology_fidelity','netlist','no_wire_through_component','text_clearance'].map(check=>({id:check,check:check==='source_topology_fidelity'?'visual':check,source_quote:task,description:'Synthetic contract'}))};
   let target:string|null=null,units=0,saves=0;const rows:any[]=[];
   const owner={workspace:f.root,facts:()=>({frozen:false,local_connection_id:'fixture',scratch:target,session_counts:{committed:units,unknown:0},operations:[]}),definitions:()=>[],taskScope:()=>({owned:Boolean(target),target,new_drawing_confirmed:Boolean(target),geometry_confirmed:rows.length,entity_ids:rows.map(r=>r.object_id)}),async authorizeTask(){return true;},endTask(){},async snapshot(){return {document:target,entities:structuredClone(rows)};},async saveTaskArtifact(){saves++;return {kind:'local-dwg',path:join(f.root,'fixture.dwg'),bytes:100,sha256:'fixture',document:target};}};
