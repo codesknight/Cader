@@ -4,6 +4,7 @@ import type { QualityPlan } from '@cader/config';
 import type { createLiveRuntime, ToolDefinition, PublicEvent, ImageView } from '@cader/dsh-adapter';
 import type { ExecutionSession, Approval } from './execution.js';
 import type { ReferenceTask } from './reference-input.js';
+import type {LocalArtifact} from './file-artifacts.js';
 import { referenceLayoutHints,sourcePlanLayout,referencePlanHints } from './reference-input.js';
 import {crossesInterior} from './cad-arguments.js';
 import { taskIntent } from './task-intent.js';
@@ -43,9 +44,10 @@ type VisualCall = { source: 'agent' | 'harness'; observed_state_hash: string; re
 /** Compact evidence for model steps and status queries. Saved evidence is
  * historical, never a fresh native revision or authority to resume writes. */
 export function qualityTaskContext(saved: { task_id: string; phase: string; original_request: string; round: number;
-  checks: CheckResult[]; visual_calls?: VisualCall[]; reviews?: unknown[]; plan?: QualityPlan; visual_attempt_count?: number;visual_model_call_count?:number;visual_error?: string | null }) {
+  checks: CheckResult[]; visual_calls?: VisualCall[]; reviews?: unknown[]; plan?: QualityPlan; visual_attempt_count?: number;visual_model_call_count?:number;visual_error?: string | null;artifact?:Partial<LocalArtifact>|null;execution?:{artifact?:Partial<LocalArtifact>|null} }) {
   const legacy = saved.reviews?.at(-1) as { image_evidence?: unknown; visual_report?: unknown } | undefined;
   const last = saved.visual_calls?.at(-1)?.review;
+  const file=saved.artifact??saved.execution?.artifact;
   const clipped=Boolean((last?.evidence as {image_bounds?:{possible_clipping?:boolean}}|undefined)?.image_bounds?.possible_clipping);
   return { task_id: saved.task_id, phase: saved.phase, original_request: saved.original_request,
     correction_round: saved.round, visual_call_count:saved.visual_model_call_count??Math.max(saved.visual_calls?.reduce((sum,call)=>sum+(call.review.attempts?.length??1),0)??0,saved.reviews?.filter(r=>Boolean((r as {image_evidence?:unknown}).image_evidence)).length??0),
@@ -54,6 +56,7 @@ export function qualityTaskContext(saved: { task_id: string; phase: string; orig
     pending_reasons: [...new Set([...saved.checks.filter(c=>c.status!=='pass').map(c=>c.id),
       ...(clipped?['capture_bounds']:[]),...(saved.visual_error?[saved.visual_error]:[]),...(last&&!last.review_valid?['visual_report_invalid']:[])])],
     last_visual: last ? { review_valid: last.review_valid, result: last.structured, image_evidence: last.evidence, image_ref: last.image_ref } : legacy ? { result: legacy.visual_report, image_evidence: legacy.image_evidence } : null,
+    file_delivery:file?{path:file.path,requested_path:file.requested_path??file.path,sha256:file.sha256,bytes:file.bytes,contract:file.file_contract?.contract??'legacy',status:file.file_verification?.status??'saved_without_readonly_reopen',geometry_scope:file.file_verification?.geometry_scope??null,verification_document_id:file.file_verification?.document.document_id??null,verification:file.file_verification?.verification??'File reopen not evaluated'}:null,
     checks: saved.checks, unmet_conditions: saved.checks.filter(c => c.status !== 'pass'),
     verification: {
       geometry: saved.checks.filter(c => !['visual','series_cycle','netlist'].includes(saved.plan?.requirements?.find(r=>r.id===c.id)?.check??'')),
@@ -258,7 +261,7 @@ export async function runQualityTask(options: {
   const taskId = options.resume?.task_id ?? randomUUID();
   const state = () => ({ version: 1, task_id: taskId, phase, original_request: task, request_sha256: hash, plan, round, checks, visual, reviews, visual_calls: visualCalls, visual_attempt_count:visualAttempts,
     visual_model_call_count:runtime?.reviewStats?priorModelCalls+runtime.reviewStats().model_calls:visualCalls.reduce((sum,call)=>sum+(call.review.attempts?.length??1),0),
-    visual_error:visualError,transitions, failure,reference_task:referenceTask??null,reference_observation:referenceObservation,label_confirmations:labelConfirmations,unconfirmed_label_reviews:unconfirmedLabelReviews,connection_confirmations:connectionConfirmations,unconfirmed_connection_reviews:unconfirmedConnectionReviews,artifact,quality_accepted:accepted, model_runs: modelRuns, checkpoints,drawing_units:drawingUnits,active_drawing_unit:activeUnit,active_planning_unit:activePlanningUnit,planning_units:planningUnits,source_layout:sourceLayoutEvidence,source_frame:sourceFrameEvidence, budget:runtime?.budgetState?.(),execution: owner.facts() });
+    visual_error:visualError,transitions, failure,reference_task:referenceTask??null,reference_observation:referenceObservation,label_confirmations:labelConfirmations,unconfirmed_label_reviews:unconfirmedLabelReviews,connection_confirmations:connectionConfirmations,unconfirmed_connection_reviews:unconfirmedConnectionReviews,artifact,quality_accepted:accepted&&phase==='complete', model_runs: modelRuns, checkpoints,drawing_units:drawingUnits,active_drawing_unit:activeUnit,active_planning_unit:activePlanningUnit,planning_units:planningUnits,source_layout:sourceLayoutEvidence,source_frame:sourceFrameEvidence, budget:runtime?.budgetState?.(),execution: owner.facts() });
   const publish = () => { const facts=owner.facts();const context = {...qualityTaskContext(state()),
     execution_budget:runtime?.budgetState?.(),checkpoint_count:checkpoints.length,active_drawing_unit:activeUnit,active_planning_unit:activePlanningUnit,planning_units:planningUnits,drawing_units:drawingUnits,source_label_confirmations:labelConfirmations,source_connection_confirmations:connectionConfirmations.map(({pins,source_quote,image_sha256})=>({pins,source_quote,image_sha256})),unconfirmed_source_label_reviews:unconfirmedLabelReviews,rendering_contract:referenceTask?renderingContract():null,
     visual_evidence_requires_recheck: !cachedReview || facts.frozen || reviewedWrites!==JSON.stringify([facts.local_connection_id,facts.scratch,facts.session_counts]),
@@ -383,7 +386,7 @@ export async function runQualityTask(options: {
         options.emit({type:'task.visual',source,reused:true,review_valid:cachedReview.review.review_valid,verdict:cachedReview.review.structured?.verdict??null});
         return cachedReview.review;
       }
-      const geometry = verifyQuality(plan, before.entities, {new_document:owner.taskScope?.(taskId).new_drawing_confirmed,saved_dwg:Boolean(artifact)});
+      const geometry = verifyQuality(plan, before.entities, {new_document:owner.taskScope?.(taskId).new_drawing_confirmed,saved_dwg:Boolean(artifact??owner.taskArtifact?.(taskId))});
       checks=geometry;publish();
       visualAttempts++;visualError=null;publish();
       const observedSource=referenceObservation?.structured,sourceImage=referenceObservation?.evidence;
@@ -441,7 +444,7 @@ export async function runQualityTask(options: {
     if(!referenceTask)return;
     await sourceUnchanged();await enter('saving');
     artifact=await owner.saveTaskArtifact(taskId,referenceTask.outputPath,options.confirm,signal);
-    checks=checks.map(check=>plan!.requirements.find(r=>r.id===check.id)?.check==='saved_dwg'?{id:check.id,status:'pass',evidence:'本任务DWG保存、文件头、hash和保存后CAD查询已验证'}:check);
+    checks=checks.map(check=>plan!.requirements.find(r=>r.id===check.id)?.check==='saved_dwg'?{id:check.id,status:'pass',evidence:artifact?.file_verification?'本任务DWG文件指纹、独立只读重开及支持的实体摘要已验证（完整几何/语义验证另计）':'本任务DWG保存、文件头、hash和保存后CAD查询已验证'}:check);
     options.emit({type:'artifact.verified',artifact,quality:accepted?'accepted':'pending'});
   };
   const tool: ToolDefinition = {
@@ -735,7 +738,7 @@ export async function runQualityTask(options: {
           if(failed&&failed.id!==replacement){failed.recovered_by=replacement;options.emit({type:'task.visual_recovered',failed_agent_id:failed.id,replacement_agent_id:replacement});}
         }
         accepted=true;
-        if(!referenceTask)await enter('complete');
+        if(!referenceTask)await enter(owner.taskArtifact?.(taskId)?.file_contract?'saving':'complete');
         break;
       }
       if(clipped)
@@ -756,10 +759,14 @@ export async function runQualityTask(options: {
       await saveReferenceArtifact();
       await enter(accepted?'complete':'pending_verification');
     }
+    if(!referenceTask&&accepted&&owner.taskArtifact?.(taskId)?.file_contract){
+      await enter('saving');artifact=await owner.verifyTaskArtifact(taskId,signal);
+      options.emit({type:'artifact.verified',artifact,quality:'accepted'});await enter('complete');
+    }
   }
   catch(error) {
     if(!failure&&['CONTINUATION_BINDING_CHANGED','TRUNCATION_RECOVERY_UNSAFE','DRAWING_UNIT_NOT_CLOSED'].includes((error as Error).message))failure={stage:phase,code:(error as Error).message,source:'verification'};
-    if((phase as QualityPhase)==='saving')failure={stage:phase,code:'DWG_SAVE_FAILED',source:'verification'};
+    if((phase as QualityPhase)==='saving'){accepted=false;checks.push({id:'artifact_delivery',status:'not_run',evidence:'DWG交付验收未完成，保存ACK不等于只读重开与实体读回通过；保留文件和原请求证据'});failure={stage:phase,code:owner.taskArtifact?.(taskId)?.file_contract?'DWG_DELIVERY_VERIFICATION_FAILED':'DWG_SAVE_FAILED',source:'verification'};}
     if(!failure)visual = { previous: visual, error: (error as Error).message };
     if(referenceTask&&(failure?.source==='model'||budgetPaused||(phase as QualityPhase)==='vision'&&Boolean(visualError))&&!signal?.aborted&&!owner.facts().frozen&&owner.taskScope(taskId).new_drawing_confirmed&&owner.taskScope(taskId).geometry_confirmed){
       accepted=false;

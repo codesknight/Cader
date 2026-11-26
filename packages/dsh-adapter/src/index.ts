@@ -39,3 +39,6 @@ export async function createToolRuntime(): Promise<Context> {
 
 export { comEvidence, parseNativeBinding, observedArguments, parseExecutionEnvelope, receiptOutcome, legacyObservedResult, EvidenceProtocolError, ObservedMcpCallError, ExecutionReceiptError } from './execution-evidence.js';
 export type { ComEvidence, NativeBinding, ObservedRequest, ExecutionReceipt } from './execution-evidence.js';
+
+export {parseFileResult} from './file-evidence.js';
+export type {ComFileArtifact,VerificationDocument,VerificationQuery} from './file-evidence.js';

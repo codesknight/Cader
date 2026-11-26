@@ -174,7 +174,7 @@ export class InteractiveSession {
           return this.converse(saved.original_request,callbacks,saved as QualityResume);
         }
         case '/help': return { text: SLASH_COMMANDS.map(([key, description]) => `${key.padEnd(15)} ${description}`).join('\n')
-          + '\n\n自然语言持续对话 · @"路径含空格.png" 引用 · !dir 用户Shell\n“每次绘图都做视觉检查”保存会话偏好；“是否使用了视觉验证？”读取历史证据；“继续”安全重验当前质量任务。\nEsc/Ctrl+C 中断当前任务 · Tab 补全 · 上下键历史 · Ctrl+D 或 /exit 退出\n/open DWG仅引用元数据，后端尚无任意DWG受控打开接口；/undo同样按能力拒绝。' };
+          + '\n\n自然语言持续对话 · @"路径含空格.png" 引用 · !dir 用户Shell\n“每次绘图都做视觉检查”保存会话偏好；“是否使用了视觉验证？”读取历史证据；“继续”安全重验当前质量任务。\nEsc/Ctrl+C 中断当前任务 · Tab 补全 · 上下键历史 · Ctrl+D 或 /exit 退出\n/quality显示实际DWG路径与文件交付状态；新COM交付在artifact-*目录，验收只读图不授予写权。\n/open DWG仅引用元数据，后端尚无任意DWG受控打开接口；/undo同样按能力拒绝。' };
         case '/exit': await this.store.save(this.state); await this.dispose(); return { text: `会话已保存：${this.state.id}`, exit: true };
         case '/context': return { text: JSON.stringify(this.context(), null, 2) };
         case '/status': return { text: `工作目录 ${this.state.workspace}\n模型 ${this.model.model} (${this.state.model})\nCAD 权限 ${this.state.permission}\n${await this.mcpProbe()}` };
@@ -330,7 +330,7 @@ export class InteractiveSession {
         line=referenceTask.request;
         if(!qualityResume&&referenceTask.qualityRun){
           const saved=JSON.parse(await readFile(await workspacePath(this.state.workspace,referenceTask.qualityRun),'utf8'));
-          if(saved.phase==='complete')return {text:`该重绘任务已完成，DWG：${referenceTask.outputPath}；未重复绘图。`};
+          if(saved.phase==='complete')return {text:`该重绘任务已完成，DWG：${saved.artifact?.path??saved.execution?.artifact?.path??referenceTask.outputPath}；未重复绘图。`};
           if(saved.plan)qualityResume=saved;
         }
       }
@@ -389,7 +389,7 @@ export class InteractiveSession {
     const facts=this.execution.facts(executionMark),counts=facts.counts,total=facts.session_counts;
     const status=!report.ok?this.clean(`${report.errorCode ?? report.blocked_reasons[0] ?? report.run_status}: ${report.hint ?? (report.blocked_reasons.includes('CAD_WRITE_FROZEN') ? `程序写屏障仍有效；自动恢复资格：${facts.recovery.eligible?'可对账':'不具备'}（${facts.recovery.reason}）。受控查询仍可用，重连/重启不能解除。` : report.blocked_reasons.join(', '))}`):'';
     return {text:this.clean(report.text)+(status?'\n'+status:'')+reviewNote,afterStream:status+reviewNote,error:!report.ok,
-      note:`${this.state.permission} · CAD ${facts.write_state} · 本轮确认 ${counts.committed} / 未知 ${counts.unknown} / 未派发阻断 ${counts.blocked_not_dispatched} · 会话确认 ${total.committed} / 未知 ${total.unknown} · 模型回复不等于独立验收`};
+      note:`${this.state.permission} · CAD ${facts.write_state} · 本轮确认 ${counts.committed} / 未知 ${counts.unknown} / 未派发阻断 ${counts.blocked_not_dispatched} · 会话确认 ${total.committed} / 未知 ${total.unknown}${facts.file_counts?` · 文件复核确认 ${facts.file_counts.committed} / 未知 ${facts.file_counts.unknown}`:''} · 模型回复不等于独立验收`};
   }
   async dispose() { await this.execution.dispose(); }
 }

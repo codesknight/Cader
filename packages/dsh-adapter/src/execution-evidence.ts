@@ -1,3 +1,4 @@
+import { fileOperations,validateFileReceipt } from './file-evidence.js';
 import { assertToolArguments, ToolArgumentsError } from './tool-validation.js';
 
 const id={type:'string',pattern:'^[A-Za-z0-9._-]{1,128}$'};
@@ -9,7 +10,7 @@ const receiptSchema={name:'execution_receipt',parameters:object({contract:{const
 export interface NativeBinding {instance_id:string;document_id:string;name:string;managed:boolean;read_only:boolean;revision:null;revision_mode:'unsupported'}
 export interface ObservedRequest {instance_id:string;request_id:string;operation:string;arguments:Record<string,unknown>;document_id:string|null}
 export interface ExecutionReceipt {contract:'autocad-execution/1';backend:'com';instance_id:string;request_instance_id:string;request_id:string;operation:string;request_document_id:string|null;result_document_id:string|null;status:'pending'|'failed'|'succeeded';stage:string;revision:null;revision_mode:'unsupported';native_invoked:boolean;native_acknowledged:boolean;native_actions:{name:string;acknowledged:boolean}[];observation:string;affected_entities:{created:string[];modified:string[];deleted:string[];complete:boolean};service_request_fingerprint:string;fingerprint_algorithm:string;[key:string]:unknown}
-export interface ComEvidence {instance_id:string;operations:string[];contract:'autocad-backend-evidence/1'}
+export interface ComEvidence {instance_id:string;operations:string[];contract:'autocad-backend-evidence/1';file_artifacts?:true}
 export class EvidenceProtocolError extends Error {readonly code='MCP_EVIDENCE_INVALID';constructor(message:string){super(message);this.name='EvidenceProtocolError';}}
 /** Raw failure envelope from the exact additive MCP entrypoint; NOT yet trusted. */
 export class ObservedMcpCallError extends Error {constructor(readonly envelope:unknown){super('MCP_OBSERVED_OPERATION_FAILED');this.name='ObservedMcpCallError';}}
@@ -26,7 +27,13 @@ export function comEvidence(status:unknown,tools:string[]):ComEvidence|null{
     assertToolArguments({name:'instance',parameters:id},s.instance_id);
     if(!['get_document_binding','execute_observed_operation','get_execution_status'].every(name=>tools.some(t=>t.split('__').at(-1)===name)))throw new Error('Advertised evidence tool missing');
     if(!cap.execution_receipts.operations.includes('new_document'))throw new Error('Creation receipt required for owned-document binding');
-    return {instance_id:s.instance_id!,operations:[...cap.execution_receipts.operations],contract:cap.contract};
+    const fileSupport=fileOperations.some(name=>cap.execution_receipts.operations.includes(name));
+    if(fileSupport){
+      if(!fileOperations.every(name=>cap.execution_receipts.operations.includes(name)))throw new Error('Incomplete file operations');
+      assertToolArguments({name:'file_artifact_capability',parameters:object({contract:{const:'autocad-file-artifact/1'},persistent:{const:false},source_revision_authoritative:{const:false},save_semantics:{const:'save_as_renames_source'},output_namespace:{const:'unique_artifact_subdirectory'},overwrite:{const:false},atomic_with_entities:{const:false}})},cap.file_artifacts);
+      if(cap.readonly_reopen?.supported!==true||cap.readonly_reopen?.scope!=='python_backend_owned_artifacts')throw new Error('Read-only reopen capability missing');
+    }
+    return {instance_id:s.instance_id!,operations:[...cap.execution_receipts.operations],contract:cap.contract,...(fileSupport?{file_artifacts:true as const}:{})};
   }catch{throw new EvidenceProtocolError('MCP_EVIDENCE_CAPABILITIES_INVALID: no silent downgrade');}
 }
 export function parseNativeBinding(value:unknown,expected:{instance_id:string;document_id?:string}|undefined,writing=false):NativeBinding{
@@ -59,8 +66,8 @@ export function parseExecutionEnvelope(value:unknown,request:ObservedRequest,isE
   const envelope=value as {receipt?:unknown;result?:unknown}|null;
   try{assertToolArguments(receiptSchema,envelope?.receipt);}catch{throw new EvidenceProtocolError('MCP_EXECUTION_RECEIPT_INVALID');}
   const r=envelope!.receipt as ExecutionReceipt;
-  if(r.instance_id!==request.instance_id||r.request_instance_id!==request.instance_id||r.request_id!==request.request_id||r.operation!==request.operation||r.request_document_id!==request.document_id||r.result_document_id!==null&&request.document_id!==null&&r.result_document_id!==request.document_id)throw new EvidenceProtocolError('MCP_EXECUTION_IDENTITY_MISMATCH');
-  const invoked=r.native_actions.length>0,ack=invoked&&r.native_actions.every(a=>a.acknowledged),reading=['get_entity','query_entities'].includes(request.operation);
+  if(r.instance_id!==request.instance_id||r.request_instance_id!==request.instance_id||r.request_id!==request.request_id||r.operation!==request.operation||r.request_document_id!==request.document_id||r.result_document_id!==null&&request.document_id!==null&&r.result_document_id!==request.document_id&&request.operation!=='reopen_document_artifact')throw new EvidenceProtocolError('MCP_EXECUTION_IDENTITY_MISMATCH');
+  const invoked=r.native_actions.length>0,ack=invoked&&r.native_actions.every(a=>a.acknowledged),reading=['get_entity','query_entities','query_verification_entities'].includes(request.operation);
   if(r.native_invoked!==invoked||r.native_acknowledged!==ack||reading&&invoked)throw new EvidenceProtocolError('MCP_NATIVE_ACK_CONTRADICTION');
   if(r.stage==='not_dispatched'&&(r.status!=='failed'||invoked||r.result_document_id!==null||r.affected_entities.complete||['created','modified','deleted'].some(k=>(r.affected_entities[k as 'created']).length>0)||!['not_started','failed'].includes(r.observation)||r.error===null))throw new EvidenceProtocolError('MCP_NOT_DISPATCHED_CONTRADICTION');
   if(r.stage==='completed'&&(r.status!=='succeeded'||r.observation!=='succeeded'||!r.affected_entities.complete||!r.result_document_id||!reading&&!ack||r.error!==null||isError))throw new EvidenceProtocolError('MCP_COMPLETION_CONTRADICTION');
@@ -73,6 +80,7 @@ export function parseExecutionEnvelope(value:unknown,request:ObservedRequest,isE
     if(key===effectKey&&['modified','deleted'].includes(key)&&affected.some(id=>id!==String(request.arguments.object_id)))throw new EvidenceProtocolError('MCP_AFFECTED_ENTITY_MISMATCH');
   }
   if(r.status==='succeeded'&&r.stage!=='completed'||isError&&r.status!=='failed')throw new EvidenceProtocolError('MCP_STATUS_CONTRADICTION');
+  validateFileReceipt(envelope!,request,r);
   return {receipt:structuredClone(r),result:envelope!.result};
 }
 export function receiptOutcome(r:ExecutionReceipt):'failed_before_dispatch'|'committed_observation_failed'|'unknown'{

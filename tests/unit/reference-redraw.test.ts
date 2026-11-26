@@ -450,3 +450,21 @@ test('frozen-plan wire intersections are rejected before native dispatch without
     assert.equal((await invokeTool(ctx,'mcp__autocad__draw_line',{layer:'WIRE',start_x:-1,start_y:1,start_z:0,end_x:0,end_y:1,end_z:0})).isError,false);assert.equal(lines,1);
   }finally{await ctx.fiber.dispose();await owner.dispose();await f.cleanup();}
 });
+
+test('source content detail supplements original pixels with explicit global-frame metadata at independent review stages',async()=>{
+ const f=await setup();process.env.CADER_CONTENT_DETAIL_FIXTURE='offline-only';
+ const c=await import('@cader/config').then(m=>m.loadConfig(f.root));const original=await readFile(join(f.root,'reference.png'));
+ const observed={...observation,drawing_kind:'schematic',content_bounds:[[0.2,0.2],[0.8,0.8]],objects:[{id:'X',kind:'two-pin fixture',category:'component',bounds:[[0.3,0.3],[0.6,0.6]],terminals:[[0.4,0.3],[0.4,0.6]],certainty:'clear'}],nets:[{id:'a',pins:[{object:'X',terminal:0}],certainty:'clear',evidence:'Fixture first terminal'},{id:'b',pins:[{object:'X',terminal:1}],certainty:'clear',evidence:'Fixture second terminal'}]};
+ const runtime=await createLiveRuntime({...c,root:f.root,workspaceRoot:f.root,runDirectory:join(f.root,'.cader/runs/content-detail'),profiles:c.profiles.map(p=>({...p,api_key_env:'CADER_CONTENT_DETAIL_FIXTURE'}))});const reviewed:string[]=[];
+ runtime.ctx.on('llm/stream',async function*(request):AsyncGenerator<StreamChunk>{
+  const tool=request.tools!.find(t=>/^cader_submit_reference_/.test(t.name))!;const name=tool.name;
+  const messages=JSON.parse(JSON.stringify(request.messages)),blocks=messages.flatMap((m:{content:unknown[]})=>m.content),images=blocks.filter((b:{type:string})=>b.type==='image');
+  let args:unknown;
+  if(name==='cader_submit_reference_observation'){assert.equal(images.length,1);args=observed;}
+  else{assert.equal(images.length,2);assert.match(JSON.stringify(messages),/global original-image normalized frame/);reviewed.push(name);
+   args=name==='cader_submit_reference_component_inventory'?{objects:observed.objects}:name==='cader_submit_reference_nets'?{membership:{'X:0':'a','X:1':'b'},nets:observed.nets.map(({id,certainty,evidence})=>({id,certainty,evidence}))}:{visible_text:[]};
+  }
+  yield* call(name,args,'content-detail-'+name);
+ });
+ try{const result=await runtime.inspectReference(join(f.root,'reference.png'),'Fixture image inspection');assert.equal(result.valid,true);assert.equal(reviewed.length,3);assert.deepEqual(await readFile(join(f.root,'reference.png')),original);}finally{await runtime.dispose();delete process.env.CADER_CONTENT_DETAIL_FIXTURE;await f.cleanup();}
+});

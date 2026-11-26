@@ -3,7 +3,14 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Project home](../../README.md) · [Documentation](../README.md)
 
-**Applies to Cader 0.4.0-dev.12 · Updated 2026-11-25**
+**Applies to Cader 0.4.0-dev.12 · Updated 2026-11-26**
+
+The original two-task P1 client regression passed: house 6/6 and complex sketch 13/13, with 37/83 entities in the actual read-only verification documents and independent native checks; the circuit also passed eight-net/nine-label validation.
+
+2026-11-26 ordinary COM file-artifact P1: a capable MCP saves DWGs in an exclusive `artifact-*` subdirectory of the requested parent. Use the returned actual path; the original intent is retained as `requested_path`. Files are not overwritten or moved back. Later saves on this working document keep the original requested parent. COM SaveAs changes its label/FullName without transferring lifecycle identity.
+
+The main Agent can call `cader_verify_dwg_artifact`; the Harness also verifies delivery before completion. Only the current authorized task's registered artifact is eligible, with no arbitrary path/document arguments. Verification documents remain separate, read-only and unmanaged. Repeated verification queries the registered document rather than reopening it again. `/quality` exposes the actual path, SHA, delivery state and `legacy_summary_partial` scope; file-verification counters are separate from CAD writes. Unknown file dispatch and ACK-after-observation failure retain a barrier that geometry recovery cannot clear. A proven pre-dispatch refusal can be retried against the same artifact. Older services retain legacy saves with no independent-reopen claim. [Integration and joint validation](../validation/2026-11-26-com-artifact-p1-integration.md).
+
 
 Final live regression (b062b51): the original red-roof/blue-wall/tree case passed 7/7 and the original complex sketch 12/12, including automatic quality checks and independent read-only DWG reopening. Original drawings and old barriers remain intact. [Results and limits](../validation/2026-11-25-p0-quality-fixes.md).
 

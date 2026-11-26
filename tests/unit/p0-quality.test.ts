@@ -56,3 +56,7 @@ test('source approximate touching margins are recorded; material body overlap is
  const make=(y:number)=>parseReferenceObservation({...source,objects:[{...source.objects[0]!,bounds:[[0.1,0.1],[0.3,0.31]],terminals:[[0.2,0.1],[0.2,0.31]]},{...source.objects[1]!,bounds:[[0.1,y],[0.3,0.5]],terminals:[[0.2,y],[0.2,0.5]]}]});
  const observed=make(0.3),raw=JSON.stringify(observed),layout=sourcePlanLayout(observed,{width:100,height:100});assert.equal(layout.normalized_bounds.length,1);assert.equal(layout.components[0]!.bounds[0][1],layout.components[1]!.bounds[1][1]);assert.equal(JSON.stringify(observed),raw);assert.throws(()=>sourcePlanLayout(make(0.2),{width:100,height:100}),/SOURCE_SYMBOL_BOUNDS_OVERLAP/);
 });
+
+test('manual final-file acceptance cannot override missing P1 readonly delivery verification',async()=>{
+ const f=await fixture();try{await writeFile(f.path,JSON.stringify({...f.state,artifact:{...f.state.artifact,file_contract:{contract:'autocad-file-artifact/1'}}}));await assert.rejects(acceptQualityByUser(f.root,f.path,f.owner,async()=>{throw new Error('Must reject before user approval');}),/FILE_VERIFICATION_REQUIRED/);}finally{await f.cleanup();}
+});

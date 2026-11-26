@@ -10,6 +10,7 @@ async function inspect(workspace:string,path:string){
   const manifest=await workspacePath(workspace,path),raw=await readFile(manifest,'utf8');
   const saved=JSON.parse(raw),artifact=saved.artifact??saved.execution?.artifact;
   if(!saved.task_id||!saved.plan||!artifact?.path||!artifact.sha256)throw new Error('HUMAN_REVIEW_ARTIFACT_REQUIRED');
+  if(artifact.file_contract&&artifact.file_verification?.status!=='verified')throw new Error('HUMAN_REVIEW_FILE_VERIFICATION_REQUIRED');
   if(saved.execution?.frozen||saved.execution?.operations?.some((op:{outcome:string;tool?:string;stage?:string})=>op.outcome==='unknown'||op.outcome==='committed_observation_failed'&&!(op.tool==='export_current_view'&&op.stage==='capture_restored')))throw new Error('HUMAN_REVIEW_UNCERTAIN_WRITE_DENIED');
   if(!saved.execution?.operations?.some((op:{tool:string;outcome:string})=>op.tool==='new_drawing'&&op.outcome==='committed')||saved.execution.operations.at(-1)?.tool!=='save_drawing'||saved.execution.operations.at(-1)?.outcome!=='committed')throw new Error('HUMAN_REVIEW_CONFIRMED_SAVE_REQUIRED');
   if(saved.reference_task&&saved.reference_observation?.valid!==true)throw new Error('HUMAN_REVIEW_SOURCE_VALIDATION_REQUIRED');

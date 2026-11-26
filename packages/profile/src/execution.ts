@@ -2,8 +2,8 @@ import { mkdir, open, readFile, writeFile, unlink, lstat, readdir } from 'node:f
 import { resolve, relative, dirname, basename, extname, matchesGlob } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { createMcpClient, defineTool, inspectCadImageBorder, assertToolArguments, ToolArgumentsError, NativeCreateNotInvokedError, NativeCaptureSafeError, captureEvidence,createToolRuntime, invokeTool } from '@cader/dsh-adapter';
-import { comEvidence, parseNativeBinding, observedArguments, parseExecutionEnvelope, receiptOutcome, legacyObservedResult, ObservedMcpCallError, ExecutionReceiptError } from '@cader/dsh-adapter';
-import type { ComEvidence, NativeBinding, ObservedRequest, ExecutionReceipt } from '@cader/dsh-adapter';
+import { comEvidence, parseNativeBinding, observedArguments, parseExecutionEnvelope, receiptOutcome, legacyObservedResult, ObservedMcpCallError, ExecutionReceiptError,parseFileResult } from '@cader/dsh-adapter';
+import type { ComEvidence, NativeBinding, ObservedRequest, ExecutionReceipt,ComFileArtifact,VerificationDocument,VerificationQuery } from '@cader/dsh-adapter';
 import type { ToolDefinition } from '@cader/dsh-adapter';
 import { loadMcp, workspacePath, readReferenceImage } from '@cader/config';
 import { runUserShell } from './interactive-shell.js';
@@ -12,6 +12,8 @@ import { environmentRedactor } from './session-store.js';
 import type { QualityPlan } from '@cader/config';
 import { inspectLegacyBarrier, archiveReviewedBarrier } from './legacy-barrier.js';
 import type { BarrierReview } from './legacy-barrier.js';
+import {verifyArtifactBytes,verifyReopenBinding,verifyQueryBinding,summaryFingerprint,filePathKey} from './file-artifacts.js';
+import type {LocalArtifact,FileVerificationEvidence} from './file-artifacts.js';
 
 export type PermissionMode = 'read-only' | 'ask' | 'workspace-write' | 'full-access';
 export const PERMISSION_MODES: PermissionMode[] = ['read-only', 'ask', 'workspace-write', 'full-access'];
@@ -19,7 +21,7 @@ const reads = new Set(['get_document_binding', 'get_backend_status', 'list_layer
 const writes = new Set(['new_drawing', 'draw_line', 'draw_circle', 'draw_arc', 'draw_rectangle', 'draw_text', 'draw_polyline', 'draw_mtext', 'draw_hatch', 'add_dimension', 'create_layer', 'set_layer_properties', 'move_entity', 'rotate_entity', 'copy_entity', 'scale_entity', 'mirror_entity', 'delete_entity', 'save_drawing']);
 export type Approval = (description: string, cwd: string) => Promise<boolean>;
 type Client = Awaited<ReturnType<typeof createMcpClient>>;
-type Outcome = 'committed' | 'committed_observation_failed' | 'unknown' | 'blocked_not_dispatched' | 'failed_before_dispatch';
+type Outcome = 'committed' | 'committed_observation_failed' | 'unknown' | 'blocked_not_dispatched' | 'failed_before_dispatch' | 'read_failed';
 export interface CadOperationRecord { operation_id: string; tool_call_id?: string; agent_id?: string; tool: string;
   stage: string; outcome: Outcome; dispatched: boolean; evidence_route?:string; execution_receipt?:ExecutionReceipt; transport_dispatched?:boolean; native_dispatched?:boolean; error?: unknown; target: string | null; duration_ms: number }
 
@@ -44,7 +46,9 @@ export class ExecutionSession {
   private observedAt: string | null = null;
   private observedCount: number | null = null;
   private observedOperationMark = -1;
-  private lastArtifact: { path: string; bytes: number; sha256: string } | null = null;
+  private lastArtifact: LocalArtifact | null = null;
+  private fileOperations:CadOperationRecord[]=[];
+  private verificationDocuments=new Map<string,VerificationDocument>();
   mode: PermissionMode = 'ask';
   private taskGrant?: { id: string; target: string | null; newAllowed: boolean; created: Set<number>; requireNew:boolean; outputPath?:string;plan:QualityPlan };
   private artifactOwner?:{task:string;connection:string|null;target:string|null};
@@ -52,7 +56,7 @@ export class ExecutionSession {
   private taskEntities = new Map<string,{connection:string|null;target:string|null;created:Set<number>;startMark:number;newOperation?:string;freshRequired:boolean}>();
   async authorizeTask(id: string, plan: QualityPlan, confirm?: Approval, controls?:{freshDrawing:boolean;outputPath:string}) {
     if(this.mode==='read-only'||this.frozen)return false;
-    if(this.mode==='ask'&&!await confirm?.(this.clean(`CAD 任务级授权\n目标：${controls?'本任务必须新建工作图':this.scratch??'本连接新建工作图'}\n${JSON.stringify(plan)}\n允许：本任务创建图层、绘图、本任务新建实体的局部移动/缩放/删除和视图检查，含最多3轮修正。${controls?`按请求生成DWG：${controls.outputPath}（覆盖他人/已改动文件另行审批）。`:'保存仍按原策略审批。'}删除其他实体、覆盖及Shell仍按原策略审批。`),this.workspace))return false;
+    if(this.mode==='ask'&&!await confirm?.(this.clean(`CAD 任务级授权\n目标：${controls?'本任务必须新建工作图':this.scratch??'本连接新建工作图'}\n${JSON.stringify(plan)}\n允许：本任务创建图层、绘图、本任务新建实体的局部移动/缩放/删除和视图检查，含最多3轮修正；保存后可只读重开本任务已登记DWG验收，不接管验收图。${controls?`按请求生成DWG：${controls.outputPath}（覆盖他人/已改动文件另行审批）。`:'保存仍按原策略审批。'}删除其他实体、覆盖及Shell仍按原策略审批。`),this.workspace))return false;
     const prior=this.taskEntities.get(id);
     if(prior&&(prior.connection!==this.localConnectionId||prior.target!==this.scratch))return false;
     const created=prior?.created??new Set<number>();
@@ -82,13 +86,68 @@ export class ExecutionSession {
       const tool=this.definitions(confirm).find(tool=>tool.name.endsWith('__save_drawing'));
       if(!tool)throw new Error('DWG_SAVE_UNAVAILABLE');
       ctx.tools.register(tool);
-      const result=await invokeTool(ctx,tool.name,{file_path:path},signal);
-      if(result.isError)throw new Error('DWG_SAVE_FAILED: '+JSON.stringify(result.error));
-      if(!this.lastArtifact||resolve(path)!==this.lastArtifact.path)throw new Error('DWG_ARTIFACT_MISMATCH');
-      const bytes=await readFile(path);
-      if(createHash('sha256').update(bytes).digest('hex')!==this.lastArtifact.sha256)throw new Error('DWG_ARTIFACT_CHANGED');
+      const cached=this.taskArtifact(id);
+      if(!cached?.file_contract||cached.requested_path!==resolve(path)){
+        const result=await invokeTool(ctx,tool.name,{file_path:path},signal);
+        if(result.isError)throw new Error('DWG_SAVE_FAILED: '+JSON.stringify(result.error));
+      }
+      if(!this.lastArtifact||resolve(path)!==(this.lastArtifact.requested_path??this.lastArtifact.path))throw new Error('DWG_ARTIFACT_MISMATCH');
+      if(this.lastArtifact.file_contract)return await this.verifyTaskArtifact(id,signal);
+      await verifyArtifactBytes(this.lastArtifact.path,{sha256:this.lastArtifact.sha256,byte_size:this.lastArtifact.bytes});
       return {kind:'local-dwg' as const,...this.lastArtifact,document:scope.target,task_id:id,verification:'DWG header, file hash and post-save CAD query; reopen not evaluated'};
     }finally{await ctx.fiber.dispose();}
+  }
+  async verifyTaskArtifact(id:string,signal?:AbortSignal){return this.serial(async()=>{
+    try{
+    signal?.throwIfAborted();
+    const scope=this.taskScope(id),artifact=this.taskArtifact(id),saved=artifact?.file_contract;
+    if(this.frozen||!scope.owned||!scope.new_drawing_confirmed||this.taskGrant?.id!==id||!saved||!this.evidence?.file_artifacts||saved.instance_id!==this.nativeTarget?.instance_id||saved.source_document_id!==this.nativeTarget?.document_id)throw new Error('DWG_OWNED_FILE_ARTIFACT_REQUIRED');
+    delete artifact!.file_verification;
+    await this.checkIdentity(true);await verifyArtifactBytes(saved.path,saved);
+    const before=await this.readBack('query_entities',{}),digest=summaryFingerprint(before);
+    let document=this.verificationDocuments.get(saved.artifact_id);
+    if(!document){
+      document=(await this.fileCall('reopen_document_artifact',{artifact_id:saved.artifact_id},saved.source_document_id,true,signal)).value as VerificationDocument;
+      verifyReopenBinding(saved,document);this.verificationDocuments.set(saved.artifact_id,document);
+    }
+    await verifyArtifactBytes(document.path,document);await this.checkIdentity(true);
+    const query=(await this.fileCall('query_verification_entities',{document_id:document.document_id},document.document_id,false,signal)).value as VerificationQuery;
+    verifyQueryBinding(saved,document,query);
+    if(summaryFingerprint(query.items)!==digest)throw new Error('DWG_REOPEN_SUMMARY_MISMATCH');
+    const after=await this.readBack('query_entities',{});await this.checkIdentity(true);
+    if(summaryFingerprint(after)!==digest)throw new Error('DWG_WORKING_DOCUMENT_CHANGED_DURING_VERIFICATION');
+    await verifyArtifactBytes(saved.path,saved);await verifyArtifactBytes(document.path,document);
+    const proof:FileVerificationEvidence={status:'verified',contract:query.contract,geometry_scope:query.geometry_scope,snapshot_revision:null,document,entity_count:query.items.length,summary_sha256:digest,checked_at:new Date().toISOString(),verification:'hash-identical readonly DWG reopen and supported summary comparison; full geometry/semantic verifier remains separate'};
+    artifact!.file_verification=proof;
+    await this.audit({phase:'file_verified',task_id:id,artifact,verification_query:query,working_summary:after});
+    return {kind:'local-dwg' as const,...artifact!,document:scope.target,task_id:id,verification:proof.verification};
+    }catch(error){await this.audit({phase:'file_verification_failed',task_id:id,artifact:this.lastArtifact,error:this.diagnostic(error)});throw error;}
+  });}
+  private async fileCall(operation:string,args:Record<string,unknown>,document:string,mutating:boolean,signal?:AbortSignal){
+    signal?.throwIfAborted();
+    if(!this.client||!this.evidence?.file_artifacts||this.frozen)throw new Error('DWG_FILE_EXECUTION_UNAVAILABLE');
+    const request:ObservedRequest={instance_id:this.evidence.instance_id,request_id:randomUUID(),document_id:document,operation,arguments:args};
+    const record:CadOperationRecord={operation_id:request.request_id,tool:operation,target:this.scratch,stage:'file_preflight',outcome:'failed_before_dispatch',dispatched:false,duration_ms:0},started=Date.now();
+    try{
+      await this.checkIdentity(true);if(mutating)await this.acquire();
+      await this.audit({phase:'file_prepared',request:request.request_id,request_json:JSON.stringify(request),request_sha256:createHash('sha256').update(JSON.stringify(request)).digest('hex'),mutating});
+      this.observedRequests.set(request.request_id,structuredClone(request));
+      signal?.throwIfAborted();record.dispatched=true;record.transport_dispatched=true;record.stage='file_dispatch';
+      const result=await this.cadCall(operation,args,request.request_id,request);
+      record.execution_receipt=result.receipt;record.native_dispatched=result.receipt?.native_invoked;record.evidence_route=result.route;record.outcome='committed';record.stage='file_confirmed';
+      await this.checkIdentity(true);record.duration_ms=Date.now()-started;this.fileOperations.push(record);await this.audit({...record,phase:'file_confirmed',result:result.value});return result;
+    }catch(error){
+      if(error instanceof ExecutionReceiptError&&error.receipt.request_id===request.request_id){record.execution_receipt=error.receipt;record.native_dispatched=error.receipt.native_invoked;record.outcome=error.outcome;if(error.outcome==='failed_before_dispatch'){record.dispatched=false;record.stage='file_native_preflight';}}
+      else if(record.dispatched)record.outcome=record.execution_receipt?.native_acknowledged?'committed_observation_failed':'unknown';
+      if(!mutating)record.outcome='read_failed';
+      record.error=this.diagnostic(error);record.duration_ms=Date.now()-started;
+      if(mutating&&record.dispatched){
+        record.stage=record.outcome==='committed_observation_failed'?'file_observation_failed':'file_dispatch';this.frozen=true;this.freeze={operation_id:request.request_id,stage:record.stage,outcome:record.outcome,reason:'CAD_FILE_BARRIER',sameConnection:true};
+        await writeFile(this.lock!,this.clean(JSON.stringify({frozen:true,owner_pid:process.pid,runDirectory:this.runDirectory,request:request.request_id,tool:operation,target:this.scratch,stage:record.stage,outcome:record.outcome,error:record.error})));
+      }
+      this.fileOperations.push(record);await this.audit({...record,phase:'file_failed',artifact:this.lastArtifact});
+      throw new Error(this.clean(JSON.stringify({code:'DWG_FILE_VERIFICATION_FAILED',operation,operation_id:request.request_id,outcome:record.outcome,saved_artifact:this.lastArtifact,cause:(error as Error).message,guidance:'Save evidence is retained. Do not replay SaveAs/Open or adopt the verification document. Unknown file dispatch must be reconciled first.'})));
+    }
   }
   async snapshot(){return this.serial(async()=>{
     if(!this.client)throw new Error('MCP_NOT_CONNECTED');
@@ -168,10 +227,10 @@ export class ExecutionSession {
       }
     });
   }
-  toolAvailable(name: string) { if(this.bindingError&&name.startsWith('mcp__')&&writes.has(name.split('__').at(-1)!))return false;return !this.frozen || (!['cader_shell','cader_apply_cad_patch','cader_review_cad_view'].includes(name) && (!name.startsWith('mcp__') || reads.has(name.split('__').at(-1)!))); }
+  toolAvailable(name: string) { if(this.bindingError&&name.startsWith('mcp__')&&writes.has(name.split('__').at(-1)!))return false;return !this.frozen || (!['cader_shell','cader_apply_cad_patch','cader_review_cad_view','cader_verify_dwg_artifact'].includes(name) && (!name.startsWith('mcp__') || reads.has(name.split('__').at(-1)!))); }
   controlTools(): ToolDefinition[] {
     const output = { schema: { type: 'string' as const }, render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: String(value) }] };
-    return [defineTool({name:'cader_cad_execution_status',description:'Read the original current-session observed request journal, without dispatching or replaying a write. Missing/expired/foreign records do not prove non-execution. This does not lift a write barrier.',parameters:{},output,execute:async()=>JSON.stringify(await this.executionStatus())}),defineTool({ name: 'cader_cad_health', description: 'Read authoritative Cader execution/lock state. COM null status fields mean unavailable metadata, not missing binding.', parameters: {}, output,
+    return [...(this.evidence?.file_artifacts?[defineTool({name:'cader_verify_dwg_artifact',description:'Read-only reopen and query the saved artifact of this authorized task, using registered identities only. Reuses its verification document; never accepts arbitrary file paths or grants write authority. Compare supported summaries, not full DWG semantics. Scheduler also requires this delivery check.',parameters:{},output,execute:async(_args,exec)=>{if(!this.taskGrant)throw new Error('AUTHORIZED_TASK_REQUIRED');return JSON.stringify(await this.verifyTaskArtifact(this.taskGrant.id,exec.signal));}})]:[]),defineTool({name:'cader_cad_execution_status',description:'Read the original current-session observed request journal, without dispatching or replaying a write. Missing/expired/foreign records do not prove non-execution. This does not lift a write barrier.',parameters:{},output,execute:async()=>JSON.stringify(await this.executionStatus())}),defineTool({ name: 'cader_cad_health', description: 'Read authoritative Cader execution/lock state. COM null status fields mean unavailable metadata, not missing binding.', parameters: {}, output,
       execute: async () => JSON.stringify(await this.status()) }),
     defineTool({ name: 'cader_cad_recover', description: 'Reconcile a mutation already acknowledged on this original connection after a failed observation. Never replays. Unknown dispatch, reconnect and legacy barriers remain frozen.', parameters: {}, output,
       execute: async () => JSON.stringify(await this.recover()) })].filter(tool=>tool.name!=='cader_cad_execution_status'||Boolean(this.evidence));
@@ -248,13 +307,13 @@ export class ExecutionSession {
     const operations = this.operations.slice(since).map(operation => structuredClone(operation));
     const count=(items:CadOperationRecord[])=>Object.fromEntries(['committed','committed_observation_failed','unknown','blocked_not_dispatched','failed_before_dispatch'].map(outcome=>[outcome,items.filter(op=>op.outcome===outcome).length]));
     const stale=this.observedAt===null||this.operations.slice(Math.max(0,this.observedOperationMark)).some(op=>op.dispatched);
-    const frozenOperation=this.freeze?this.operations.find(op=>op.operation_id===this.freeze!.operation_id):undefined;
+    const frozenOperation=this.freeze?[...this.operations,...this.fileOperations].find(op=>op.operation_id===this.freeze!.operation_id):undefined;
     return { frozen: this.frozen, local_connection_id:this.localConnectionId, write_state: this.frozen ? 'frozen' : this.bindingError ? 'binding_mismatch' : this.scratch ? 'scratch_bound' : 'new_scratch_required',
       freeze: this.freeze ?? null, transport: this.client ? 'connected' : 'disconnected',
       cad_observation: { source: 'last_successful_full_query', observed_at: this.observedAt, entity_count: this.observedCount,
         native_identity: this.evidence?'canonical_iunknown_lifecycle; COM revision unsupported':'legacy_COM_name_guard; no authoritative instance/revision', cached: true, scope:'full_document',stale_due_to_mutations:stale,
         interpretation:stale?'Cached count is stale; it does not describe the current drawing. Controlled reads remain available.':'Last full observation; not a native revision guarantee.' },
-      scratch: this.scratch, native_target:this.nativeTarget?{...this.nativeTarget}:null,native_binding:this.lastBinding?{...this.lastBinding,observation:'last_verified_not_live'}:null,binding_error:this.bindingError,evidence_support:this.evidence?structuredClone(this.evidence):null,artifact: this.lastArtifact, operations,
+      scratch: this.scratch, native_target:this.nativeTarget?{...this.nativeTarget}:null,native_binding:this.lastBinding?{...this.lastBinding,observation:'last_verified_not_live'}:null,binding_error:this.bindingError,evidence_support:this.evidence?structuredClone(this.evidence):null,artifact: this.lastArtifact, operations,...(this.fileOperations.length?{file_operations:structuredClone(this.fileOperations),file_counts:count(this.fileOperations.filter(op=>op.tool!=='query_verification_entities'))}:{}),
       counts:count(operations),counts_scope:since===0?'session':'since_operation_mark',operation_mark:since,session_counts:count(this.operations),
       freeze_operation:frozenOperation?structuredClone(frozenOperation):null,
       freeze_evidence:this.freeze?{source:frozenOperation?'current_session':'persisted_barrier',tool:frozenOperation?.tool??this.persistedBarrier?.tool,error:frozenOperation?.error??this.persistedBarrier?.error}:null,
@@ -263,8 +322,9 @@ export class ExecutionSession {
   }
   private recoveryEligibility(){
     const eligible=Boolean(this.frozen&&this.client&&this.freeze?.sameConnection&&this.freeze.outcome==='committed_observation_failed'&&this.freeze.stage==='postflight'&&(!this.evidence||Boolean(this.nativeTarget&&this.scratch)));
-    return {eligible,reason:!this.frozen?'NOT_FROZEN':eligible?'ACKNOWLEDGED_WRITE_READBACK_FAILED':!this.client||!this.freeze?.sameConnection?'ORIGINAL_CONNECTION_REQUIRED':'DISPATCH_OUTCOME_UNCONFIRMED',
-      guidance:!this.frozen?'No recovery is needed.':eligible?'Only re-query on the original connection; never replay.':'Repeated recovery, reconnecting or restarting CAD cannot establish a missing acknowledgement. Preserve the barrier; controlled reads remain available.'};
+    const fileBarrier=Boolean(this.freeze?.stage.startsWith('file_'));
+    return {eligible,reason:!this.frozen?'NOT_FROZEN':fileBarrier?(this.freeze?.outcome==='committed_observation_failed'?'FILE_ACKNOWLEDGED_VERIFICATION_FAILED':'FILE_DISPATCH_OUTCOME_UNCONFIRMED'):eligible?'ACKNOWLEDGED_WRITE_READBACK_FAILED':!this.client||!this.freeze?.sameConnection?'ORIGINAL_CONNECTION_REQUIRED':'DISPATCH_OUTCOME_UNCONFIRMED',
+      guidance:!this.frozen?'No recovery is needed.':fileBarrier?'File effects require their original receipt and file/document evidence. Geometry recovery cannot clear this barrier; preserve files and verification documents, never replay SaveAs/Open.':eligible?'Only re-query on the original connection; never replay.':'Repeated recovery, reconnecting or restarting CAD cannot establish a missing acknowledgement. Preserve the barrier; controlled reads remain available.'};
   }
   diagnosticSummary(){
     const facts=this.facts(),observation=facts.cad_observation;
@@ -272,6 +332,7 @@ export class ExecutionSession {
     return this.clean([
       `CAD写入状态：${facts.write_state}；MCP传输：${facts.transport}。`,
       `会话累计：确认 ${facts.session_counts.committed}，未知 ${facts.session_counts.unknown}，派发前失败 ${facts.session_counts.failed_before_dispatch}。`,
+      ...('file_counts' in facts&&facts.file_counts?[`文件复核操作另记：确认 ${facts.file_counts.committed}，未知 ${facts.file_counts.unknown}，ACK后观测失败 ${facts.file_counts.committed_observation_failed}。`]:[]),
       facts.freeze?`冻结操作：${facts.freeze_evidence?.tool??'见原审计'}；阶段 ${facts.freeze.stage}；结果 ${facts.freeze.outcome}；来源 ${facts.freeze_evidence?.source==='persisted_barrier'?'持久屏障（历史操作不计入本会话累计）':'本会话执行审计'}。`:facts.transport==='disconnected'?'执行连接未建立，尚未核对持久屏障。':'当前没有写屏障。',
       error?`首发错误：${(error.protocol_failure?.error?.message??error.message??'见执行审计').slice(0,800)}`:'',
       `最近全图缓存：${observation.entity_count??'未观测'}，时间 ${observation.observed_at??'无'}；${observation.stale_due_to_mutations?'已过时，不能代表当前实体数':'不是原生revision保证'}。过滤查询不覆盖此全图缓存。`,
@@ -305,7 +366,8 @@ export class ExecutionSession {
   }
   private observedRequest(name:string,payload:Record<string,unknown>,requestId:string):ObservedRequest|undefined{
     if(!this.evidence)return;
-    const mapped=observedArguments(name,{...payload,...(name==='export_current_view'?{request_id:requestId}:{})});
+    if(name==='save_drawing'&&this.evidence.file_artifacts)observedArguments(name,payload); // Preserve rejection of unmapped legacy arguments.
+    const mapped=name==='save_drawing'&&this.evidence.file_artifacts?{operation:'save_document_artifact',arguments:{output_directory:dirname(String(payload.file_path)),file_name:basename(String(payload.file_path))}}:observedArguments(name,{...payload,...(name==='export_current_view'?{request_id:requestId}:{})});
     if(!mapped||!this.evidence.operations.includes(mapped.operation))return;
     if(mapped.operation!=='new_document'&&!this.nativeTarget)return; // read-only attached drawing is not adopted.
     return {instance_id:this.evidence.instance_id,request_id:requestId,...mapped,document_id:mapped.operation==='new_document'?null:this.nativeTarget!.document_id};
@@ -320,7 +382,7 @@ export class ExecutionSession {
     const result=parseExecutionEnvelope(envelope,request,failed);
     if(result.receipt.stage!=='completed')throw new ExecutionReceiptError(result.receipt,receiptOutcome(result.receipt));
     let value:unknown;
-    try{value=legacyObservedResult(name,result.result,result.receipt);}catch(error){throw new ExecutionReceiptError(result.receipt,'committed_observation_failed',(error as Error).message);}
+    try{value=request.operation==='save_document_artifact'?parseFileResult(result.result,request,result.receipt):legacyObservedResult(name,result.result,result.receipt);}catch(error){throw new ExecutionReceiptError(result.receipt,'committed_observation_failed',(error as Error).message);}
     if(name==='new_drawing')this.nativeTarget={instance_id:request.instance_id,document_id:result.receipt.result_document_id!};
     return {value,route:'autocad-execution/1',receipt:result.receipt};
   }
@@ -334,7 +396,7 @@ export class ExecutionSession {
       await this.audit({phase:'execution_status_unresolved',request_id:request.request_id,result:value});return {recovered:false,reason:'RECORD_UNRESOLVED',evidence:value};
     }
     const {receipt}=parseExecutionEnvelope({receipt:value},request);
-    const prior=this.operations.find(op=>op.operation_id===request.request_id)?.execution_receipt;
+    const prior=[...this.operations,...this.fileOperations].find(op=>op.operation_id===request.request_id)?.execution_receipt;
     if(prior&&prior.service_request_fingerprint!==receipt.service_request_fingerprint)throw new Error('MCP_EXECUTION_FINGERPRINT_CHANGED');
     await this.audit({phase:'execution_status_observed',request_id:request.request_id,receipt});
     return {recovered:false,replayed:false,reason:'OBSERVATION_ONLY_BARRIER_UNCHANGED',receipt};
@@ -441,7 +503,7 @@ export class ExecutionSession {
   }
   definitions(confirm?: Approval): ToolDefinition[] {
     return (this.client?.definitions() ?? []).filter(tool => reads.has(tool.name.split('__').at(-1)!) || writes.has(tool.name.split('__').at(-1)!))
-      .map(tool => ({ ...tool, output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] },
+      .map(tool => ({ ...tool, description:tool.name.endsWith('__save_drawing')&&this.evidence?.file_artifacts?tool.description+' Saves to an exclusive artifact subdirectory under the requested parent; use the returned actual path. SaveAs renames this working document without changing identity. Later saves keep the original requested parent directory; do not use an artifact subdirectory as a new output root. The Scheduler requires independent read-only reopen verification before delivery.':tool.description, output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] },
         isConcurrencySafe: () => false,
         execute: async (args, exec) => this.serial(async () => {
           const name = tool.name.split('__').at(-1)!, payload = { ...args as Record<string, unknown> };
@@ -474,14 +536,19 @@ export class ExecutionSession {
             let destructive = name === 'delete_entity' || payload.erase_source === true;
             let output: string | undefined;
             if (name === 'save_drawing') {
+              if(this.evidence?.file_artifacts&&payload.overwrite===true)throw new Error('P1_ARTIFACTS_NEVER_OVERWRITE: save a new artifact version under the original requested parent');
+              if(this.evidence?.file_artifacts&&(/^(?:\\\\|\/\/)/.test(String(payload.file_path))||String(payload.file_path).split(/[\\/]/).includes('..')))throw new Error('P1_LOCAL_PATH_WITHOUT_TRAVERSAL_REQUIRED');
               output = resolve(this.workspace, String(payload.file_path));
               if (extname(output).toLowerCase() !== '.dwg') throw new Error('DWG_OUTPUT_REQUIRED');
               const parent = await import('node:fs/promises').then(fs => fs.realpath(dirname(output!)));
+              if(this.evidence?.file_artifacts&&filePathKey(parent)!==filePathKey(dirname(output)))throw new Error('P1_REPARSE_OUTPUT_DIRECTORY_REFUSED');
               output = resolve(parent, basename(output));
               try { const info = await lstat(output); if (!info.isFile() || info.isSymbolicLink()) throw new Error('OUTPUT_TYPE_REFUSED'); destructive = true; }
               catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-              try { await workspacePath(this.workspace, parent); } catch { destructive = true; }
-              payload.file_path = output; payload.overwrite = destructive;
+              let parentInWorkspace=false;
+              try { await workspacePath(this.workspace, parent);parentInWorkspace=true; } catch { destructive = true; }
+              if(this.evidence?.file_artifacts&&parentInWorkspace)destructive=false;
+              payload.file_path = output; payload.overwrite = this.evidence?.file_artifacts?false:destructive;
               if(destructive&&this.taskGrant?.outputPath===output&&this.artifactOwner?.task===this.taskGrant.id&&
                 this.artifactOwner.connection===this.localConnectionId&&this.artifactOwner.target===this.scratch&&this.lastArtifact?.path===output&&
                 createHash('sha256').update(await readFile(output)).digest('hex')===this.lastArtifact.sha256)destructive=false;
@@ -514,11 +581,13 @@ export class ExecutionSession {
               : await this.readBack('query_entities', {}, operationId + '-query');
             const observation_scope = targeted ? 'affected_entity' : 'full_document';
             if (!targeted) { this.observedAt = new Date().toISOString(); this.observedCount = Array.isArray(observed) ? observed.length : null; this.observedOperationMark=this.operations.length+1; }
+            if(output&&evidenceRequest?.operation==='save_document_artifact')output=(result as ComFileArtifact).path;
             if (output) {
               record.stage = 'artifact_verification';
               const bytes = await readFile(output);
               if (!/^AC10\d\d/.test(bytes.subarray(0, 6).toString('ascii'))) throw new Error('DWG_FILE_VERIFICATION_FAILED');
-              this.lastArtifact = { path: output, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
+              this.lastArtifact = { path: output, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'),...(evidenceRequest?.operation==='save_document_artifact'?{requested_path:String(payload.file_path),file_contract:result as ComFileArtifact}:{}) };
+              if(this.lastArtifact.file_contract)await verifyArtifactBytes(output,this.lastArtifact.file_contract);
               this.artifactOwner=this.taskGrant?{task:this.taskGrant.id,connection:this.localConnectionId,target:this.scratch}:undefined;
             }
             record.stage = 'confirmed'; record.duration_ms = Date.now() - started;
@@ -531,7 +600,7 @@ export class ExecutionSession {
               record.execution_receipt=error.receipt;record.evidence_route='autocad-execution/1';record.native_dispatched=error.receipt.native_invoked;
               acknowledged=error.outcome==='committed_observation_failed';
               if(error.outcome==='failed_before_dispatch'){record.dispatched=false;record.stage='native_preflight';record.outcome='failed_before_dispatch';}
-              else if(acknowledged){record.stage='postflight';if(this.taskGrant)for(const id of error.receipt.affected_entities.created){const n=Number(id);if(Number.isSafeInteger(n)&&n>0)this.taskGrant.created.add(n);}}
+              else if(acknowledged){record.stage=error.receipt.operation==='save_document_artifact'?'file_observation_failed':'postflight';if(this.taskGrant)for(const id of error.receipt.affected_entities.created){const n=Number(id);if(Number.isSafeInteger(n)&&n>0)this.taskGrant.created.add(n);}}
               if(name==='new_drawing'&&error.receipt.native_invoked){this.scratch=null;this.nativeTarget=null;record.target=null;record.stage=acknowledged?'acknowledged_unbound':'dispatch';}
             }
             if(!acknowledged&&name==='new_drawing'&&error instanceof NativeCreateNotInvokedError&&error.requestId===operationId){
@@ -539,6 +608,7 @@ export class ExecutionSession {
             }
             if(!acknowledged&&error instanceof ToolArgumentsError){record.dispatched=false;record.transport_dispatched=false;record.stage='preflight';record.outcome='failed_before_dispatch';}
             if (!record.dispatched && this.frozen) record.outcome = 'blocked_not_dispatched';
+            if(name==='save_drawing'&&this.evidence?.file_artifacts&&record.dispatched)record.stage=acknowledged?'file_observation_failed':'file_dispatch';
             record.error = this.diagnostic(error); record.duration_ms = Date.now() - started;
             if (record.dispatched) {
               record.outcome = acknowledged ? 'committed_observation_failed' : 'unknown'; this.frozen = true;
@@ -628,6 +698,6 @@ export class ExecutionSession {
     await this.tail; await this.client?.dispose(); this.client = undefined; this.scratch = null;
     if (this.lock && !this.frozen) await unlink(this.lock);
     this.lock = undefined;
-    this.taskGrant=undefined;this.taskEntities.clear();this.localConnectionId=null;this.evidence=null;this.nativeTarget=null;this.lastBinding=null;this.bindingError=null;this.observedRequests.clear();
+    this.taskGrant=undefined;this.taskEntities.clear();this.localConnectionId=null;this.evidence=null;this.nativeTarget=null;this.lastBinding=null;this.bindingError=null;this.observedRequests.clear();this.verificationDocuments.clear();
   }
 }

@@ -376,3 +376,11 @@ REQ-033手稿日志审计：读取用户原始附件及实际verification/events
 `pnpm typecheck`、`pnpm test` 258/258、`pnpm smoke`（DSH组件）通过；源OCR别名保守certainty、源本体入口、人工状态查询均通过，最终原手稿12/12（82确认/0未知）、最终房子7/7（49确认/0未知，2轮自动修正）均真实模型/AutoCAD通过。MCP独立279通过/33跳过、33专项及改动文件Ruff I,F通过。实际命令、早期失败、真实模型/真实CAD/人工入口边界与产物摘要见[联合记录](../validation/2026-11-25-p0-quality-fixes.md)。原始房子冷态5/5，34确认/0未知，DWG同hash只读重开32实体一致；旧用户明确通过的两张同hash成品，正式人工入口2/2通过，原自动manifest不改写。不是full DSH app profile验收。
 
 最终DWG分别20506字节/77实体、21428字节/48实体，独立同hash只读重开与8网/9标注/接地轮廓及红蓝绿原生填充核对通过。真实手稿经历一次OUTPUT_TRUNCATED、一次MALFORMED_RESPONSE和一次预算交接，均安全续跑。258测试及组件smoke对应运行代码b062b51；原始失败及17旧屏障保留，未将新成品借旧人工确认通过。最终提交CI在Issue20补记。
+
+
+## 2026-11-26 REQ-050 / 普通COM文件交付P1
+
+初次typecheck、271/271及DSH组件smoke通过；追加原路径UNC/父跳转与验收副本篡改反例后专项16/16通过，最终全量与真实两案例结果后补。专项是实际stdio/DSH执行边界配合确定性数据，不是原生DWG；独立MCP报告298/34skip为上游本机报告，不冒充本轮执行。早期编译/夹具失败和独立verifier调用GetBoundingBox的两次出参错误保留；改为明确InvokeTypes出参后原生只读验证成功，不改生产MCP、不放宽文件/图纸约束。参见[联合验证记录](../validation/2026-11-26-com-artifact-p1-integration.md)。
+
+
+REQ-050封存检查：`pnpm typecheck`、`pnpm test` **280/280**、`pnpm smoke`通过；新增文件/状态/权限专项20例、源内容视图及人工验收边界两例。Cader Python兼容Ruff检查/格式、10/10 pytest和offline protocol smoke通过。原始房子6/6、57确认/0未知、37只读实体；原始手稿13/13、88确认/0未知、83只读实体及独立8网/9标注/三角地符号通过。房子Open1/Query2，电路Open1/Query1，独立Native verifier没有另行Open/SaveAs。前四轮源识别零写入阻断、两次Native verifier出参错误保留。详见本轮报告与机器摘要，CI随最终HEAD在Issue20记录。

@@ -39,3 +39,5 @@ dev.9：[原生新图与质量恢复 / native creation and quality recovery](val
 2026-11-25：[复杂重绘工程复盘与长会话/澄清缺口](development/2026-11-25-complex-redraw-engineering-review.md) · [AutoCAD-MCP协同建议](contracts/2026-11-25-cader-mcp-execution-evidence-proposal.md)（建议已提交MCP #44，尚未实施新能力）。
 
 2026-11-25：[前四项 P0 修复与真实两案例回归](validation/2026-11-25-p0-quality-fixes.md)。
+
+2026-11-26：[普通COM文件交付P1客户端接入与联合验证](validation/2026-11-26-com-artifact-p1-integration.md)。

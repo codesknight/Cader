@@ -1,0 +1,384 @@
+{
+  "version": 1,
+  "date": "2026-11-26",
+  "requirement": "REQ-050",
+  "Cader_base_commit": "5e06699",
+  "Cader_runtime": "development working tree; later refusal/status-only hardening covered by fixtures and full checks",
+  "MCP_commit": "3745af8",
+  "MCP_implementation": "7086673",
+  "instance_selection": "private selector returns true native IDispatch of distinct new PID; production MCP and COM executor unchanged",
+  "owned_pid": 123556,
+  "original_pids": [
+    48984,
+    49292,
+    59304
+  ],
+  "offline_checks": {
+    "tests_passed": 280,
+    "typecheck": true,
+    "DSH_component_smoke": true,
+    "full_DSH_app_profile_evaluated": false,
+    "Cader_Python_tests_passed": 10,
+    "Cader_Python_ruff_check": true,
+    "Cader_Python_ruff_format": true,
+    "Cader_Python_offline_protocol_smoke": true
+  },
+  "cases": [
+    {
+      "case": "house",
+      "run": "quality-90ec8df0-ead6-42a9-9790-97bde44f0af5",
+      "passed": true,
+      "checks_passed": 6,
+      "checks_total": 6,
+      "cad_counts": {
+        "committed": 57,
+        "committed_observation_failed": 0,
+        "unknown": 0,
+        "blocked_not_dispatched": 0,
+        "failed_before_dispatch": 3
+      },
+      "file_verification_counts": {
+        "committed": 1,
+        "committed_observation_failed": 0,
+        "unknown": 0,
+        "blocked_not_dispatched": 0,
+        "failed_before_dispatch": 0
+      },
+      "correction_rounds": 3,
+      "vision_calls": 4,
+      "reported_tokens": 1777042,
+      "artifact": {
+        "sha256": "bc983f03c4febad8afa363cd99557de3ecd9bcf42a7134bd6ad31cef9ccf4409",
+        "bytes": 21206,
+        "save_semantics": "save_as_renames_source",
+        "requested_path_differs_from_actual": true,
+        "artifact_id": "532dd0e9e5d949b4add49fa91bc082ad"
+      },
+      "verification": {
+        "source_document_id": "06ba31b9bca3422aba078b0fdff4c7d7",
+        "document_id": "3c0db1ab9b674084a731912d0fbf6d95",
+        "managed": false,
+        "read_only": true,
+        "geometry_scope": "legacy_summary_partial",
+        "snapshot_revision": null,
+        "entity_count": 37,
+        "full_supported_native_fields_equal": true,
+        "query_receipt_fields_match_native_document": true,
+        "additional_Open_or_SaveAs_by_independent_verifier": 0,
+        "source_artifact_id": "532dd0e9e5d949b4add49fa91bc082ad"
+      },
+      "client_request_correlation": [
+        {
+          "request_id": "a3f34bec-64a2-4b64-a6fa-076b1664fd27",
+          "operation": "save_document_artifact",
+          "instance_id": "02c87c739c8a4b378b712853171e992b",
+          "request_document_id": "06ba31b9bca3422aba078b0fdff4c7d7",
+          "result_document_id": "06ba31b9bca3422aba078b0fdff4c7d7",
+          "status": "succeeded",
+          "stage": "completed",
+          "native_invoked": true,
+          "native_acknowledged": true,
+          "service_request_fingerprint": "56b0d1e7dfb3d1d3162b7eddf04334e706928dcca8f67a815dcea502ff5672a5",
+          "request_instance_id": "02c87c739c8a4b378b712853171e992b",
+          "file_progress_state": "saved",
+          "file_result": {
+            "contract": "autocad-file-artifact/1",
+            "artifact_id": "23f7ae520b854f23827de48e7b61bc57",
+            "source_document_id": "06ba31b9bca3422aba078b0fdff4c7d7",
+            "sha256": "7fc6295925cca4e9735a778352ad5b2c6c104d2b13962ee0e66cee4ee250a107",
+            "byte_size": 17597,
+            "state": "saved"
+          }
+        },
+        {
+          "request_id": "83f372d3-062d-4735-aca9-ad2c190f2559",
+          "operation": "save_document_artifact",
+          "instance_id": "02c87c739c8a4b378b712853171e992b",
+          "request_document_id": "06ba31b9bca3422aba078b0fdff4c7d7",
+          "result_document_id": "06ba31b9bca3422aba078b0fdff4c7d7",
+          "status": "succeeded",
+          "stage": "completed",
+          "native_invoked": true,
+          "native_acknowledged": true,
+          "service_request_fingerprint": "56b0d1e7dfb3d1d3162b7eddf04334e706928dcca8f67a815dcea502ff5672a5",
+          "request_instance_id": "02c87c739c8a4b378b712853171e992b",
+          "file_progress_state": "saved",
+          "file_result": {
+            "contract": "autocad-file-artifact/1",
+            "artifact_id": "532dd0e9e5d949b4add49fa91bc082ad",
+            "source_document_id": "06ba31b9bca3422aba078b0fdff4c7d7",
+            "sha256": "bc983f03c4febad8afa363cd99557de3ecd9bcf42a7134bd6ad31cef9ccf4409",
+            "byte_size": 21206,
+            "state": "saved"
+          }
+        },
+        {
+          "request_id": "727c230a-10fe-4cac-80b9-beeae41ef66c",
+          "operation": "reopen_document_artifact",
+          "instance_id": "02c87c739c8a4b378b712853171e992b",
+          "request_document_id": "06ba31b9bca3422aba078b0fdff4c7d7",
+          "result_document_id": "3c0db1ab9b674084a731912d0fbf6d95",
+          "status": "succeeded",
+          "stage": "completed",
+          "native_invoked": true,
+          "native_acknowledged": true,
+          "service_request_fingerprint": "2cff7a3ea66b9e068c51033fea990c0ab24576104f6d092466cdcb9c5c21a839",
+          "request_instance_id": "02c87c739c8a4b378b712853171e992b",
+          "file_progress_state": "readonly_opened",
+          "file_result": {
+            "contract": "autocad-verification-document/1",
+            "source_artifact_id": "532dd0e9e5d949b4add49fa91bc082ad",
+            "source_document_id": "06ba31b9bca3422aba078b0fdff4c7d7",
+            "document_id": "3c0db1ab9b674084a731912d0fbf6d95",
+            "sha256": "bc983f03c4febad8afa363cd99557de3ecd9bcf42a7134bd6ad31cef9ccf4409",
+            "byte_size": 21206,
+            "managed": false,
+            "read_only": true
+          }
+        },
+        {
+          "request_id": "aa265026-3550-4000-b7ff-7d3eb2b0ae0a",
+          "operation": "query_verification_entities",
+          "instance_id": "02c87c739c8a4b378b712853171e992b",
+          "request_document_id": "3c0db1ab9b674084a731912d0fbf6d95",
+          "result_document_id": "3c0db1ab9b674084a731912d0fbf6d95",
+          "status": "succeeded",
+          "stage": "completed",
+          "native_invoked": false,
+          "native_acknowledged": false,
+          "service_request_fingerprint": "ffe7e1b7d0b2c660e57a61689f4920e8f3922948464359f0b66e15849b6a5d01",
+          "request_instance_id": "02c87c739c8a4b378b712853171e992b",
+          "file_progress_state": null,
+          "file_result": {
+            "contract": "autocad-verification-query/1",
+            "source_artifact_id": "532dd0e9e5d949b4add49fa91bc082ad",
+            "source_document_id": "06ba31b9bca3422aba078b0fdff4c7d7",
+            "document_id": "3c0db1ab9b674084a731912d0fbf6d95",
+            "sha256": "bc983f03c4febad8afa363cd99557de3ecd9bcf42a7134bd6ad31cef9ccf4409",
+            "byte_size": 21206,
+            "managed": false,
+            "read_only": true,
+            "geometry_scope": "legacy_summary_partial",
+            "item_count": 37
+          }
+        },
+        {
+          "request_id": "0903bc9a-ad70-4504-a5f4-97975ce20d0f",
+          "operation": "query_verification_entities",
+          "instance_id": "02c87c739c8a4b378b712853171e992b",
+          "request_document_id": "3c0db1ab9b674084a731912d0fbf6d95",
+          "result_document_id": "3c0db1ab9b674084a731912d0fbf6d95",
+          "status": "succeeded",
+          "stage": "completed",
+          "native_invoked": false,
+          "native_acknowledged": false,
+          "service_request_fingerprint": "ffe7e1b7d0b2c660e57a61689f4920e8f3922948464359f0b66e15849b6a5d01",
+          "request_instance_id": "02c87c739c8a4b378b712853171e992b",
+          "file_progress_state": null,
+          "file_result": {
+            "contract": "autocad-verification-query/1",
+            "source_artifact_id": "532dd0e9e5d949b4add49fa91bc082ad",
+            "source_document_id": "06ba31b9bca3422aba078b0fdff4c7d7",
+            "document_id": "3c0db1ab9b674084a731912d0fbf6d95",
+            "sha256": "bc983f03c4febad8afa363cd99557de3ecd9bcf42a7134bd6ad31cef9ccf4409",
+            "byte_size": 21206,
+            "managed": false,
+            "read_only": true,
+            "geometry_scope": "legacy_summary_partial",
+            "item_count": 37
+          }
+        }
+      ],
+      "evidence_sha256": {
+        "quality": "e32e9378881f0bfeed7b33c95e364d6b3d4686826b0941098bca7d74a0a2aa8e",
+        "events": "7eafca4af03f30ffc4aaae9dbeb2f191f21885180138227c0f93cd00f62ca24f",
+        "independent_native": "bf8047aa305aa20e4ca3f0427c713cc7f8f4399541a59eac5194cfbaa9474c0d",
+        "independent_full_source": "75fef93b18c59cfd7d20037bae2814828b6f6df9be5791209543bb1f8a14977d",
+        "independent_full_verification": "75fef93b18c59cfd7d20037bae2814828b6f6df9be5791209543bb1f8a14977d"
+      }
+    },
+    {
+      "case": "original_circuit",
+      "run": "quality-11d93508-e335-4b93-89a4-65fb00589e2a",
+      "passed": true,
+      "checks_passed": 13,
+      "checks_total": 13,
+      "cad_counts": {
+        "committed": 88,
+        "committed_observation_failed": 0,
+        "unknown": 0,
+        "blocked_not_dispatched": 0,
+        "failed_before_dispatch": 4
+      },
+      "file_verification_counts": {
+        "committed": 1,
+        "committed_observation_failed": 0,
+        "unknown": 0,
+        "blocked_not_dispatched": 0,
+        "failed_before_dispatch": 0
+      },
+      "correction_rounds": 0,
+      "vision_calls": 1,
+      "reported_tokens": 1510390,
+      "artifact": {
+        "sha256": "b9068c697eb2dd5891bdb316ac9c197850fef7ecbb4ea37db5dcd5426f3ff6f1",
+        "bytes": 20058,
+        "save_semantics": "save_as_renames_source",
+        "requested_path_differs_from_actual": true,
+        "artifact_id": "6394043d53574297ab3683303d3e8748"
+      },
+      "verification": {
+        "source_document_id": "52326530435a414a89e699f343485a54",
+        "document_id": "e8af064166de447d9145c7cf92f46945",
+        "managed": false,
+        "read_only": true,
+        "geometry_scope": "legacy_summary_partial",
+        "snapshot_revision": null,
+        "entity_count": 83,
+        "full_supported_native_fields_equal": true,
+        "query_receipt_fields_match_native_document": true,
+        "additional_Open_or_SaveAs_by_independent_verifier": 0,
+        "source_nets": 8,
+        "literal_occurrences": 9,
+        "literal_types_passed": 5,
+        "native_nonvisual_checks_passed": 10,
+        "ground_triangle_passed": true,
+        "source_artifact_id": "6394043d53574297ab3683303d3e8748"
+      },
+      "client_request_correlation": [
+        {
+          "request_id": "0712e61e-d3b1-42ca-8619-ddcf87ba6afa",
+          "operation": "save_document_artifact",
+          "instance_id": "2798c3d113eb429bad6085e9238ff537",
+          "request_document_id": "52326530435a414a89e699f343485a54",
+          "result_document_id": "52326530435a414a89e699f343485a54",
+          "status": "succeeded",
+          "stage": "completed",
+          "native_invoked": true,
+          "native_acknowledged": true,
+          "service_request_fingerprint": "7548c549a181acef38513e0b890306230915b0b09514e09e23f03d0a7f9a41e9",
+          "request_instance_id": "2798c3d113eb429bad6085e9238ff537",
+          "file_progress_state": "saved",
+          "file_result": {
+            "contract": "autocad-file-artifact/1",
+            "artifact_id": "6394043d53574297ab3683303d3e8748",
+            "source_document_id": "52326530435a414a89e699f343485a54",
+            "sha256": "b9068c697eb2dd5891bdb316ac9c197850fef7ecbb4ea37db5dcd5426f3ff6f1",
+            "byte_size": 20058,
+            "state": "saved"
+          }
+        },
+        {
+          "request_id": "bc2388a9-ce0d-4b5b-bad4-213643b316c1",
+          "operation": "reopen_document_artifact",
+          "instance_id": "2798c3d113eb429bad6085e9238ff537",
+          "request_document_id": "52326530435a414a89e699f343485a54",
+          "result_document_id": "e8af064166de447d9145c7cf92f46945",
+          "status": "succeeded",
+          "stage": "completed",
+          "native_invoked": true,
+          "native_acknowledged": true,
+          "service_request_fingerprint": "7a34bad93d97211b12a13fa94f801f6242f1cbd4c0b709038af7a442a8ec4933",
+          "request_instance_id": "2798c3d113eb429bad6085e9238ff537",
+          "file_progress_state": "readonly_opened",
+          "file_result": {
+            "contract": "autocad-verification-document/1",
+            "source_artifact_id": "6394043d53574297ab3683303d3e8748",
+            "source_document_id": "52326530435a414a89e699f343485a54",
+            "document_id": "e8af064166de447d9145c7cf92f46945",
+            "sha256": "b9068c697eb2dd5891bdb316ac9c197850fef7ecbb4ea37db5dcd5426f3ff6f1",
+            "byte_size": 20058,
+            "managed": false,
+            "read_only": true
+          }
+        },
+        {
+          "request_id": "0e8aaf42-c514-401d-a7d2-c7658f5f2998",
+          "operation": "query_verification_entities",
+          "instance_id": "2798c3d113eb429bad6085e9238ff537",
+          "request_document_id": "e8af064166de447d9145c7cf92f46945",
+          "result_document_id": "e8af064166de447d9145c7cf92f46945",
+          "status": "succeeded",
+          "stage": "completed",
+          "native_invoked": false,
+          "native_acknowledged": false,
+          "service_request_fingerprint": "413581d59a2290ad06d93c6419f6e0a552bf95aa17c9931bf734a4ca695126a2",
+          "request_instance_id": "2798c3d113eb429bad6085e9238ff537",
+          "file_progress_state": null,
+          "file_result": {
+            "contract": "autocad-verification-query/1",
+            "source_artifact_id": "6394043d53574297ab3683303d3e8748",
+            "source_document_id": "52326530435a414a89e699f343485a54",
+            "document_id": "e8af064166de447d9145c7cf92f46945",
+            "sha256": "b9068c697eb2dd5891bdb316ac9c197850fef7ecbb4ea37db5dcd5426f3ff6f1",
+            "byte_size": 20058,
+            "managed": false,
+            "read_only": true,
+            "geometry_scope": "legacy_summary_partial",
+            "item_count": 83
+          }
+        }
+      ],
+      "evidence_sha256": {
+        "quality": "9496ed0c66fa8b45b55ba314b312e696bc9a213c8b77e5e349468b5643d6a106",
+        "events": "b8ffee4c001bf691d3c6752c08d369fec582d7fc88420f078d3132e2c7ba709b",
+        "independent_native": "96767eb43fabe106699198862b9abd9f603ea9b29fd50f6db93529a2e07c1887",
+        "independent_full_source": "7202645b7acf24206488b846587fe277a6e26a53b4f51bc99be96ab9deecf0ac",
+        "independent_full_verification": "7202645b7acf24206488b846587fe277a6e26a53b4f51bc99be96ab9deecf0ac",
+        "independent_source": "0547cb47440a132f814aecb0dd5884aab36925390945c2b2b29044c77f47cc23"
+      }
+    }
+  ],
+  "failed_source_attempts": [
+    {
+      "run": "quality-6050a1a2-4302-448c-b625-069f575cb938",
+      "stage": "reference",
+      "code": "SOURCE_TOPOLOGY_UNCERTAIN",
+      "cad_writes": 0,
+      "unknown": 0,
+      "reported_tokens": 114106
+    },
+    {
+      "run": "quality-3140c575-9142-4218-af18-626516653f58",
+      "stage": "reference",
+      "code": "SOURCE_COMPONENT_INVENTORY_FAILED",
+      "cad_writes": 0,
+      "unknown": 0,
+      "reported_tokens": 99326
+    },
+    {
+      "run": "quality-0bcb0622-79af-4b90-a408-dcddfc5060b5",
+      "stage": "reference",
+      "code": "SOURCE_TOPOLOGY_UNCERTAIN",
+      "cad_writes": 0,
+      "unknown": 0,
+      "reported_tokens": 109759
+    },
+    {
+      "run": "quality-611b7084-a954-4e93-b649-eb8b44ff01c8",
+      "stage": "reference",
+      "code": "SOURCE_COMPONENT_INVENTORY_FAILED",
+      "cad_writes": 0,
+      "unknown": 0,
+      "reported_tokens": 80288
+    }
+  ],
+  "preservation": {
+    "files_unchanged": 23,
+    "old_barriers_unchanged": 17,
+    "source_image_unchanged": true,
+    "prior_DWGs_unchanged": 2,
+    "unrelated_MCP_tracked_changes_unchanged": 3
+  },
+  "cleanup": {
+    "quit_called": false,
+    "reason": "Retained owned test instance because one working document has Saved=false; all delivered files/copies still match fingerprints. Original processes untouched."
+  },
+  "limits": [
+    "COM authoritative revision unavailable",
+    "legacy_summary_partial is not full serialization; independent verifier checks supported native fields",
+    "backend artifacts/journal do not survive restart",
+    "no arbitrary verification-document writes/adoption",
+    "not all P1 or REQ-046 source-fact/compaction/clarification work completed"
+  ]
+}
