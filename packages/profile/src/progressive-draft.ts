@@ -1,8 +1,17 @@
-import type {ProgressiveTrace} from '@cader/config';
+import type {ProgressiveTrace,QualityPlan} from '@cader/config';
 import type {CheckResult} from './quality.js';
 type Box=[[number,number],[number,number]];
 type Frame={point:(p:number[])=>number[];box:(b:Box)=>Box};
 export type DraftCadTrace={id:string;kind:'path';points:number[][];closed:boolean}|{id:string;kind:'circle';center:number[];radius:number}|{id:string;kind:'text';text:string;bounds:Box;max_text_height:number};
+/** A partial draft cannot authorize requirements about unobserved content.
+ * Scope is compiled from trusted agreements, not a free-form model checklist. */
+export function draftAcceptancePlan(task:string,traces:DraftCadTrace[]):QualityPlan{
+  if(!traces.length)throw new Error('VERIFIED_DRAFT_SOURCE_UNAVAILABLE');
+  return {version:1,domain:'generic',components:[],visual_required:true,requirements:[{id:'draft_appearance',source_quote:task.slice(0,800),description:'只核查程序已独立核实的图元 '+traces.map(t=>t.id).join(', ')+' 可见、已确认文字可读；不能要求片段外的框角、刻线、列号、符号或完整回路。片段schema尚未采集的线宽、填充、颜色和字体不在本次图元检查范围，源样式/覆盖/拓扑仍待完整验收，不能宣称已复现全部外观。',check:'visual'},...traces.filter((t):t is Extract<DraftCadTrace,{kind:'text'}>=>t.kind==='text').map((t,i)=>({id:'draft_text_'+i,source_quote:task.slice(0,800),description:'独立源片段 '+t.id+' 的字面文字',check:'text' as const,text:t.text}))]};
+}
+export function draftEntityTraces(traces:DraftCadTrace[],entity:Record<string,any>){
+  return traces.filter(t=>t.kind==='path'?segments(t).some(([p,q])=>entity.type==='AcDbLine'&&Array.isArray(entity.start_point)&&Array.isArray(entity.end_point)&&(near(p!,entity.start_point)&&near(q!,entity.end_point)||near(q!,entity.start_point)&&near(p!,entity.end_point))):verifyDraftGeometry([t],[entity])[0]?.status==='pass').map(t=>t.id);
+}
 export function draftCadTrace(trace:ProgressiveTrace,frame:Frame,content:Box):DraftCadTrace{
   if(trace.kind==='path')return {id:trace.id,kind:'path',points:trace.points.map(frame.point),closed:trace.closed};
   if(trace.kind==='circle')return {id:trace.id,kind:'circle',center:frame.point(trace.center),radius:Number((trace.radius*1000/(content[1][0]-content[0][0])).toFixed(3))};

@@ -27,7 +27,7 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
   executionAuditDirectory?: string;
   executionState?: () => ReturnType<ExecutionSession['facts']>;
   toolAvailable?: (name: string) => boolean;
-  captureCadView?: (signal: AbortSignal) => ReturnType<ExecutionSession['captureView']>;
+  captureCadView?: (signal: AbortSignal,view?:import('@cader/dsh-adapter').CadCaptureRequest) => ReturnType<ExecutionSession['captureView']>;
   executionOwner?: ExecutionSession; confirmTask?: Approval; originalTask?: string;
   qualityResume?:QualityResume;
   referenceTask?:ReferenceTask;
@@ -102,7 +102,7 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
         if (mcp) { stage = 'mcp'; input.signal?.throwIfAborted(); await execution.connect(resolve(root, input.mcpPath!)); }
         input.executionTools = [...execution.definitions(), ...execution.controlTools(), ...execution.fileTools()];
         input.executionState = () => execution!.facts(); input.toolAvailable = name => execution!.toolAvailable(name);
-        input.captureCadView = signal => execution!.captureView(signal); mcp = undefined;
+        input.captureCadView = (signal,view) => execution!.captureView(signal,undefined,view); mcp = undefined;
         input.executionOwner = execution;
         qualityEnabled = !input.disableTools && shouldCheck();
       }

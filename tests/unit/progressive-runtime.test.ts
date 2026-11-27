@@ -122,6 +122,6 @@ for(const outside of [false,true])test(`scoped Reference Gate receives actual cr
     const observation=await runtime.inspectReference('benchmark/fixtures/vision-calibration.png','Fixture scope only',undefined,{id:'left',bounds:[[0,0],[0.5,1]]});
     assert.equal(observation.valid,!outside);assert.ok(messages.every(m=>m.includes('当前仅核实区域 left')));
     assert.ok(events.some(e=>e.type==='image.attached'&&(e.crop as {width:number}).width<(e.source_width as number)));
-    assert.ok(events.some(e=>e.type==='skill.loaded'&&e.name==='progressive-drawing'&&e.resource==='task-decomposition'));
+    assert.ok(events.some(e=>e.type==='skill.loaded'&&e.name==='progressive-drawing'&&e.resource==='source-observation'));
   }finally{await runtime.dispose();}
 });

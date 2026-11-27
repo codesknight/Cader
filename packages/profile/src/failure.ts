@@ -13,6 +13,8 @@ const hints: Record<string, string> = {
   REGION_BOUNDARY_UNCERTAIN:'跨区边界连接未获得一致独立证据；不拼接猜测的网络。',
   REGION_ACCEPTANCE_PENDING:'当前区域的结构或视觉验收仍未通过；已交回Scheduler做局部修正。',
   REGION_REPAIR_LIMIT:'该区域已达到三轮局部修正上限，保留现有图和缺陷，不宣称整图完成。',
+  REGION_VISUAL_EVIDENCE_UNCERTAIN:'局部视觉证据仍不可判读或报告无效，暂缓本区验收；没有已证实几何缺陷时不盲目改图、不消耗绘图修正轮次。',
+  CAD_LOCAL_CAPTURE_UNSUPPORTED:'当前MCP未提供原生局部截图参数，本次窗口请求未派发；需要配套MCP，不以全图放大替代局部高清验收。',
   REGION_NO_PROGRESS:'本轮没有可核实进展，已停止重复请求并保留检查点。',
   BATCH_VERIFICATION_PENDING:'当前批次的实际结构或视觉检查未通过，停止继续派发，由Scheduler处理。',
 

@@ -242,7 +242,7 @@ export class ExecutionSession {
     defineTool({ name: 'cader_cad_recover', description: 'Reconcile a mutation already acknowledged on this original connection after a failed observation. Never replays. Unknown dispatch, reconnect and legacy barriers remain frozen.', parameters: {}, output,
       execute: async () => JSON.stringify(await this.recover()) })].filter(tool=>tool.name!=='cader_cad_execution_status'||Boolean(this.evidence));
   }
-  async captureView(signal: AbortSignal, confirm?: Approval) {
+  async captureView(signal: AbortSignal, confirm?: Approval, view?:import('@cader/dsh-adapter').CadCaptureRequest) {
     return this.serial(async () => {
       signal.throwIfAborted();
       if (!this.client || !this.scratch) throw new Error('NEW_SCRATCH_DRAWING_REQUIRED');
@@ -254,18 +254,21 @@ export class ExecutionSession {
       const path = resolve(await workspacePath(this.workspace, this.runDirectory), `view-${randomUUID()}.png`);
       const exporter=this.client.definitions().find(tool=>tool.name.endsWith('__export_current_view'));
       if(!exporter)throw new ToolArgumentsError('export_current_view',[{path:'/',keyword:'tool',message:'Export definition is unavailable; no request sent'}]);
-      assertToolArguments(exporter,{file_path:path});
-      await this.checkIdentity(true);
-      await this.acquire();
+      const parameters=exporter.parameters as Record<string,any>;
+      if(view&&(!parameters.properties?.world_window||!parameters.properties?.min_long_edge))throw new Error('CAD_LOCAL_CAPTURE_UNSUPPORTED');
+      const payload={file_path:path,...view};
+      assertToolArguments(exporter,payload);
       const operationId = randomUUID();
       const captureStarted = Date.now();
-      const evidenceRequest=this.observedRequest('export_current_view',{file_path:path},operationId);
+      const evidenceRequest=this.observedRequest('export_current_view',payload,operationId);
+      await this.checkIdentity(true);
+      await this.acquire();
       await this.audit({ phase: 'capture_prepared', operation_id: operationId, target: this.scratch, path,observed_request:evidenceRequest,request_json:evidenceRequest?JSON.stringify(evidenceRequest):undefined,request_sha256:evidenceRequest?createHash('sha256').update(JSON.stringify(evidenceRequest)).digest('hex'):undefined });
       if(evidenceRequest)this.observedRequests.set(operationId,structuredClone(evidenceRequest));
       let acknowledged = false;
       let receipt:ReturnType<typeof captureEvidence>;
       try {
-        const dispatch=await this.cadCall('export_current_view',{file_path:path},operationId,evidenceRequest),result=dispatch.value;
+        const dispatch=await this.cadCall('export_current_view',payload,operationId,evidenceRequest),result=dispatch.value;
         if(dispatch.receipt)await this.audit({phase:'capture_execution_receipt',receipt:dispatch.receipt});
         acknowledged = true;
         const structured=result as {result?:unknown;capture?:unknown};
@@ -276,10 +279,11 @@ export class ExecutionSession {
         }
         if (resolve(String(receipt?structured.result:result)) !== path) throw new Error('CAD_CAPTURE_PATH_MISMATCH');
         const image = await readReferenceImage(this.workspace, path);
+        if(view&&(!receipt?.requested_view||!receipt.actions.some(a=>a.name==='media'&&a.acknowledged)||!receipt.actions.some(a=>a.name==='window'&&a.acknowledged)||JSON.stringify(receipt.requested_view.world_window)!==JSON.stringify(view.world_window)||receipt.requested_view.min_long_edge!==view.min_long_edge||receipt.view_evidence?.configuration_verified!==true||receipt.view_evidence?.projection!=='WCS_XY_TOP'||JSON.stringify(receipt.view_evidence.world_window)!==JSON.stringify(view.world_window)||JSON.stringify(receipt.view_evidence.expected_pixels)!==JSON.stringify([image.width,image.height])||Math.max(image.width,image.height)<view.min_long_edge))throw new Error('CAD_LOCAL_CAPTURE_PROOF_MISMATCH');
         const evidence = { source: 'AutoCAD export_current_view', document: this.scratch, captured_at: new Date().toISOString(),
           sha256: createHash('sha256').update(image.data).digest('hex'), width: image.width, height: image.height,
           image_bounds:await inspectCadImageBorder(path),capture_receipt:receipt??null,
-          document_revision: null, view: 'backend extents plot', pixel_to_cad: null, mapping_note: 'No authoritative pixel-to-CAD transform; locate defects using entity queries before editing.' };
+          document_revision: null, view: view?'native WCS window plot':'backend extents plot',view_request:view??null,view_evidence:receipt?.view_evidence??null, pixel_to_cad: null, mapping_note: 'No authoritative pixel-to-CAD transform; locate defects using entity queries before editing.' };
         await this.audit({ phase: 'capture_completed', operation_id: operationId, duration_ms: Date.now() - captureStarted, ...evidence });
         return { path, evidence };
       } catch (error) {

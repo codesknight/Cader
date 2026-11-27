@@ -391,3 +391,11 @@ REQ-050封存检查：`pnpm typecheck`、`pnpm test` **280/280**、`pnpm smoke`�
 REQ-051最终代码离线检查：`pnpm typecheck`、`pnpm test` **316/316**、`pnpm smoke`全部通过。另验证真实回执新文档阶段结束、部分成功Patch交接、裁片坐标/候选独立复核、累计预算/scope恢复、失效缓存更新、同任务防重放、区域图层大小写保护和跨区原生导线连接。真实原图恢复回归25确认/0未知、1次新建，预算/任务/原连接/文档不变量通过；完整图纸仍待验，保存后独立Open被保留空图保护在原生前拒绝。公开结论与私有轨迹位置见验证报告，不能将本轮文件保存等同于整图通过。
 
 最终补修离线typecheck/316项test/DSH smoke通过。真实原始大图最后一轮33确认/0未知、同连接检查点恢复不变量全部通过，17690字节16实体DWG的P1只读重开及额外原生支持字段核对通过；但4M累计token暂停且区域修正未完，整图未验收。通用渐进房子83确认/0未知、75实体DWG文件验证通过，区域三轮修正仍失败，不标完成。保留27份原始文件及新增unknown屏障摘要，邻仓不修改。详细命令/版本/不同回归预算/原始失败与局限以[最终回归报告](../validation/2026-11-27-progressive-drawing.md)为准；Issue20/PR22保持未关闭。
+
+## REQ-052 / 局部证据合同与高清检查
+
+用户要求四项修复并允许改进Skill，关联Issue20/Milestone3。补齐BASE裁片、冻结位置OCR、独立源/视觉上下文、按已核实trace编译待验稿清单、scope/目标实体约束、真实WCS局部PNG及小字/小图元近景。进一步实测修复未采集样式倒灌及背景触边误判；后者仅在目标原生bbox/窗口/configuration均已证明时成立，视觉/几何/全图要求保留。协同独立MCP7291468（Draft PR48），未改动其原有web/脚本修改。
+
+实际`pnpm typecheck`、`pnpm test`331/331、`pnpm smoke`通过；Skill quick_validate通过。独立MCP python -m pytest -q为304通过/34跳过，实际stdio更新export_current_view schema。真实原始大图先有4M观察回归47确认/0未知、36实体P1文件通过但整图pending；最终2M默认回归7确认/0未知、1个整批通过、2份视觉pass和2份实际原生小图元近景，同连接中断恢复不变量通过。之后模型服务QUOTA（893326 tokens，未达本地2M），保存16826字节/3实体待验DWG，独立只读重开及额外原生支持字段核对通过，整图false。背景触边补修后只对留存真实证据重算、没有新模型/CAD全程复验；5个文字bbox动态差异反例另保留，不抹除或放宽verifier。旧30份文件摘要不变。
+
+实施文件、精确命令、Skill摘要、分层实测和未解决项见[实施记录](2026-11-27-local-visual-scope.md)及[验证记录](../validation/2026-11-27-local-visual-scope.md)。原始轨迹保存在.cader/runs/progressive-scope-20261127/；模型额度/源清点稳定性与整图质量仍待后续回归，不关闭Issue20/PR22。

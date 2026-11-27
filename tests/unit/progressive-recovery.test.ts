@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdir,mkdtemp,rm,readFile,writeFile,readdir} from 'node:fs/promises';
 import {resolve,join,sep} from 'node:path';
-import {ExecutionSession,atomicPrivateState} from '@cader/profile';
-import {createToolRuntime,defineTool,invokeTool,sourceCoordinates} from '@cader/dsh-adapter';
+import {ExecutionSession,atomicPrivateState,draftAcceptancePlan,progressiveReviewScope,scopedNativeWindowContainsTargets} from '@cader/profile';
+import {createToolRuntime,defineTool,invokeTool,sourceCoordinates,sourceRegionView,clipSourceView} from '@cader/dsh-adapter';
 import type {createMcpClient} from '@cader/dsh-adapter';
 import {parseProgressivePlan,rasterizeProgressivePlan} from '@cader/config';
 test('trusted BASE-crop transform maps every geometry/label location and leaves source pin identity intact',()=>{
@@ -21,6 +21,38 @@ test('atomic checkpoint replacement retains old content on rename failure and le
     const blocked=join(root,'blocked');await mkdir(blocked);await writeFile(join(blocked,'old'),'preserved');await assert.rejects(atomicPrivateState(blocked,'{"step":3}'));assert.equal(await readFile(join(blocked,'old'),'utf8'),'preserved');assert.ok((await readdir(root)).some(name=>name.startsWith('.write-')));
   }finally{assert.ok(root.startsWith(parent+sep));await rm(root,{recursive:true});}
 });
+
+test('source details preserve original pixels but never expand a BASE region',()=>{
+  const base=sourceRegionView([[0.5,0.5],[1,1]],{width:1000,height:800});
+  assert.deepEqual(clipSourceView({crop:{left:450,top:390,width:200,height:100}},base).crop,{left:500,top:400,width:150,height:90});
+  assert.throws(()=>clipSourceView({crop:{left:0,top:0,width:100,height:100}},base),/OUTSIDE_BASE/);
+  assert.throws(()=>clipSourceView({rotation:90},base),/ROTATION/);
+});
+
+test('draft acceptance is compiled only from agreed traces, with no model-invented coverage requirements',()=>{
+  const plan=draftAcceptancePlan('复现源图',[{id:'edge',kind:'path',points:[[10,10],[20,10]],closed:false},{id:'tag',kind:'text',text:'A',bounds:[[1,1],[2,2]],max_text_height:0.5}]);
+  assert.equal(plan.components.length,0);assert.deepEqual(plan.requirements.map(r=>r.id),['draft_appearance','draft_text_0']);
+  assert.equal(plan.requirements.find(r=>r.check==='text')!.text,'A');assert.match(plan.requirements[0]!.description,/edge, tag/);
+  assert.throws(()=>draftAcceptancePlan('复现源图',[]),/UNAVAILABLE/);
+});
+
+test('native review windows and small-text closeups are bound to actual target IDs and source coordinates',()=>{
+  const entities=[{object_id:7,type:'AcDbLine',start_point:[100,200,0],end_point:[700,200,0],bounding_box:{min:[100,200,0],max:[700,200,0]}},{object_id:8,type:'AcDbText',text_string:'A',height:1,bounding_box:{min:[200,201,0],max:[202,202,0]}},{object_id:9,type:'AcDbLine',start_point:[240,201,0],end_point:[242,201,0],bounding_box:{min:[240,201,0],max:[242,201,0]}}];
+  const args={region:'one',mode:'affected-batch' as const,document:'fixture',snapshot_hash:'snapshot-1',source_sha256:'source-1',entities,bounds:[[0,0],[1000,1000]] as [[number,number],[number,number]],image:{width:1000,height:1000},source_bounds:[[0,0],[1,1]] as [[number,number],[number,number]],toSource:(p:number[])=>[p[0]!/1000,1-p[1]!/1000]};
+  const review=progressiveReviewScope(args);assert.deepEqual(review.binding.entity_ids,[7,8,9]);assert.equal(review.view.min_long_edge,2048);assert.equal(review.view.details!.length,2);assert.deepEqual(review.view.details!.map(d=>d.entity_ids),[[8],[9]]);
+  assert.ok(review.view.details![0]!.request.world_window[2]-review.view.details![0]!.request.world_window[0]<10);
+  assert.notEqual(progressiveReviewScope({...args,snapshot_hash:'changed'}).binding.id,review.binding.id);assert.ok(review.view.sourceView!.crop!.top>700);
+});
+test('local border pixels cannot reject native-contained targets, but unverified or mismatched windows and clipped targets remain uncertain',()=>{
+  const evidence={image_bounds:{possible_clipping:true,foreground_border_pixels:4},review_scope:{mode:'affected-batch',view:{world_window:[0,0,10,10]},entity_ids:[7],targets:[{entity_id:7,native_geometry:{object_id:7,bounding_box:{min:[1,1,0],max:[9,9,0]}}}]},view_request:{world_window:[0,0,10,10]},view_evidence:{configuration_verified:true,projection:'WCS_XY_TOP',world_window:[0,0,10,10]}};
+  assert.equal(scopedNativeWindowContainsTargets(evidence),true);
+  const changed=structuredClone(evidence);changed.review_scope.targets[0]!.native_geometry.bounding_box.max[0]=11;assert.equal(scopedNativeWindowContainsTargets(changed),false);
+  const wrong=structuredClone(evidence);wrong.view_evidence.world_window[2]=12;assert.equal(scopedNativeWindowContainsTargets(wrong),false);
+  const unverified=structuredClone(evidence);unverified.view_evidence.configuration_verified=false;assert.equal(scopedNativeWindowContainsTargets(unverified),false);
+  const foreign=structuredClone(evidence);foreign.review_scope.targets[0]!.native_geometry.object_id=8;assert.equal(scopedNativeWindowContainsTargets(foreign),false);
+  assert.equal(scopedNativeWindowContainsTargets({image_bounds:{possible_clipping:true}}),false);
+});
+
 test('execution ledger prevents replay of a confirmed progressive creation before native dispatch, but permits missing geometry after a recorded move/delete',async()=>{
   const parent=resolve('.cader/tests');await mkdir(parent,{recursive:true});const root=await mkdtemp(join(parent,'progressive-replay-'));let next=41,writes=0;
   const entities:any[]=[];

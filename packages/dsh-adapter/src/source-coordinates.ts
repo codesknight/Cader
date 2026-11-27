@@ -1,4 +1,17 @@
 type Box=[[number,number],[number,number]];
+export function sourceRegionView(bounds:Box,image:{width:number;height:number}){
+  const left=Math.round(bounds[0][0]*image.width),top=Math.round(bounds[0][1]*image.height),right=Math.round(bounds[1][0]*image.width),bottom=Math.round(bounds[1][1]*image.height);
+  if(left<0||top<0||right>image.width||bottom>image.height||right<=left||bottom<=top)throw new Error('SOURCE_REGION_INVALID');
+  return {crop:{left,top,width:right-left,height:bottom-top}};
+}
+/** Supplemental pixels never broaden an analysis scope. They retain ORIGINAL
+ * pixel coordinates; only the report uses the BASE region normalized frame. */
+export function clipSourceView(view:{crop?:{left:number;top:number;width:number;height:number};rotation?:number},base:ReturnType<typeof sourceRegionView>){
+  if(view.rotation)throw new Error('SOURCE_REGION_ROTATION_UNSUPPORTED');
+  const a=view.crop??base.crop,b=base.crop,left=Math.max(a.left,b.left),top=Math.max(a.top,b.top),right=Math.min(a.left+a.width,b.left+b.width),bottom=Math.min(a.top+a.height,b.top+b.height);
+  if(right<=left||bottom<=top)throw new Error('SOURCE_DETAIL_OUTSIDE_BASE');
+  return {crop:{left,top,width:right-left,height:bottom-top}};
+}
 /** Exact trusted crop transform. Never ask a model to repeatedly do affine
  * arithmetic for every component, label and terminal. IDs/topology stay intact. */
 export function sourceCoordinates<T>(value:T,bounds:Box,direction:'to-source'|'to-crop'):T{

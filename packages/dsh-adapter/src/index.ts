@@ -21,7 +21,7 @@ export type { CaptureReceipt } from './capture-evidence.js';
 export { nativeCreateRejection } from './native-create.js';
 export type { ToolDefinition } from '@deepseek-ai/dsh-tools';
 export { prepareImageView, attachmentToSource, inspectCadImageBorder } from './image-view.js';
-export type { ImageView } from './image-view.js';
+export type { ImageView,CadCaptureRequest,CadReviewView } from './image-view.js';
 export type { ToolExecution, ToolExecutionResult, PreToolDecision } from '@deepseek-ai/dsh-tools';
 
 export async function createToolRuntime(): Promise<Context> {
@@ -42,4 +42,4 @@ export type { ComEvidence, NativeBinding, ObservedRequest, ExecutionReceipt } fr
 
 export {parseFileResult} from './file-evidence.js';
 export type {ComFileArtifact,VerificationDocument,VerificationQuery} from './file-evidence.js';
-export {sourceCoordinates} from './source-coordinates.js';
+export {sourceCoordinates,sourceRegionView,clipSourceView} from './source-coordinates.js';

@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import { readReferenceImage, ConfigError } from '@cader/config';
 
 export interface ImageView { rotation?: 0 | 90 | 180 | 270; crop?: { left: number; top: number; width: number; height: number } }
+export interface CadCaptureRequest {world_window:[number,number,number,number];min_long_edge:number}
+export interface CadReviewView extends CadCaptureRequest {sourceView?:ImageView;details?:{request:CadCaptureRequest;sourceView?:ImageView;entity_ids:number[]}[]}
 /** Conservative clipping evidence for plotted CAD PNGs. A border hit is uncertainty,
  * never a claimed CAD coordinate transform or permission to repair geometry. */
 export async function inspectCadImageBorder(path:string){

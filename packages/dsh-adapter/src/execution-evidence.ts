@@ -44,7 +44,7 @@ export function parseNativeBinding(value:unknown,expected:{instance_id:string;do
   return structuredClone(b);
 }
 export function observedArguments(name:string,p:Record<string,unknown>):{operation:string;arguments:Record<string,unknown>}|undefined{
-  const fields:Record<string,string[]>={new_drawing:['request_id'],draw_line:['start_x','start_y','start_z','end_x','end_y','end_z','layer'],draw_circle:['center_x','center_y','center_z','radius','layer'],draw_text:['position_x','position_y','position_z','text','height','layer','rotation'],move_entity:['object_id','offset_x','offset_y','offset_z'],delete_entity:['object_id'],get_entity:['object_id'],save_drawing:['file_path','overwrite'],query_entities:['entity_type'],export_current_view:['file_path','request_id']};
+  const fields:Record<string,string[]>={new_drawing:['request_id'],draw_line:['start_x','start_y','start_z','end_x','end_y','end_z','layer'],draw_circle:['center_x','center_y','center_z','radius','layer'],draw_text:['position_x','position_y','position_z','text','height','layer','rotation'],move_entity:['object_id','offset_x','offset_y','offset_z'],delete_entity:['object_id'],get_entity:['object_id'],save_drawing:['file_path','overwrite'],query_entities:['entity_type'],export_current_view:['file_path','request_id','world_window','min_long_edge']};
   if(fields[name]&&Object.keys(p).some(key=>!fields[name]!.includes(key)))throw new ToolArgumentsError(name,[{path:'/',keyword:'mapping',message:'Argument has no observed-operation mapping; no request sent'}]);
   const point=(prefix:string)=>['x','y','z'].map(axis=>p[`${prefix}_${axis}`]);
   const layer=p.layer?{layer:p.layer}:{};
@@ -57,7 +57,7 @@ export function observedArguments(name:string,p:Record<string,unknown>):{operati
     case 'delete_entity':case 'get_entity':return {operation:name,arguments:{object_id:p.object_id}};
     case 'save_drawing':return {operation:name,arguments:{file_path:p.file_path,overwrite:p.overwrite??false}};
     case 'query_entities':return {operation:name,arguments:p.entity_type?{entity_type:p.entity_type}:{}};
-    case 'export_current_view':return {operation:name,arguments:{file_path:p.file_path,request_id:p.request_id}};
+    case 'export_current_view':return {operation:name,arguments:{file_path:p.file_path,request_id:p.request_id,...(p.world_window!==undefined?{world_window:p.world_window}:{}),...(p.min_long_edge!==undefined?{min_long_edge:p.min_long_edge}:{})}};
     default:return undefined;
   }
 }

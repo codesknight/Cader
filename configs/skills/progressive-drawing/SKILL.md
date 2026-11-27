@@ -38,6 +38,10 @@ Use for complex reference redraw, multi-part CAD creation, dense drawings, expli
 - REPAIR: use concrete discrepancy feedback to make a minimal correction, then verify again. Preserve previously verified unrelated regions.
 - CHECKPOINT: persist accepted observations, operation outcomes, verification evidence and remaining work through available trusted interfaces. Consult `references/checkpoint-and-recovery.md`.
 
+For scoped source observation/OCR, read `references/source-observation.md`; global planning guidance is not an instruction to inventory the whole drawing in a worker.
+
+For Cader partial drafts, Harness compiles acceptance from independently agreed traces; do not invent a broader checklist. Scoped analysis uses the declared BASE frame; indexed label OCR does not relocate labels. During visual review follow the supplied entity-bound scope and actual native closeups; see `references/verification-and-repair.md`.
+
 ## Failure handling
 Do not repeat identical failed submissions without new evidence or changed inputs. For a repeated failure, obtain sanitized diagnostics, inspect schema and scope, then split the region or switch analysis strategy. If feedback is inaccessible, report the exact error and missing diagnostic interface. Do not guess validator requirements. If a global gate blocks local execution, preserve useful analysis and report the runtime limitation; do not bypass it or claim partial CAD success. Unknown write outcomes require authoritative reconciliation before any retry. Never replay confirmed writes. Stop automatic retries when budget is exhausted or progress cannot be demonstrated. Ask the user only for essential ambiguity, authorization or unrecoverable external dependencies.
 

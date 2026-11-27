@@ -7,6 +7,7 @@ skills:
     mode: read-only
     resources:
       task-decomposition: references/task-decomposition.md
+      source-observation: references/source-observation.md
       verification-and-repair: references/verification-and-repair.md
       checkpoint-and-recovery: references/checkpoint-and-recovery.md
   - name: cad-execution

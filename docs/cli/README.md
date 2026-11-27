@@ -3,7 +3,17 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Project home](../../README.md) · [Documentation](../README.md)
 
-**Applies to Cader 0.4.0-dev.13 · Updated 2026-11-27**
+**Applies to Cader 0.4.0-dev.14 · Updated 2026-11-27**
+
+## dev.14: scoped source and native visual checks
+
+Scoped analysis uses the BASE crop frame. Indexed label OCR reads a fixed location without resubmitting bounds. A partial-draft checklist is compiled from independently agreed traces; whole-source coverage stays pending.
+
+Batch reports bind the actual document, snapshot, scope ID and entity IDs. Native WCS-window PNGs and small-text closeups require the updated AutoCAD-MCP; unsupported services leave verification pending, never claiming an enlarged extents image is native high resolution. Window, actual pixel dimensions, hashes and restored plot state are checked. Unobservable pixels without proven geometry defects retain REGION_VISUAL_EVIDENCE_UNCERTAIN rather than triggering blind repair loops. `/quality` and same-connection `/quality resume` retain evidence; unknown outcomes and cross-process ownership rules remain enforced.
+
+A partial draft checks independently admitted primitives and text. Unobserved stroke weight, fill, color, font style and complete topology remain pending for later acceptance. Small text and tiny primitives receive up to three native close-ups from actual bounding boxes. Independent source/vision workers do not inherit another region’s stale capture state.
+
+A background line may cross a local image edge. It does not block the batch only when verified native window settings match the scope and all declared target bounding boxes lie inside. Visual and geometry checks must still pass.
 
 ## Progressive complex drawing (dev.13)
 

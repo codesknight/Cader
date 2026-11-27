@@ -389,3 +389,21 @@ BUG-090（源码证实并补修）：模型执行片段结束时只看实体未�
 补充模型输出行为：默认预算原图回归出现连续OUTPUT_TRUNCATED且没有新CAD操作；新增MainAgent可选progressive_reasoning_effort，在渐进受限步骤启用off，普通MainAgent仍low，8192输出上限不变。模型配置请求在model.route记录；不是仅凭配置声明已经根治截断，真实后续验证另记。
 
 BUG-091（真实原图证实并补修）：矩形分区重叠/空隙反复校验失败，有限规划步骤耗尽且终端只显示UNKNOWN。新增由模型选择切线/每格内容、程序计算相邻bounds的分区输入入口，仍经过完整覆盖/DAG/锚点校验；原显式矩形入口和拒绝记录保留。注册阶段步数诊断；不能把计划提交成功当作源识别或绘图验收通过。
+
+## 2026-11-27 REQ-052：局部视觉合同
+
+BUG-092：区域source wrapper要求BASE且再次转换，但OCR与补充图文字仍要求global，旧原图有47次SOURCE_LABEL_BOUNDS_OUTSIDE_CROP。改为一次程序转换、统一BASE元数据、源详情/主动裁图限制当前像素框；索引OCR固定位置，不再允许单项重复提交bounds。非渐进旧接口兼容。具体实测数量及剩余源识别分歧见新验证记录，不宣称全部源识别根治。
+
+BUG-093：partial允许绘制的独立片段与模型自行提交的验收条件冲突。Harness按可信trace编译清单、绑定字面文本/原生几何，旧plan归档；partial永远不能满足全局覆盖。禁止通过删除整图要求换取完成。
+
+BUG-094：batch视觉报告可用空/外部实体ID描述未提交内容，原图A又用整幅图；小字只看extents图，zoom被误当坐标错误。受控scope/hash/完整checked IDs与缺陷ID约束，A/B对应局部、原生高清窗口与文本近景，PNG尺寸/窗口/恢复/配置读回核对。同图及详情复用均校验hash。
+
+BUG-095：源码与真实回归证实独立Vision/source worker仍继承主Agent全部task_state/execution_state，包括其他区域last_visual和旧截图窗口；出现报告引用上一窗口。本轮按阶段隔离独立证据上下文，Main保留完整状态；source/net/label/draft/边界审定与CAD视觉都使用当前scope。新增source-observation Skill资源，避免源worker加载主规划/绘图验收指南。
+
+BUG-096（本轮真实联调新增，旧失败保留）：窗口参数初版未纳入observedArguments，被原生前拒绝；加入映射且保留旧请求指纹，真实stdio正反测试覆盖。看图范围初版给DSH value-DSL添加minimum导致装配失败（0CAD）；改为raw JSON schema及显式工具参数校验，actual DSH装配回归通过。不能把这些失败归因模型或CAD。
+
+视觉证据uncertain且无确定性几何缺陷不再消耗三轮盲修，区域保留REGION_VISUAL_EVIDENCE_UNCERTAIN；原生/确认视觉缺陷仍修复。真实原图、恢复、局部PNG和文件验证的最终状态见[REQ-052](../validation/2026-11-27-local-visual-scope.md)。
+
+BUG-097（真实原图发现）：待验稿trace只表示线段、圆及文字，视觉却要求未采集的粗线、填充和字体效果；局部短角标又在整区PNG中太小。补齐geometry_only/待采集属性声明、受控视觉缺陷类型及当前实体绑定，增加小图元原生近景；完整源样式仍必须在后续整体验收，不将未知属性默认通过。原4M运行保留，最终合同另用生产默认预算复验。
+
+BUG-098（最终真实原图确认）：局部PNG含上一批长线穿过窗口边缘，通用border heuristic报4个边缘像素；本批两个短线目标完整位于原生窗口内，实际视觉pass却被整体clipping阻断。新增受控例外只接受scope/请求/已验证WCS窗口一致、所有目标ID与原生bbox完整在窗口内的证据。背景触边不再代替目标裁切判断，原始border证据保留；任何目标越窗、错窗口、配置未证实或视觉不通过仍阻断。补修后离线负例与原有真实证据重算分别记录，不伪称已另跑完整模型回归。

@@ -357,7 +357,7 @@ export class InteractiveSession {
       workspaceRoot: this.state.workspace, modelProfile: this.state.model,
       executionTools: [...this.execution.definitions(callbacks.confirm), ...this.execution.controlTools(), ...this.execution.fileTools(callbacks.confirm).filter(tool => this.state.shell !== 'deny' || tool.name !== 'cader_shell')],
       executionState: () => this.execution.facts(executionMark), toolAvailable: name => this.execution.toolAvailable(name),
-      captureCadView: this.state.mcp ? signal => this.execution.captureView(signal, callbacks.confirm) : undefined,
+      captureCadView: this.state.mcp ? (signal,view) => this.execution.captureView(signal, callbacks.confirm,view) : undefined,
       permissionMode: this.state.permission,
       executionOwner:this.execution,confirmTask:callbacks.confirm,originalTask:content,
       qualityResume,referenceTask:referenceTask??undefined,

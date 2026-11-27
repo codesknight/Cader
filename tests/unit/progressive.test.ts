@@ -58,7 +58,7 @@ test('batch checks reject out-of-region effects and duplicate geometry independe
   assert.deepEqual(context.pending_reasons,['SOURCE_COMPONENT_INVENTORY_FAILED']);
 });
 // Scheduler fixture, not model or native AutoCAD evidence.
-async function fixture(extra:{badBatch?:boolean;pause?:boolean;partial?:boolean;taskReport?:boolean;sharedLayerCase?:boolean;readOnlySlices?:number;scopeReconcile?:boolean;alwaysVisualFailure?:boolean;taskText?:string;priorNative?:boolean}={}){
+async function fixture(extra:{badBatch?:boolean;pause?:boolean;partial?:boolean;taskReport?:boolean;sharedLayerCase?:boolean;readOnlySlices?:number;scopeReconcile?:boolean;alwaysVisualFailure?:boolean;uncertain?:boolean;taskText?:string;priorNative?:boolean}={}){
   const requestTask=extra.taskText??task;let factories=0;
   let scratch:string|null=null,grant=false,draws=0,views=0,inspections=0,saved:any,paused=false,bad=extra.badBatch;
   const entities:Record<string,any>[]=[];const operations:any[]=[];const states:any[]=[];const events:any[]=[];
@@ -91,7 +91,7 @@ async function fixture(extra:{badBatch?:boolean;pause?:boolean;partial?:boolean;
         await tool.execute({unit_id:region},exec);
       }
       return {status:'succeeded',text:'fixture',tools:[],id:'fixture'};
-    },async reviewCadView(question:string){views++;const q=JSON.parse(question);if(q.partial_batch){assert.notEqual(q.original_request,requestTask);assert.equal(q.verification_scope,'affected-batch');assert.equal(q.region.description,undefined);assert.deepEqual(q.entity_snapshot.map((e:any)=>e.object_id),q.affected_entity_ids);}else assert.equal(q.original_request,requestTask);const fail=extra.alwaysVisualFailure||bad&&q.partial_batch;bad=false;return {image_ref:'fixture-'+views,evidence:{document:scratch,sha256:'fixture',reference:{sha256:sourceHash},image_bounds:{possible_clipping:false}},review_valid:true,structured:{verdict:fail?'fail':'pass',defects:[],uncertainties:[],checklist:q.requirements.map((r:any)=>({requirement_id:r.id,status:fail?'fail':'pass',evidence:'fixture only'}))},attempts:[]};}};
+    },async reviewCadView(question:string){views++;const q=JSON.parse(question);if(q.partial_batch){assert.notEqual(q.original_request,requestTask);assert.equal(q.verification_scope,'affected-batch');assert.equal(q.region.description,undefined);assert.deepEqual(q.entity_snapshot.map((e:any)=>e.object_id),q.affected_entity_ids);}else assert.equal(q.original_request,requestTask);const fail=extra.alwaysVisualFailure||bad&&q.partial_batch;bad=false;return {image_ref:'fixture-'+views,evidence:{document:scratch,sha256:'fixture',reference:{sha256:sourceHash},image_bounds:{possible_clipping:false}},review_valid:true,structured:{verdict:extra.uncertain?'uncertain':fail?'fail':'pass',defects:[],uncertainties:extra.uncertain?['Synthetic unresolved pixels']:[],checklist:q.requirements.map((r:any)=>({requirement_id:r.id,status:extra.uncertain?'uncertain':fail?'fail':'pass',evidence:'fixture only'}))},attempts:[]};}};
   let reconciliations=0;
   if(extra.scopeReconcile)(runtime as any).reassessCadView=async(question:string,imageRef:string)=>{reconciliations++;const result=await runtime.reviewCadView(question);return {...result,image_ref:imageRef};};
   const options:any={runtime,owner,task:requestTask,root:process.cwd(),profile:'MainAgent',persist:async(s:unknown)=>{saved=structuredClone(s);states.push(saved);},emit:(e:unknown)=>events.push(e)};
@@ -166,4 +166,8 @@ test('partial source contracts reject guessed geometry and verify native endpoin
   assert.equal(verifyDraftGeometry(traces,[{type:'AcDbLine',start_point:[10,10,0],end_point:[20,10,0]}])[0]!.status,'pass');
   const a={object_id:1,type:'AcDbLine',layer:'A',start_point:[10,10,0],end_point:[20,10,0],bounding_box:{min:[10,10],max:[20,10]}};
   assert.equal(verifyProgressiveBatch([{...a,object_id:2,start_point:a.end_point,end_point:a.start_point}],[[0,0],[30,30]],[a])[1]!.status,'fail');
+});
+
+test('unobservable batch pixels with passing native checks do not trigger blind geometry repair loops',async()=>{
+  const f=await fixture({uncertain:true});assert.equal(f.result.quality_accepted,false);assert.equal(f.draws(),2);assert.ok(f.result.progressive!.regions.every(r=>r.repairs===0&&r.failure==='REGION_VISUAL_EVIDENCE_UNCERTAIN'));assert.ok(!f.states.some(s=>s.phase==='correcting'));
 });

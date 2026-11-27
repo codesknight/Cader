@@ -6,7 +6,8 @@ import {verifyQuality,qualityTaskContext} from './quality.js';
 import type {runQualityTask,CheckResult,QualityPhase} from './quality.js';
 import {sourcePlanLayout,referenceLayoutHints,referencePlanHints,referencedPaths,referenceOutput} from './reference-input.js';
 import {verifyNetlist} from './netlist.js';
-import {draftCadTrace,validateDraftOperation,verifyDraftGeometry} from './progressive-draft.js';
+import {draftCadTrace,validateDraftOperation,verifyDraftGeometry,draftAcceptancePlan} from './progressive-draft.js';
+import {progressiveReviewScope,scopedNativeWindowContainsTargets} from './cad-review-scope.js';
 
 type Runtime=Awaited<ReturnType<typeof createLiveRuntime>>;
 type Observation=Awaited<ReturnType<Runtime['inspectReference']>>;
@@ -22,11 +23,13 @@ const inside=(point:number[],bounds:Box,tolerance=0.015)=>point.slice(0,2).every
 export function progressiveFrame(plan:ProgressivePlanData,image:{width:number;height:number}){
   const [a,b]=plan.content_bounds,scale=1000/(b[0]-a[0]);
   const point=(p:number[])=>[Number(((p[0]!-a[0])*scale).toFixed(3)),Number(((b[1]-p[1]!)*scale*image.height/image.width).toFixed(3))];
-  return {point,box:(bounds:Box):Box=>[point([bounds[0][0],bounds[1][1]]) as [number,number],point([bounds[1][0],bounds[0][1]]) as [number,number]],units:'Relative image layout, not inferred physical dimensions'};
+  return {point,toSource:(p:number[])=>[a[0]+p[0]!/scale,b[1]-p[1]!/(scale*image.height/image.width)],box:(bounds:Box):Box=>[point([bounds[0][0],bounds[1][1]]) as [number,number],point([bounds[1][0],bounds[0][1]]) as [number,number]],units:'Relative image layout, not inferred physical dimensions'};
 }
 export interface ProgressiveRegion {
   id:string;status:'pending'|'observing'|'ready'|'drawing'|'repairing'|'verified'|'partial_verified'|'blocked';failure:string|null;
   draft_source?:Awaited<ReturnType<Runtime['inspectProgressiveDraft']>>;
+  draft_plan_history?:QualityPlan[];
+  verification_errors?:{stage:string;error:string;at:string}[];
   source_history?:{source?:Observation;draft_source?:ProgressiveRegion['draft_source'];plan?:QualityPlan;failure:string|null}[];
   source?:Observation;plan?:QualityPlan;entity_ids:number[];boundary_links:{anchor:string;net:string;certainty:'clear'|'uncertain';evidence:string}[];
   batches:{id:string;operation_ids:string[];entity_ids:number[];state_sha256:string;checks:CheckResult[];review?:Review;review_history?:Review[];status:'pass'|'fail'|'pending';recovered_by?:string}[];
@@ -70,12 +73,13 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
   let phase:QualityPhase='planning',round=0,accepted=false,authorized=false,persistFailed=false,failure:Awaited<ReturnType<typeof runQualityTask>>['failure']=null;
   let artifact:Awaited<ReturnType<typeof runQualityTask>>['artifact']=null;
   let checks:CheckResult[]=[],visual:Review|null=null;
+  let visualError:string|null=null;
   const visualCalls:{source:'agent'|'harness';observed_state_hash:string;review:Review}[]=structuredClone(options.resume?.visual_calls??[]);
   const priorCaptures=options.resume?.visual_attempt_count??visualCalls.length,priorVisualModels=options.resume?.visual_model_call_count??0;
   const modelRuns:{phase:QualityPhase;status:string;text:string;tools:string[];error_code?:string;handoff?:unknown}[]=structuredClone(options.resume?.model_runs??[]),transitions:{phase:QualityPhase;at:string}[]=structuredClone(options.resume?.transitions??[]),checkpoints:unknown[]=structuredClone(options.resume?.checkpoints??[]);
   const progressive:ProgressiveState=structuredClone(options.resume?.progressive??{version:1,source_sha256:reference?.image.sha256??null,scope_sha256:requestHash,plan:null,plan_sha256:null,active_region:null,regions:[],connection:null,document:null,observed_sha256:null,confirmed_operation_ids:[],resume_count:0});
   const state=()=>({version:1,task_id:taskId,phase,original_request:task,request_sha256:requestHash,plan,round,checks,visual,reviews:[],visual_calls:visualCalls,
-    visual_attempt_count:priorCaptures+(runtime?.reviewStats().capture_attempts??0),visual_model_call_count:priorVisualModels+(runtime?.reviewStats().model_calls??0),visual_error:null,
+    visual_attempt_count:priorCaptures+(runtime?.reviewStats().capture_attempts??0),visual_model_call_count:priorVisualModels+(runtime?.reviewStats().model_calls??0),visual_error:visualError,
     transitions,failure,reference_task:reference??null,reference_observation:null,label_confirmations:[],unconfirmed_label_reviews:[],connection_confirmations:[],unconfirmed_connection_reviews:[],artifact,
     quality_accepted:accepted&&phase==='complete',model_runs:modelRuns,checkpoints,drawing_units:[],active_drawing_unit:null,active_planning_unit:null,planning_units:[],source_layout:null,source_frame:null,budget:runtime?.budgetState(),execution:owner.facts(),progressive});
   const persist=async()=>{try{options.onState?.(qualityTaskContext(state()));await options.persist(state());}catch{persistFailed=true;throw new Error('CHECKPOINT_PERSIST_FAILED');}};
@@ -212,7 +216,7 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
             reviewed=items;exec.concludeTurn();return JSON.stringify(items);
           }};
           if(!runtime.visionProfileId)throw new Error('VISION_PROFILE_UNAVAILABLE');
-          const result=await runtime.run(runtime.visionProfileId,'独立查看当前原图区域，逐项审定原unknowns的真实作用域，不直接删除或改写源记录。局部必要外观/连接问题保留local_required；仅跨区事实可引用已有anchor_ids记cross_region，仍须最终全图验证；未请求的物理比例尺、输入源文件格式或原始CAD实体编码可记out_of_request。不能用不要求实体类型来豁免符号、标签、颜色或实际连接的保真。必须调用cader_review_region_uncertainties。'+JSON.stringify({task,region:descriptor,unknowns:uncertaintySource.unknowns,anchors,units:progressive.plan.units}),{image:reference?.image.path,imageView:crop(descriptor.bounds),signal,skill:'progressive-drawing',onlyTools:[submit.name],extraTools:[submit],maxModelSteps:3,resultText:()=>reviewed?JSON.stringify(reviewed):undefined});
+          const result=await runtime.run(runtime.visionProfileId,'独立查看当前原图区域，逐项审定原unknowns的真实作用域，不直接删除或改写源记录。局部必要外观/连接问题保留local_required；仅跨区事实可引用已有anchor_ids记cross_region，仍须最终全图验证；未请求的物理比例尺、输入源文件格式或原始CAD实体编码可记out_of_request。不能用不要求实体类型来豁免符号、标签、颜色或实际连接的保真。必须调用cader_review_region_uncertainties。'+JSON.stringify({task,region:descriptor,unknowns:uncertaintySource.unknowns,anchors,units:progressive.plan.units}),{independentEvidence:true,taskState:()=>({phase:'reference',region:region.id,source_sha256:reference?.image.sha256}),image:reference?.image.path,imageView:crop(descriptor.bounds),signal,skill:'progressive-drawing',onlyTools:[submit.name],extraTools:[submit],maxModelSteps:3,resultText:()=>reviewed?JSON.stringify(reviewed):undefined});
           if(result.status!=='succeeded'||!reviewed)throw new Error('REGION_UNCERTAINTY_REVIEW_FAILED');region.uncertainty_review=reviewed;await persist();
         }
         if(reference&&region.uncertainty_review?.some(i=>i.disposition==='local_required')){
@@ -227,12 +231,16 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
             let links:ProgressiveRegion['boundary_links']|undefined;
             const submit:ToolDefinition={name:'cader_submit_region_boundary_links',description:'Independently trace each declared source boundary anchor into exactly one observed local net. A boundary is not a device or a broken wire; uncertain evidence cannot authorize its dependent connection.',parameters:{type:'object',properties:{links:{type:'array',minItems:regionAnchors.length,maxItems:regionAnchors.length,items:{type:'object',properties:{anchor:{type:'string',enum:regionAnchors.map(a=>a.id)},net:{type:'string',enum:localSource.nets!.map(n=>n.id)},certainty:{enum:['clear','uncertain'],type:'string'},evidence:{type:'string',minLength:1,maxLength:400}},required:['anchor','net','certainty','evidence'],additionalProperties:false}}},required:['links'],additionalProperties:false},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args,exec){const parsed=(args as {links:ProgressiveRegion['boundary_links']}).links;if(parsed.length!==regionAnchors.length||new Set(parsed.map(l=>l.anchor)).size!==parsed.length||parsed.some(l=>!regionAnchors.some(a=>a.id===l.anchor)||!localSource.nets?.some(n=>n.id===l.net)))throw new Error('REGION_BOUNDARY_PARTITION_INVALID');links=parsed;exec.concludeTurn();return JSON.stringify(parsed);}};
             if(!runtime.visionProfileId)throw new Error('VISION_PROFILE_UNAVAILABLE');
-            const read=await runtime.run(runtime.visionProfileId,'独立沿实际原图像素追踪当前区域边界锚点分别连接哪个局部net。不能按常识、CAD结果或先前模型意见猜测。仅调用cader_submit_region_boundary_links覆盖每个锚点，确实无法判读标uncertain。坐标为原始整图归一化坐标。'+JSON.stringify({region:descriptor,anchors:regionAnchors,source_objects:localSource.objects,local_nets:localSource.nets}),{image:reference?.image.path,imageView:crop(descriptor.bounds),signal,skill:'progressive-drawing',onlyTools:[submit.name],extraTools:[submit],maxModelSteps:3,resultText:()=>links?JSON.stringify(links):undefined});
+            const read=await runtime.run(runtime.visionProfileId,'独立沿实际原图像素追踪当前区域边界锚点分别连接哪个局部net。不能按常识、CAD结果或先前模型意见猜测。仅调用cader_submit_region_boundary_links覆盖每个锚点，确实无法判读标uncertain。坐标为原始整图归一化坐标。'+JSON.stringify({region:descriptor,anchors:regionAnchors,source_objects:localSource.objects,local_nets:localSource.nets}),{independentEvidence:true,taskState:()=>({phase:'reference',region:region.id,source_sha256:reference?.image.sha256}),image:reference?.image.path,imageView:crop(descriptor.bounds),signal,skill:'progressive-drawing',onlyTools:[submit.name],extraTools:[submit],maxModelSteps:3,resultText:()=>links?JSON.stringify(links):undefined});
             if(read.status!=='succeeded'||!links)throw new Error('REGION_BOUNDARY_REVIEW_FAILED');readings.push(links);
           }
           const partition=(links:ProgressiveRegion['boundary_links'])=>links.map(l=>[l.anchor,l.net,l.certainty].join(':')).sort();
           if(!same(partition(readings[0]!),partition(readings[1]!))||readings.some(links=>links.some(l=>l.certainty!=='clear')))throw new Error('REGION_BOUNDARY_UNCERTAIN');
           region.boundary_links=readings[1]!;await persist();
+        }
+        if(draft&&draftGeometry){
+          const compiled=draftAcceptancePlan(task,draftGeometry);
+          if(!same(region.plan,compiled)){if(region.plan)(region.draft_plan_history??=[]).push(region.plan);region.plan=compiled;await persist();}
         }
         if(!region.plan){
           region.status='ready';await enter('planning');
@@ -277,24 +285,28 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
         let regionReviewCache:{key:string;result:Review;valid:boolean;history:Review[]}|undefined;
         let batchReviewCache:{key:string;result:Review}|undefined;
         const reviewKey=(snapshotHash:string)=>digest([snapshotHash,region.plan,reference?.image.sha256,owner.facts().operations.filter(op=>op.outcome==='committed'&&op.tool!=='export_current_view').map(op=>op.operation_id)]);
-        const review=async(partial:boolean,affected:Entity[],native:CheckResult[])=>{
+        const review=async(partial:boolean,affected:Entity[],native:CheckResult[],deleted:Entity[]=[])=>{
           const snapshot=await observe(),snapshotHash=digest(snapshot.entities);
           if(!partial)await enter('vision');
           const cacheKey=reviewKey(snapshotHash);if(!partial&&regionReviewCache?.key===cacheKey&&await runtime.isCadReviewCurrent?.(regionReviewCache.result))return regionReviewCache;
           const requirements=partial?[{id:'batch_fidelity',description:'只检查本批新建/修改部分是否符合指定源区域或需求；其他未绘制内容不是此批缺陷。检查可见几何、符号细节、文字及局部连接。'}]:region.plan!.requirements.filter(r=>r.check==='visual');
-          const question={original_request:partial?'仅检查当前批次实际提交图形的可见实现与下列几何证据；未提交部分不在本批范围，区域和全图另行验收。':task,task_request_sha256:requestHash,requirements,verification_scope:partial?'affected-batch':draft?'verified-partial-draft-subset':'complete-region',verified_draft_subset:partial?draftGeometry?.filter(t=>verifyDraftGeometry([t],affected)[0]?.status==='pass')??null:draftGeometry??null,omitted_source_content:partial?[]:(draft?.readings??[]).flatMap(r=>r.omitted),region:partial?{id:descriptor.id,bounds:descriptor.bounds}:descriptor,source_frame:{content_bounds:progressive.plan!.content_bounds,cad_bounds:frame.box(descriptor.bounds)},partial_batch:partial,affected_entity_ids:affected.map(e=>e.object_id),entity_snapshot:partial?affected:snapshot.entities,geometry:native,note:'Only affected geometry (or the explicitly verified draft subset) is in scope; omitted content and other regions are still pending, not defects of this batch. Different plot zoom/blank margins do not change the shared native CAD positions. Independently compare actual pixels, not earlier verdicts.'};
+          const targets=[...affected,...deleted.map(e=>({...e,expected_absent:true}))];
+          const scoped=progressiveReviewScope({region:region.id,mode:partial?'affected-batch':draft?'draft-subset':'complete-region',document:owner.facts().native_target??progressive.document,snapshot_hash:snapshotHash,source_sha256:reference?.image.sha256??null,entities:targets,bounds:frame.box(descriptor.bounds),image,source_bounds:descriptor.bounds,toSource:frame.toSource,draft:draftGeometry});
+          const question={review_scope:scoped.binding,original_request:partial?'仅检查当前批次实际提交图形的可见实现与下列几何证据；未提交部分不在本批范围，区域和全图另行验收。':task,task_request_sha256:requestHash,requirements,verification_scope:partial?'affected-batch':draft?'verified-partial-draft-subset':'complete-region',verified_draft_subset:partial?draftGeometry?.filter(t=>verifyDraftGeometry([t],affected)[0]?.status==='pass')??null:draftGeometry??null,omitted_source_content:partial?[]:(draft?.readings??[]).flatMap(r=>r.omitted),region:partial?{id:descriptor.id,bounds:descriptor.bounds}:descriptor,source_frame:{content_bounds:progressive.plan!.content_bounds,cad_bounds:frame.box(descriptor.bounds)},partial_batch:partial,affected_entity_ids:affected.map(e=>e.object_id),entity_snapshot:targets,geometry:native,note:'Only affected geometry (or the explicitly verified draft subset) is in scope; omitted content and other regions are still pending, not defects of this batch. Different plot zoom/blank margins do not change the shared native CAD positions. Independently compare actual pixels, not earlier verdicts.'};
           const sourceDetails=reference?[{path:reference.image.path,view:crop(descriptor.bounds),label:'ORIGINAL source region '+region.id+'; global normalized frame, NOT CAD screenshot'}]:undefined;
-          let result=await runtime.reviewCadView(JSON.stringify(question),signal,reference?.image.path,sourceDetails);
+          const recordVisualError=async(error:unknown)=>{visualError=(error as Error).message.slice(0,6000);(region.verification_errors??=[]).push({stage:'native_local_review',error:visualError,at:new Date().toISOString()});progressive.last_tool_error={tool:'Harness.native_local_review',message:visualError};await persist();};
+          let result:Review;visualError=null;
+          try{result=await runtime.reviewCadView(JSON.stringify(question),signal,reference?.image.path,sourceDetails,scoped.view);}catch(error){await recordVisualError(error);throw error;}
           const history:Review[]=[];
           const remember=(report:Review)=>{report.requirements=JSON.stringify({original_request:task,region:region.id,partial_batch:partial,observed_state_hash:snapshotHash,requirement_ids:requirements.map(r=>r.id),scope_reconciliation:history.length>0,full_evidence:'cad.review event journal'});history.push(report);visual=report;region.last_review=report;visualCalls.push({source:'harness',observed_state_hash:snapshotHash,review:report});};
-          const validReview=(report:Review)=>report.review_valid&&(!reference||(report.evidence as {reference?:{sha256?:string}}).reference?.sha256===reference.image.sha256)&&(report.evidence as {document?:string}).document===progressive.document&&!(report.evidence as {image_bounds?:{possible_clipping?:boolean}}).image_bounds?.possible_clipping&&report.structured?.verdict==='pass'&&requirements.every(r=>report.structured!.checklist.some(c=>c.requirement_id===r.id&&c.status==='pass'));
+          const validReview=(report:Review)=>report.review_valid&&(!reference||(report.evidence as {reference?:{sha256?:string}}).reference?.sha256===reference.image.sha256)&&(report.evidence as {document?:string}).document===progressive.document&&(!(report.evidence as {image_bounds?:{possible_clipping?:boolean}}).image_bounds?.possible_clipping||scopedNativeWindowContainsTargets(report.evidence))&&report.structured?.verdict==='pass'&&requirements.every(r=>report.structured!.checklist.some(c=>c.requirement_id===r.id&&c.status==='pass'));
           remember(result);if(snapshotHash!==digest((await observe()).entities))throw new Error('VISUAL_OBSERVATION_CHANGED');
           let valid=validReview(result);
           if(partial&&!valid&&result.review_valid&&result.structured?.verdict!=='pass'&&native.every(c=>c.status==='pass')&&runtime.reassessCadView){
             // One independent scope reconciliation on the SAME actual image.
             // Original failed reports stay in history; no forced pass, new CAD
             // write, extra capture or whole-region acceptance is allowed here.
-            result=await runtime.reassessCadView(JSON.stringify({...question,scope_reconciliation:{previous_report:result.structured,expected_current_geometry:question.verified_draft_subset??affected,rule:'Independently recheck ONLY these committed entities. Missing unsubmitted symbols/labels/canopies are not batch requirements. Native coordinates, direction and relative positions already verified cannot be contradicted merely because PlotToFile zooms the current extents. Report genuine visible defects or uncertainty; never force pass. Regional and final acceptance remain pending.'}}),result.image_ref,signal,reference?.image.path,sourceDetails);
+            try{result=await runtime.reassessCadView(JSON.stringify({...question,scope_reconciliation:{previous_report:result.structured,expected_current_geometry:question.verified_draft_subset??affected,rule:'Independently recheck ONLY these committed entities. Missing unsubmitted symbols/labels/canopies are not batch requirements. Native coordinates, direction and relative positions already verified cannot be contradicted merely because PlotToFile zooms the current extents. Report genuine visible defects or uncertainty; never force pass. Regional and final acceptance remain pending.'}}),result.image_ref,signal,reference?.image.path,sourceDetails,scoped.view);}catch(error){await recordVisualError(error);throw error;}
             remember(result);if(snapshotHash!==digest((await observe()).entities))throw new Error('VISUAL_OBSERVATION_CHANGED');valid=validReview(result);
           }
           if(!partial)regionReviewCache={key:cacheKey,result,valid,history};else batchReviewCache={key:cacheKey,result};return {result,valid,history};
@@ -313,7 +325,7 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
           region.batches.push(batch);lastSnapshot=snapshot;changedLayers.clear();await checkpoint('batch_committed_pending_verification');
           runtime.setVerificationScope('batch:'+batch.id);await enter('geometry');
           if([...affected,...deleted].some(e=>knownOther.has(e.object_id)))batch.checks.push({id:'region_ownership',status:'fail',evidence:'A previously owned region changed'});
-          await enter('vision');const evaluated=await review(true,affected,batch.checks);batch.review=evaluated.result;batch.review_history=evaluated.history;
+          await enter('vision');const evaluated=await review(true,affected,batch.checks,deleted);batch.review=evaluated.result;batch.review_history=evaluated.history;
           batch.status=evaluated.valid&&batch.checks.every(c=>c.status==='pass')?'pass':'fail';
           await checkpoint('batch_verified');options.emit({type:'task.batch_verified',region:region.id,batch:batch.id,status:batch.status});
           if(batch.status!=='pass')throw new Error('BATCH_VERIFICATION_PENDING');
@@ -371,10 +383,10 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
             // Permit construction to continue after a verified ACKed prefix;
             // actual failed batch reviews consume the bounded repair allowance.
             const after=await observe();if(same(current.entities,after.entities)&&owner.facts().operations.filter(op=>op.outcome==='committed').length===committedBefore){if(++idleSlices>=3)throw new Error('REGION_NO_PROGRESS');}else idleSlices=0;
-            if(region.batches.at(-1)&&region.batches.at(-1)!.status!=='pass'){if(region.repairs>=3)throw new Error('REGION_REPAIR_LIMIT');region.repairs++;round=Math.max(round,region.repairs);region.status='repairing';}
+            if(region.batches.at(-1)&&region.batches.at(-1)!.status!=='pass'){const last=region.batches.at(-1)!;if(!last.checks.some(c=>c.status==='fail')&&(!last.review?.review_valid||last.review.structured?.verdict==='uncertain'))throw new Error('REGION_VISUAL_EVIDENCE_UNCERTAIN');if(region.repairs>=3)throw new Error('REGION_REPAIR_LIMIT');region.repairs++;round=Math.max(round,region.repairs);region.status='repairing';}
             await checkpoint('batch_control_handoff');continue;
           }
-          if(!finished){try{await checkRegion();}catch(error){if(owner.facts().frozen||signal?.aborted)throw error;if(region.repairs>=3)throw new Error('REGION_REPAIR_LIMIT');region.repairs++;round=Math.max(round,region.repairs);region.status='repairing';await checkpoint('local_repair');}}
+          if(!finished){try{await checkRegion();}catch(error){if(owner.facts().frozen||signal?.aborted)throw error;if(!region.checks?.some(c=>c.status==='fail')&&(!region.last_review?.review_valid||region.last_review.structured?.verdict==='uncertain'))throw new Error('REGION_VISUAL_EVIDENCE_UNCERTAIN');if(region.repairs>=3)throw new Error('REGION_REPAIR_LIMIT');region.repairs++;round=Math.max(round,region.repairs);region.status='repairing';await checkpoint('local_repair');}}
         }
       }catch(error){
         if(owner.facts().frozen||signal?.aborted||taskStops.has((error as Error).message))throw error;

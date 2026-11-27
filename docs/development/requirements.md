@@ -208,3 +208,5 @@ REQ-050交付结果：原始房子与原始复杂手稿两项Cader真实模型/A
 
 
 REQ-051（#20，Milestone3，2026-11-27）：用户提供大图阻塞日志、Bug Triage 和 Progressive Drawing Skill，要求直接实施自动技能选择、合法局部 Reference Gate、渐进任务调度、每批结构/视觉验证、局部修复、同连接检查点恢复及真实大图 AutoCAD 回归。保留原始图纸、执行/屏障证据与独立MCP，不能以 Prompt/Skill 注册或简单圆测试代替。实施和职责边界见[工程记录](2026-11-27-progressive-drawing.md)，实际结果见[验证记录](../validation/2026-11-27-progressive-drawing.md)。
+
+REQ-052（#20，Milestone3，2026-11-27）：用户明确修复裁片坐标一致性、部分待验稿验收范围、批次视觉对象绑定与局部高清复核，并允许优化Skill。复用DSH/Cordis、Scheduler、ExecutionSession及独立MCP现有截图恢复。验收为：BASE坐标仅转换一次且OCR不反复定位；partial条件不能超出独立片段；视觉报告强制绑定scope/实体并保留原图/图纸/快照；小字使用真实原生局部导出，窗口/像素/状态恢复均核验；原始大图真实模型/CAD回归，旧图及unknown保留。沿用用户此前截图链路协同授权，独立MCP仅修改必要截图接口/证据/测试，不覆盖其他工作。[实施](2026-11-27-local-visual-scope.md)。

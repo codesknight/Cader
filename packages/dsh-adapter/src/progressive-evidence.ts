@@ -3,15 +3,14 @@ import {readReferenceImage,progressiveDraftSchema,parseProgressiveDraft} from '@
 import type {ProgressiveTrace,ProgressiveDraftData} from '@cader/config';
 import type {ToolDefinition} from '@deepseek-ai/dsh-tools';
 import type {ImageView} from './image-view.js';
-import {sourceCoordinates} from './source-coordinates.js';
+import {sourceCoordinates,sourceRegionView} from './source-coordinates.js';
 type Box=[[number,number],[number,number]];
-type Run=(profile:string,instruction:string,request:{image:string;imageView:ImageView;observationFrame:Box;signal?:AbortSignal;skill:string;skillResource:string;onlyTools:string[];extraTools:ToolDefinition[];maxModelSteps:number;maxImageViews:number;resultText:()=>string|undefined})=>Promise<{id:string;status:string;errorCode?:string}>;
+type Run=(profile:string,instruction:string,request:{image:string;imageView:ImageView;observationFrame:Box;independentEvidence:boolean;taskState:()=>unknown;signal?:AbortSignal;skill:string;skillResource:string;onlyTools:string[];extraTools:ToolDefinition[];maxModelSteps:number;maxImageViews:number;resultText:()=>string|undefined})=>Promise<{id:string;status:string;errorCode?:string}>;
 /** Independent bounded geometric observations can release a PARTIAL draft,
  * never masquerade as a complete semantic/netlist Reference Gate pass. */
 export async function inspectProgressiveDraft(run:Run,profile:string,root:string,path:string,scope:{id:string;bounds:Box},task:string,signal?:AbortSignal,reserve:()=>void=()=>{}){
   const image=await readReferenceImage(root,path),sha256=createHash('sha256').update(image.data).digest('hex');
-  const [a,b]=scope.bounds,left=Math.round(a[0]*image.width),top=Math.round(a[1]*image.height);
-  const view={crop:{left,top,width:Math.round(b[0]*image.width)-left,height:Math.round(b[1]*image.height)-top}};
+  const [a,b]=scope.bounds,view=sourceRegionView(scope.bounds,image);
   const readings:ProgressiveDraftData[]=[],attempts:{id:string;status:string;error_code?:string}[]=[];
   for(let pass=0;pass<2;pass++){
     signal?.throwIfAborted();reserve();let observation:ProgressiveDraftData|undefined;
@@ -26,7 +25,7 @@ export async function inspectProgressiveDraft(run:Run,profile:string,root:string
     // a dense crop. Candidates are untrusted hypotheses, never expected truth.
     const candidates=pass===1?sourceCoordinates(readings[0],scope.bounds,'to-crop'):undefined;
     const review=candidates?'\n这是独立像素复核。下面候选均是不可信假设，不是答案。逐项对照实际BASE裁片，报告确实有像素证据的同一特征；错误坐标须更正，不可辨认或不存在的候选放入omitted。不得照抄以求一致，不另选无关的12个特征；不必凑足数量。候选：'+JSON.stringify(candidates):'';
-    const result=await run(profile,'当前只做有界局部几何观察，不清点整图器件，不追网、不按功能补画。独立观察实际原图裁片，调用cader_submit_verified_draft_observation，只报告最多12个确实可见且清晰的直线/折线路径、完整圆或文字；无法判断的组件/标签/连接必须留在omitted，coverage必须为partial。所有点必须为当前BASE裁片0..1局部坐标，coordinate_system=normalized-crop-top-left-y-down；程序做统一整图变换，禁止自行手算整图偏移。circle.radius按当前BASE裁片宽度归一化，不猜物理尺寸。路径忠于实际像素，不能把圆弧当直线或把不确定符号归为常见器件。此记录只允许部分待验稿，不代表整区或整图已识别；勿虚构完整覆盖。'+JSON.stringify({task,scope,original_width:image.width,original_height:image.height})+review,{image:path,imageView:view,observationFrame:scope.bounds,signal,skill:'progressive-drawing',skillResource:'verification-and-repair',onlyTools:[tool.name,'cader_view_image'],extraTools:[tool],maxModelSteps:3,maxImageViews:1,resultText:()=>observation?JSON.stringify(observation):undefined});
+    const result=await run(profile,'当前只做有界局部几何观察，不清点整图器件，不追网、不按功能补画。独立观察实际原图裁片，调用cader_submit_verified_draft_observation，只报告最多12个确实可见且清晰的直线/折线路径、完整圆或文字；无法判断的组件/标签/连接必须留在omitted，coverage必须为partial。所有点必须为当前BASE裁片0..1局部坐标，coordinate_system=normalized-crop-top-left-y-down；程序做统一整图变换，禁止自行手算整图偏移。circle.radius按当前BASE裁片宽度归一化，不猜物理尺寸。路径忠于实际像素，不能把圆弧当直线或把不确定符号归为常见器件。此记录只允许部分待验稿，不代表整区或整图已识别；勿虚构完整覆盖。'+JSON.stringify({task,scope:{id:scope.id,base_crop_original_pixels:view.crop},original_width:image.width,original_height:image.height})+review,{independentEvidence:true,taskState:()=>({phase:'reference',source_sha256:sha256,region:scope.id,evidence_scope:'Independent BASE pixel observation; no prior CAD or task reviews'}),image:path,imageView:view,observationFrame:scope.bounds,signal,skill:'progressive-drawing',skillResource:'source-observation',onlyTools:[tool.name,'cader_view_image'],extraTools:[tool],maxModelSteps:3,maxImageViews:1,resultText:()=>observation?JSON.stringify(observation):undefined});
     attempts.push({id:result.id,status:result.status,error_code:result.errorCode});if(!observation||result.status!=='succeeded')break;readings.push(observation);
   }
   const again=await readReferenceImage(root,path);if(createHash('sha256').update(again.data).digest('hex')!==sha256)throw new Error('REFERENCE_CHANGED_RESELECT_REQUIRED');
