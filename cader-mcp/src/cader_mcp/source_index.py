@@ -52,7 +52,7 @@ def merge_labels(labels):
     return sorted(result, key=lambda a: (a["bounds"][1], a["bounds"][0]))
 
 
-def native_text_candidate(label):
+def native_text_candidate(label, ink=None):
     """Avoid converting an isolated symbol or 2D typesetting into guessed TEXT.
 
     Rejected OCR proposals remain actual source ink, so they are vectorized as
@@ -65,6 +65,22 @@ def native_text_candidate(label):
     if sum(character.isalnum() for character in text) < 2:
         return False
     x, y, a, b = label["bounds"]
+    if ink is not None:
+        import cv2
+        import numpy as np
+
+        left, top = max(0, x - 2), max(0, y - 2)
+        patch = ink[top : min(ink.shape[0], b + 3), left : min(ink.shape[1], a + 3)]
+        _, components = cv2.connectedComponents((patch > 127).astype(np.uint8), 8)
+        inner = np.zeros_like(patch, dtype=bool)
+        inner[y - top : b - top + 1, x - left : a - left + 1] = True
+        # A mask cutting a fraction separator, rule or neighboring connected
+        # glyph is not an isolated single-line label. Preserve the actual ink
+        # as editable paths rather than replacing 2D typesetting with guessed TEXT.
+        inside = set(np.unique(components[inner & (patch > 127)]))
+        outside = set(np.unique(components[~inner & (patch > 127)]))
+        if (inside & outside) - {0}:
+            return False
     units = sum(
         1 if unicodedata.east_asian_width(c) in {"W", "F"} else 0.55
         for c in text
@@ -441,7 +457,7 @@ def build_index(path, *, use_ocr=True, edge=800):
                         )
             print(json.dumps({"stage": "ocr", "tile": i + 1, "tiles": len(grid)}), flush=True)
     ocr_proposals = merge_labels(labels)
-    labels = [label for label in ocr_proposals if native_text_candidate(label)]
+    labels = [label for label in ocr_proposals if native_text_candidate(label, ink)]
     geometry = ink.copy()
     for label in labels:
         cv2.fillPoly(geometry, [np.asarray(label["quad"], np.int32)], 0)
@@ -488,10 +504,10 @@ def build_index(path, *, use_ocr=True, edge=800):
         "engine": {
             "method": "local-ocr-skeleton-graph",
             "coordinate_system": "original-pixels-top-left-y-down",
-            "engine_version": 9,
+            "engine_version": 10,
             "annotation_blocks": blocks,
             "outlined_ocr_ids": [
-                label["id"] for label in ocr_proposals if not native_text_candidate(label)
+                label["id"] for label in ocr_proposals if not native_text_candidate(label, ink)
             ],
             "tile_edge": edge,
             "halo": 96,

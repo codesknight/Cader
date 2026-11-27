@@ -76,7 +76,8 @@ export function sourceWindowReviewScope(index: ReferenceIndex, tile: number, ent
     return { view, binding: { ...bound, id: sourceDigest(bound) }, entities: targets };
 }
 export function sourceGroupReviewScope(input: Parameters<typeof progressiveReviewScope>[0], items: SourceItem[], work: SourceWorklist) {
-    const scope = progressiveReviewScope(input), groups = new Map<string, SourceItem[]>();
+    const summaries = input.entities.map(e => ({ object_id: e.object_id, type: e.type, bounding_box: e.bounding_box, layer: e.layer, height: e.height, ...typeof e.text_string === 'string' ? { text_string: e.text_string } : {}, native_geometry_sha256: sourceDigest(e) }));
+    const scope = progressiveReviewScope({ ...input, entities: summaries }), groups = new Map<string, SourceItem[]>();
     for (const item of items) {
         const key = item.group_id ?? item.id;
         groups.set(key, [...groups.get(key) ?? [], item]);
@@ -95,7 +96,7 @@ export function bindSourceReview(scope: ReturnType<typeof progressiveReviewScope
     if (!crop)
         throw new Error('SOURCE_REVIEW_CROP_BINDING_REQUIRED');
     const local = ([x, y]: number[]) => [Number(((x! - crop.left) / crop.width).toFixed(7)), Number(((y! - crop.top) / crop.height).toFixed(7))];
-    const source_bindings = items.map(item => ({ source_id: item.id, group_id: item.group_id ?? null, entity_ids: work.items[item.id]!.entity_ids, geometry: item.kind === 'path' ? { kind: 'path', points: item.points.map(local), closed: item.closed } : { kind: 'text', text: work.items[item.id]!.text ?? item.text, bounds: [local(item.bounds.slice(0, 2)), local(item.bounds.slice(2))] } }));
+    const source_bindings = items.map(item => ({ source_id: item.id, group_id: item.group_id ?? null, entity_ids: work.items[item.id]!.entity_ids, geometry: item.kind === 'path' ? { kind: 'path', bounds: [local(item.bounds.slice(0, 2)), local(item.bounds.slice(2))], vertex_count: item.points.length, source_path_sha256: sourceDigest(item.points), closed: item.closed } : { kind: 'text', text: work.items[item.id]!.text ?? item.text, bounds: [local(item.bounds.slice(0, 2)), local(item.bounds.slice(2))] } }));
     const targets = scope.binding.targets.map(target => {
         const members = source_bindings.filter(b => b.entity_ids.includes(target.entity_id));
         if (members.length !== 1)
@@ -125,7 +126,7 @@ export function sourceBatchReviewAccepted(review: {
 export function sourceBatchSelection(items: SourceItem[], work: SourceWorklist, active?: string[]) {
     const chosen = new Set(active ?? items.filter(i => work.items[i.id]!.status === 'committed').map(i => i.id));
     const groups = new Set(items.filter(i => chosen.has(i.id) && i.group_id).map(i => i.group_id!));
-    const selected = items.filter(i => (chosen.has(i.id) || i.group_id && groups.has(i.group_id)) && work.items[i.id]!.entity_ids.length && ['committed', 'verified'].includes(work.items[i.id]!.status));
+    const selected = items.filter(i => chosen.has(i.id) && work.items[i.id]!.entity_ids.length && work.items[i.id]!.status === 'committed').slice(0, 64);
     const pending = items.filter(i => i.group_id && groups.has(i.group_id) && !['committed', 'verified'].includes(work.items[i.id]!.status));
     return { items: selected, pending_ids: pending.map(i => i.id) };
 }
@@ -143,7 +144,7 @@ export function sourceItemOwner(index: ReferenceIndex, item: SourceItem) {
         throw new Error('SOURCE_ITEM_OWNER_MISSING');
     return found;
 }
-export function sourceSelection(index: ReferenceIndex, work: SourceWorklist, ids: string[]) {
+export function sourceSelection(index: ReferenceIndex, work: SourceWorklist, ids: string[], allowPartialGroups = false) {
     assertSourceWorklist(index, work);
     if (!ids.length || ids.length > 64 || new Set(ids).size !== ids.length)
         throw new Error('SOURCE_BATCH_IDS_INVALID');
@@ -157,12 +158,34 @@ export function sourceSelection(index: ReferenceIndex, work: SourceWorklist, ids
         return item;
     });
     for (const item of selected)
-        if (item.group_id) {
+        if (item.group_id && !allowPartialGroups) {
             const missing = index.items.filter(i => i.group_id === item.group_id && !ids.includes(i.id) && ['pending', 'accepted', 'uncertain', 'unknown'].includes(work.items[i.id]!.status));
             if (missing.length)
                 throw new Error('SOURCE_GROUP_INCOMPLETE: ' + JSON.stringify({ group: item.group_id, include_ids: missing.map(i => i.id), reason: 'Meaningful glyph/shape groups must not be split across visual acceptance batches.' }));
         }
     return selected;
+}
+/** Normalize selected groups in Harness rather than making the model manually
+ * splice pages of dependent glyph IDs. Nothing dispatches unless the complete
+ * normalized set fits the existing whole-Patch schema/budget/permission gate. */
+export function expandSourceIds(index: ReferenceIndex, work: SourceWorklist, requested: string[], limit = 64) {
+    assertSourceWorklist(index, work);
+    if (!requested.length || requested.length > limit || new Set(requested).size !== requested.length)
+        throw new Error('SOURCE_BATCH_IDS_INVALID');
+    const chosen = requested.map(id => {
+        const item = index.items.find(i => i.id === id);
+        if (!item)
+            throw new Error('SOURCE_ITEM_UNKNOWN');
+        if (['committed', 'verified', 'unknown'].includes(work.items[id]!.status))
+            throw new Error('SOURCE_ITEM_NOT_REPLAYABLE: ' + id);
+        return item;
+    });
+    const groups = new Set(chosen.flatMap(i => i.group_id ? [i.group_id] : []));
+    if (index.items.some(i => i.group_id && groups.has(i.group_id) && work.items[i.id]!.status === 'unknown'))
+        throw new Error('SOURCE_ITEM_NOT_REPLAYABLE: unknown group outcome');
+    const ids = [...new Set([...requested, ...index.items.filter(i => i.group_id && groups.has(i.group_id) && ['pending', 'accepted'].includes(work.items[i.id]!.status)).map(i => i.id)])].slice(0, limit);
+    sourceSelection(index, work, ids, true);
+    return ids;
 }
 export function sourceItemOperation(index: ReferenceIndex, item: SourceItem, state: SourceState) {
     const scale = 1000 / index.source.width, point = ([x, y]: number[]) => [Number((x! * scale).toFixed(6)), Number(((index.source.height - y!) * scale).toFixed(6)), 0];
@@ -281,7 +304,7 @@ export function sourceWorklistSummary(index: ReferenceIndex, work: SourceWorklis
     return { source_sha256: index.source.sha256, index_sha256: work.index_sha256, total: index.items.length, counts, all_verified: index.items.length > 0 && index.items.every(i => work.items[i.id]!.status === 'verified'), semantics: 'requires final independent source/CAD comparison', tiles };
 }
 export function sourceWorklistPage(index: ReferenceIndex, work: SourceWorklist, region: number, cursor = 0) {
-    const held = (i: SourceItem) => i.group_id && index.items.some(p => p.group_id === i.group_id && ['uncertain', 'unknown'].includes(work.items[p.id]!.status));
+    const held = (i: SourceItem) => ['uncertain', 'unknown'].includes(work.items[i.id]!.status);
     const rank = (i: SourceItem) => held(i) ? 3 : ['accepted', 'pending', 'committed', 'uncertain', 'unknown'].indexOf(work.items[i.id]!.status);
     const items = index.items.filter(i => sourceItemOwner(index, i) === region && work.items[i.id]!.status !== 'verified').sort((a, b) => rank(a) - rank(b) || a.kind.localeCompare(b.kind) || a.bounds[1] - b.bounds[1] || a.bounds[0] - b.bounds[0]);
     const page = items.slice(cursor, cursor + 32);
@@ -289,7 +312,7 @@ export function sourceWorklistPage(index: ReferenceIndex, work: SourceWorklist, 
     for (const item of page.filter(i => !held(i) && ['accepted', 'pending'].includes(work.items[i.id]!.status))) {
         if (recommended.some(i => i.id === item.id))
             continue;
-        const group = item.group_id ? items.filter(i => i.group_id === item.group_id && ['accepted', 'pending'].includes(work.items[i.id]!.status)) : [item];
+        const group = item.group_id ? items.filter(i => i.group_id === item.group_id && ['accepted', 'pending'].includes(work.items[i.id]!.status)).slice(0, 64 - recommended.length) : [item];
         if (recommended.length + group.length > 64)
             continue;
         if (!recommended.length) {

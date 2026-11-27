@@ -284,3 +284,19 @@ def test_source_refinement_retains_uncovered_decimal_without_inventing_blank_ink
     assert result["annotation_missing_pixels"] == 0
     assert result["geometry_residual_clear"] is True
     assert result["quality_accepted"] is False
+
+
+def test_ocr_box_cutting_connected_source_ink_stays_native_geometry():
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("cv2")
+    ink = np.zeros((40, 80), dtype=np.uint8)
+    label = {"text": "10kΩ", "bounds": [10, 10, 60, 30], "score": 1}
+    ink[15:25, 20:25] = 255
+    assert native_text_candidate(label, ink)
+    # A fraction bar / separator crossing a supposed TEXT boundary cannot be
+    # erased by that OCR rectangle, even if the producer confidence is high.
+    ink[20, 0:70] = 255
+    assert not native_text_candidate(label, ink)
+    ink[20, :] = 0
+    ink[5, :] = 255
+    assert native_text_candidate(label, ink)  # unrelated outside line

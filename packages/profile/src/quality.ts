@@ -46,6 +46,14 @@ export function requiresQuality(task: string) {
 type VisualResult = Awaited<ReturnType<Awaited<ReturnType<typeof createLiveRuntime>>['reviewCadView']>>;
 type VisualCall = { source: 'agent' | 'harness'; observed_state_hash: string; review: VisualResult;adjudication_of?:string };
 
+/** Model context is a projection, not a second copy of immutable pixel/native
+ * evidence. Full snapshots and captured scopes remain in the private manifest. */
+export function visualEvidenceSummary(value:unknown){
+  if(!value||typeof value!=='object')return null;
+  const e=value as Record<string,any>,scope=e.review_scope;
+  return {source:e.source,document:e.document,document_revision:e.document_revision,captured_at:e.captured_at,sha256:e.sha256,width:e.width,height:e.height,reference:e.reference,image_bounds:e.image_bounds,view_request:e.view_request?{world_window:e.view_request.world_window,min_long_edge:e.view_request.min_long_edge}:undefined,review_scope:scope?{id:scope.id,mode:scope.mode,geometry_only:scope.geometry_only,entity_ids:scope.entity_ids,source_sha256:scope.source_sha256,snapshot_hash:scope.snapshot_hash}:undefined,local_details:Array.isArray(e.local_details)?e.local_details.map((d:any)=>({path:d.path,entity_ids:d.entity_ids,sha256:d.evidence?.sha256})):[],full_evidence_sha256:createHash('sha256').update(JSON.stringify(value)).digest('hex'),evidence_scope:'Compact context only; full immutable capture/native evidence retained by Harness. Not a new observation.'};
+}
+
 /** Compact evidence for model steps and status queries. Saved evidence is
  * historical, never a fresh native revision or authority to resume writes. */
 export function qualityTaskContext(saved: { task_id: string; phase: string; original_request: string; round: number;
@@ -62,7 +70,7 @@ export function qualityTaskContext(saved: { task_id: string; phase: string; orig
       ...(saved.failure?[saved.failure.code]:[]),...(clipped?['capture_bounds']:[]),...(saved.visual_error?[saved.visual_error]:[]),...(last&&!last.review_valid?['visual_report_invalid']:[])])],
     failure:saved.failure??null,
     progressive:saved.progressive?{active_region:saved.progressive.active_region,last_tool_error:saved.progressive.last_tool_error??null,source_worklist:saved.progressive.source_worklist?{index_sha256:saved.progressive.source_worklist.index_sha256,counts:Object.values(saved.progressive.source_worklist.items).reduce<Record<string,number>>((a,v)=>(a[v.status]=(a[v.status]??0)+1,a),{}),active_batch:saved.progressive.source_worklist.active_batch?.ids??null}:null,regions:saved.progressive.regions.map(r=>({id:r.id,status:r.status,failure:r.failure,entity_count:r.entity_ids.length,batches:r.batches.length})),resume:'Same original connection, document, source and observed checkpoint only; never replay committed operations.'}:null,
-    last_visual: last ? { review_valid: last.review_valid, result: last.structured, image_evidence: last.evidence, image_ref: last.image_ref } : legacy ? { result: legacy.visual_report, image_evidence: legacy.image_evidence } : null,
+    last_visual: last ? { review_valid: last.review_valid, result: last.structured, image_evidence: visualEvidenceSummary(last.evidence), image_ref: last.image_ref } : legacy ? { result: legacy.visual_report, image_evidence: visualEvidenceSummary(legacy.image_evidence) } : null,
     file_delivery:file?{path:file.path,requested_path:file.requested_path??file.path,sha256:file.sha256,bytes:file.bytes,contract:file.file_contract?.contract??'legacy',status:file.file_verification?.status??'saved_without_readonly_reopen',geometry_scope:file.file_verification?.geometry_scope??null,verification_document_id:file.file_verification?.document.document_id??null,verification:file.file_verification?.verification??'File reopen not evaluated'}:null,
     checks: saved.checks, unmet_conditions: [...saved.checks.filter(c => c.status !== 'pass'),...(saved.failure?[{id:saved.failure.code,status:'not_run' as const,evidence:`Stage: ${saved.failure.stage}`}]:[])],
     verification: {

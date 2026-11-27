@@ -425,3 +425,7 @@ CI db30d89真实失败已确认：基础Python环境未安装可选vision依赖�
 BUG108/109专项17项及typecheck通过（确定性worker/Scheduler，非真实CAD）。首次全量在本机并行Node测试进程中出现Zone Allocation failed/系统内存不足，保留tests-reobservation.txt，未将其当成产品用例失败或通过。测试入口限制4个并发文件，不关闭任何用户AutoCAD/其他进程、不提高内存限额；全量复验结果随后记录。attempt06操作账本只有75 draw_polyline、4 create_layer、1 new_drawing；未观察到移动，相关文档与聊天推断已纠正。
 
 复验：pnpm typecheck通过；pnpm test在4个文件并发下375/375通过；pnpm smoke通过。最后仅将每实体视觉证据缩为本实体检查，避免全批覆盖矩阵在每个实体重复存储；typecheck及17项源读取/覆盖/Scheduler专项再次通过。真实回归仍需新运行，不能以夹具或前一基线局部通过代表整体。
+
+BUG110-112：同一留存真实source两标注新VisionProfile只读探针clear，4次读取、0CAD；两份冲突旧报告继续保留。停止attempt07为175确认/0未知、171实体、62907字节，保护89旧项后建立93项基线。实际R10源提案3502路径/118文字，最大字形组197，源支持3502/3502，预渲染0缺像素/0显著多余分量，均不是CAD验收。新增大组64分批、未知/确认不重放、动态上下文不复制坐标、快照精确身份复用负例。最终离线和真实整图结果随后追加。
+
+本基线最终实际命令：pnpm typecheck通过；pnpm test 379/379通过（4文件并发）；pnpm smoke通过；uv Ruff check/format及pytest 21通过。实际Cader/MCP完整原图仍待attempt08，不把源提案、源码投影节省或独立源读取当作CAD整图通过。

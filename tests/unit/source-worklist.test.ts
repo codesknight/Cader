@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseReferenceIndex, sourceItemView, observedArguments } from '@cader/dsh-adapter';
 import type { ReferenceIndex, SourceItem } from '@cader/dsh-adapter';
-import { createSourceWorklist, assertSourceWorklist, sourceSelection, sourceItemOperation, reconcileSourceBatch, verifySourceItem, sourceWorklistPage, sourceDigest, cadRequestDigest, sourceBatchReviewAccepted,bindSourceReview,verifySourceGraph,sourceGroupReviewScope,sourceBatchSelection,sourceWindowReviewScope,scopedNativeWindowContainsTargets,runIndexedRegions,sourcePrimitiveCoverage } from '@cader/profile';
+import { createSourceWorklist, assertSourceWorklist, sourceSelection, sourceItemOperation, reconcileSourceBatch, verifySourceItem, sourceWorklistPage, sourceDigest, cadRequestDigest, sourceBatchReviewAccepted,bindSourceReview,verifySourceGraph,sourceGroupReviewScope,sourceBatchSelection,sourceWindowReviewScope,scopedNativeWindowContainsTargets,runIndexedRegions,sourcePrimitiveCoverage,expandSourceIds,visualEvidenceSummary,qualityTaskContext,canReuseValidatedObservation } from '@cader/profile';
 const path: SourceItem = { id: 'path_a', kind: 'path', status: 'proposal', bounds: [10, 20, 70, 60], points: [[10, 20], [70, 20], [70, 60]], closed: false, pixel_length: 100, stroke_width: 2 };
 const text: SourceItem = { id: 'text_b', kind: 'text', status: 'proposal', bounds: [25, 70, 55, 80], text: '10kΩ', quad: [[25, 70], [55, 70], [55, 80], [25, 80]], score: .9, alternatives: [] };
 test('full source window uses exact paired pixel edges; primitive passes cannot release full fidelity',()=>{
@@ -20,12 +20,12 @@ test('partial native dispatch includes acknowledged group prefix without replay 
  const v=index();v.items=[{...path,id:'prefix',group_id:'unit'},{...text,id:'suffix',group_id:'unit'}];const w=createSourceWorklist(v,'fixture');w.items.prefix!.status='committed';w.items.prefix!.entity_ids=[1];
  assert.deepEqual(sourceBatchSelection(v.items,w,['prefix']).pending_ids,['suffix']);
  assert.deepEqual(sourceSelection(v,w,['suffix']).map(i=>i.id),['suffix']);w.items.prefix!.status='verified';w.items.suffix!.status='committed';w.items.suffix!.entity_ids=[2];
- const scope=sourceBatchSelection(v.items,w,['suffix']);assert.deepEqual(scope.items.map(i=>i.id),['prefix','suffix']);assert.deepEqual(scope.pending_ids,[]);assert.throws(()=>sourceSelection(v,w,['prefix']),/NOT_REPLAYABLE/);
+ const scope=sourceBatchSelection(v.items,w,['suffix']);assert.deepEqual(scope.items.map(i=>i.id),['suffix']);assert.deepEqual(scope.pending_ids,[]);assert.throws(()=>sourceSelection(v,w,['prefix']),/NOT_REPLAYABLE/);
 });
 test('source review binds actual entity IDs and attached crop coordinates, never offsets from a different view',()=>{
  const v=index(),work=createSourceWorklist(v,'fixture');work.items[path.id]!.entity_ids=[123];
  const scope:any={view:{sourceView:{crop:{left:0,top:10,width:100,height:80}}},binding:{id:'old',targets:[{entity_id:123,source_trace_ids:[]}],entity_ids:[123]}};
- const bound=bindSourceReview(scope,[path],work);assert.deepEqual(bound.binding.targets[0]!.source_trace_ids,[path.id]);assert.deepEqual((bound.binding.source_bindings[0]!.geometry as any).points[0],[.1,.125]);assert.notEqual(bound.binding.id,'old');
+ const bound=bindSourceReview(scope,[path],work);assert.deepEqual(bound.binding.targets[0]!.source_trace_ids,[path.id]);assert.deepEqual((bound.binding.source_bindings[0]!.geometry as any).bounds[0],[.1,.125]);assert.notEqual(bound.binding.id,'old');
  assert.throws(()=>bindSourceReview({...scope,binding:{...scope.binding,targets:[{entity_id:456}]}},[path],work),/ENTITY_BINDING_INVALID/);
  assert.throws(()=>bindSourceReview({...scope,view:{}},[path],work),/CROP_BINDING_REQUIRED/);
 });
@@ -143,4 +143,25 @@ test('Scheduler blocks geometry edits when native source coordinates already mat
  let calls=0;const p:any={document:'owned',source_worklist:w,regions:[{id:'source_tile_0',status:'drawing',failure:null,entity_ids:[1],batches:[],repairs:0}],plan:{regions:[{id:'source_tile_0'}]}};
  await runIndexedRegions({runtime:{executionStop:()=>null} as any,owner:{definitions:()=>[],facts:()=>({operations:[]})} as any,progressive:p,index:v,sourcePath:'fixture',task:'fixture',model:async(_task,request)=>{calls++;await assert.rejects(request!.beforeCadOperation!('mcp__autocad__move_entity',{object_id:1}),/SOURCE_NATIVE_GEOMETRY_MATCHES/);return {} as any;},enter:async()=>{},persist:async()=>{},checkpoint:async()=>{},assertSource:async()=>{},observe:async()=>({entities:[entity],document:'owned',document_revision:null,observed_at:'fixture'}),emit:()=>{},onEvidenceError:()=>{},onVisual:()=>{}});
  assert.equal(calls,3);assert.equal(w.items[path.id]!.status,'committed');assert.equal(p.regions[0].status,'blocked');assert.equal(entity.coordinates[0],100);
+});
+
+test('Harness expands selected source groups across page boundaries without replay or exceeding the batch',()=>{
+ const v=index();v.items=Array.from({length:43},(_,i)=>({...path,id:'glyph_'+i,group_id:'unit',owner_point:[25,50] as [number,number]}));const w=createSourceWorklist(v,'fixture');
+ assert.equal(expandSourceIds(v,w,v.items.slice(0,32).map(i=>i.id)).length,43);assert.equal(expandSourceIds(v,w,['glyph_0'],8).length,8);assert.equal(expandSourceIds(v,w,['glyph_0'],32).length,32);assert.equal(sourceSelection(v,w,expandSourceIds(v,w,['glyph_0'],32),true).length,32);
+ w.items.glyph_0!.status='verified';w.items.glyph_0!.entity_ids=[1];const next=expandSourceIds(v,w,['glyph_1']);assert.equal(next.length,42);assert.ok(!next.includes('glyph_0'));assert.throws(()=>expandSourceIds(v,w,['glyph_0']),/NOT_REPLAYABLE/);w.items.glyph_2!.status='unknown';assert.throws(()=>expandSourceIds(v,w,['glyph_1']),/NOT_REPLAYABLE/);
+});
+test('dynamic task context keeps image identity/uncertainty but not repeated native coordinate blobs',()=>{
+ const evidence:any={source:'fixture',sha256:'image',document:'owned',reference:{sha256:'source'},image_bounds:{possible_clipping:true},review_scope:{id:'scope',mode:'affected-batch',geometry_only:true,entity_ids:[1],source_sha256:'source',snapshot_hash:'state',targets:[{coordinates:'NATIVE_PRIVATE_BLOB'.repeat(10000)}]},local_details:[{path:'fixture.png',entity_ids:[1],evidence:{sha256:'detail',geometry:'PRIVATE_DETAIL_BLOB'.repeat(10000)}}]};const saved:any={task_id:'fixture',phase:'drawing',original_request:'fixture',round:0,checks:[],visual_calls:[{review:{review_valid:true,image_ref:'view',evidence,structured:{verdict:'uncertain'}}}]};
+ const old=JSON.stringify(saved),context=qualityTaskContext(saved),raw=JSON.stringify(context);assert.ok(raw.length<5000);assert.doesNotMatch(raw,/NATIVE_PRIVATE_BLOB|PRIVATE_DETAIL_BLOB/);assert.equal(JSON.stringify(saved),old);assert.equal(context.last_visual!.image_evidence!.sha256,'image');assert.ok(context.pending_reasons.includes('capture_bounds'));assert.equal(visualEvidenceSummary(evidence)!.full_evidence_sha256,sourceDigest(evidence));
+});
+
+test('oversized source groups produce bounded pending chunks, never a false completed group',()=>{
+ const v=index();v.items=Array.from({length:197},(_,i)=>({...path,id:'large_'+i,group_id:'unit',owner_point:[25,50] as [number,number]}));const w=createSourceWorklist(v,'fixture');const first=sourceWorklistPage(v,w,0).recommended_ids;assert.equal(first.length,64);assert.equal(expandSourceIds(v,w,first).length,64);for(const id of first)w.items[id]!.status='verified';assert.equal(sourceWorklistPage(v,w,0).summary.all_verified,false);const second=sourceWorklistPage(v,w,0).recommended_ids;assert.equal(second.length,64);assert.ok(second.every(id=>!first.includes(id)));assert.equal(sourceSelection(v,w,second,true).length,64);
+});
+
+test('checkpoint observation reuse requires the exact validated object and unchanged write/connection/native identity',()=>{
+ const snapshot={document:'owned',entities:[]},token={snapshot,mark:4,connection:'conn',target:'native'},current={frozen:false,mark:4,connection:'conn',target:'native',document:'owned'};
+ assert.equal(canReuseValidatedObservation(token,snapshot,current),true);
+ for(const changed of [{...current,mark:5},{...current,connection:'other'},{...current,target:'other'},{...current,document:'foreign'},{...current,frozen:true}])assert.equal(canReuseValidatedObservation(token,snapshot,changed),false);
+ assert.equal(canReuseValidatedObservation(token,{...snapshot},current),false);assert.equal(canReuseValidatedObservation(null,snapshot,current),false);assert.equal(canReuseValidatedObservation(token,undefined,current),false);
 });

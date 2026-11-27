@@ -16,7 +16,7 @@ for(const scenario of ['spacing','target-correction','real-conflict'] as const)t
  const index={source:{sha256:createHash('sha256').update(image.data).digest('hex'),width:image.width,height:image.height}} as ReferenceIndex;
  let calls=0;const crops:any[]=[];
  const run=async(_profile:string,_instruction:string,request:any)=>{
-  calls++;crops.push(request.imageView.crop);
+  calls++;crops.push(request.imageView.crop);if(calls>=3){assert.equal(request.skill,undefined);assert.deepEqual(request.onlyTools,['cader_submit_indexed_source_review']);assert.doesNotMatch(_instruction,/coordinate_system|normalized-BASE|bounds|40kA 3S 100kA/);}
   const texts=scenario==='spacing'?['40kA  3S']:scenario==='target-correction'?['40kA 3S 100kA','40kA 3S','40kA  3S','40kA 3S']:['40KA 3S','40kA 3S','40KA 3S','40kA 3S'];
   await request.extraTools[0].execute({items:[{id:'label',status:'clear',text:texts[calls-1],rotation:0,evidence:'Deterministic source fixture',semantic_pending:true}]},{concludeTurn(){}});
   return {id:'fixture-'+calls,status:'succeeded'} as any;
