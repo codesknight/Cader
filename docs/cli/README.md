@@ -9,6 +9,9 @@
 
 Scoped source workers submit positions in BASE, DETAIL_n or a returned LOOKUP_n image, using that image own normalized 0..1 coordinates. Harness owns the transforms; original dimensions and crop origins are withheld from these workers. Their crop tool also uses BASE normalized coordinates; global image viewing keeps its original-pixel interface. Crop slots cannot be rebound or expand the source scope. Dense unexecuted regions can refine within bounded depth, area and region-count limits; verified batches and whole-drawing acceptance remain distinct.
 
+
+Region uncertainty and boundary-net reviews expose the same bounded high-resolution crop entry (at most two views per stage). Anchor locations are converted to BASE by Harness. A draft-text geometry failure reports actual native bounding boxes and the admitted source bounds; visual readability alone cannot override misplaced text.
+
 ## dev.15: Request recovery and target checks
 
 DSH retries a failed open model request at most twice for TRANSPORT/TIMEOUT/SERVER/RATE_LIMIT/EMPTY_RESPONSE. It preserves confirmed tool history, discards failed-stream tool calls and accumulates task time/tokens. QUOTA/auth failures are not retried. Exhaustion pauses the task with preserved progress instead of treating a provider failure as an unreadable region. geometry_only reports require per-target checks. Independent source/vision workers can read role-authorized registered skills; permissions are unchanged.

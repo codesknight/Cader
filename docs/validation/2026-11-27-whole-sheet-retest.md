@@ -56,3 +56,5 @@ BUG103在独立MCP9f4cfb0修复，复用原生DISPID和有界只读重试，Open
 新全程回归入口仍使用原始请求、真实模型自主区域/绘图、生产InteractiveSession和独立MCP；没有人工几何序列或源清点oracle。最终验收由后续实测结论补记。
 
 dev.16实际离线命令pnpm typecheck、pnpm test（353/353）、pnpm smoke均通过，Skill quick_validate通过。新增实际DSH视图/裁图/非法ref反例为确定性模型＋合成宽图夹具，0CAD；与真实源诊断及真实整图结果严格区分。
+
+REQ-052补BUG104/105：文字失败附原生bbox与可信源范围；区域疑问/边界net复核补受控高清入口、BASE转换和阶段资源。typecheck、356/356 tests、DSH component smoke通过。当前attempt03仍使用启动时bab3e49内存基线，不能将本次补修离线通过冒充已做新的完整CAD复验；独立原生/模型实证另记。

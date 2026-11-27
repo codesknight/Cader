@@ -42,6 +42,7 @@ export function verifyDraftGeometry(traces:DraftCadTrace[],entities:Record<strin
     const pass=t.kind==='path'?segments(t).every(([p,q])=>entities.some(e=>e.type==='AcDbLine'&&Array.isArray(e.start_point)&&Array.isArray(e.end_point)&&(near(p!,e.start_point)&&near(q!,e.end_point)||near(q!,e.start_point)&&near(p!,e.end_point)))):
       t.kind==='circle'?entities.some(e=>e.type==='AcDbCircle'&&Array.isArray(e.center)&&near(t.center,e.center)&&Math.abs(t.radius-e.radius)<=0.015):
       entities.some(e=>typeof e.text_string==='string'&&literal(e.text_string)===literal(t.text)&&e.bounding_box&&e.bounding_box.min[0]>=t.bounds[0][0]-2&&e.bounding_box.min[1]>=t.bounds[0][1]-2&&e.bounding_box.max[0]<=t.bounds[1][0]+2&&e.bounding_box.max[1]<=t.bounds[1][1]+2);
-    return {id:'draft_'+t.id,status:pass?'pass':'fail',evidence:'Actual native geometry/literal text against two independent source observations; partial only'};
+    const textCandidates=t.kind==='text'?entities.filter(e=>typeof e.text_string==='string'&&literal(e.text_string)===literal(t.text)).map(e=>({object_id:e.object_id,text_string:e.text_string,bounding_box:e.bounding_box,height:e.height,insertion_point:e.insertion_point})).slice(0,8):undefined;
+    return {id:'draft_'+t.id,status:pass?'pass':'fail',evidence:!pass&&t.kind==='text'?JSON.stringify({reason:'LITERAL_TEXT_MISSING_OR_OUTSIDE_VERIFIED_BOUNDS',expected:t,allowed_bounds_tolerance:2,actual_literal_matches:textCandidates}):'Actual native geometry/literal text against two independent source observations; partial only'};
   });
 }

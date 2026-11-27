@@ -73,3 +73,9 @@ test('actual DSH source inventory declares detail IDs and stores canonical label
   close(report.structured!.visible_text[0]!.bounds[0][0],(d.crop.left+0.25*d.crop.width)/6400);close(report.structured!.visible_text[0]!.bounds[0][1],0.2);assert.ok(!('view_ref' in report.structured!.visible_text[0]!));assert.ok(events.some(e=>e.type==='tool.result'&&e.isError));assert.ok(!events.some(e=>e.type==='tool.dispatch'&&String(e.tool).startsWith('mcp__')));
  }finally{await runtime.dispose();assert.ok(dir.startsWith(parent+sep));await rm(dir,{recursive:true});}
 });
+
+
+test('boundary anchor positions map to BASE without changing connectivity or IDs',()=>{
+ const anchor={id:'join',position:[0.5,0.5],regions:['left','right'],relation:'connected'};
+ const local=sourceCoordinates(anchor,[[0.25,0.25],[0.75,1]],'to-crop');close(local.position[0]!,0.5);close(local.position[1]!,1/3);assert.deepEqual(local.regions,anchor.regions);assert.deepEqual(anchor.position,[0.5,0.5]);assert.deepEqual(sourceCoordinates(local,[[0.25,0.25],[0.75,1]],'to-source'),anchor);
+});

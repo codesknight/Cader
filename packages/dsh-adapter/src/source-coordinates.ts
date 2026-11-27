@@ -30,7 +30,7 @@ export function sourceCoordinates<T>(value:T,bounds:Box,direction:'to-source'|'t
   const visit=(v:any,key=''):any=>{
     if(Array.isArray(v)){
       if(['bounds','content_bounds','terminals','points'].includes(key))return v.map(point);
-      if(key==='center')return point(v);
+      if(key==='center'||key==='position')return point(v);
       return v.map(x=>visit(x));
     }
     if(v&&typeof v==='object')return Object.fromEntries(Object.entries(v).map(([k,x])=>[k,k==='coordinate_system'?(direction==='to-source'?'normalized-image-top-left-y-down':'normalized-crop-top-left-y-down'):k==='radius'&&typeof x==='number'?(direction==='to-source'?x*(bounds[1][0]-bounds[0][0]):x/(bounds[1][0]-bounds[0][0])):visit(x,k)]));

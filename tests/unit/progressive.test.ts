@@ -58,7 +58,7 @@ test('batch checks reject out-of-region effects and duplicate geometry independe
   assert.deepEqual(context.pending_reasons,['SOURCE_COMPONENT_INVENTORY_FAILED']);
 });
 // Scheduler fixture, not model or native AutoCAD evidence.
-async function fixture(extra:{badBatch?:boolean;pause?:boolean;partial?:boolean;taskReport?:boolean;sharedLayerCase?:boolean;readOnlySlices?:number;scopeReconcile?:boolean;alwaysVisualFailure?:boolean;uncertain?:boolean;taskText?:string;priorNative?:boolean;providerFailure?:string;reviewProviderFailure?:string;providerRecovered?:boolean;denseLimit?:boolean}={}){
+async function fixture(extra:{badBatch?:boolean;pause?:boolean;partial?:boolean;taskReport?:boolean;sharedLayerCase?:boolean;readOnlySlices?:number;scopeReconcile?:boolean;alwaysVisualFailure?:boolean;uncertain?:boolean;taskText?:string;priorNative?:boolean;providerFailure?:string;reviewProviderFailure?:string;providerRecovered?:boolean;denseLimit?:boolean;uncertaintyReview?:boolean}={}){
   const requestTask=extra.taskText??task;let factories=0;
   let scratch:string|null=null,grant=false,draws=0,views=0,inspections=0,saved:any,paused=false,bad=extra.badBatch;
   const entities:Record<string,any>[]=[];const operations:any[]=[];const states:any[]=[];const events:any[]=[];
@@ -70,11 +70,12 @@ async function fixture(extra:{badBatch?:boolean;pause?:boolean;partial?:boolean;
   const facts=()=>({frozen:false,transport:'connected',local_connection_id:'fixture-connection',scratch,operations,session_counts:{committed:operations.length,unknown:0}});
   const owner={workspace:process.cwd(),facts,taskScope:scope,endTask(){grant=false;},async authorizeTask(){grant=true;return true;},async refineTaskPlan(){},async saveTaskArtifact(){return {path:'fixture-only-not-a-real-DWG',bytes:0,sha256:'fixture-only'};},async snapshot(){return {document:scratch,entities:structuredClone(entities)};},definitions(){return ['new_drawing','draw_circle','move_entity','delete_entity'].map(n=>({name:'mcp__autocad__'+n}));}};
   const runtime={visionProfileId:'VisionAgent',setVerificationScope(){},enableTaskBudget(){},dispose:async()=>{},completed:()=>extra.providerFailure||extra.reviewProviderFailure?[{id:'provider-failed-evidence',status:'failed',errorCode:extra.providerFailure??extra.reviewProviderFailure,recovered_by:extra.providerRecovered?'successful-source-replacement':undefined}]:extra.taskReport?[{id:'fixture-old-failed-stage',profile:'MainAgent',status:'failed',text:'',tools:[],errorCode:'OUTPUT_TRUNCATED'},{id:'fixture-final-stage',profile:'MainAgent',status:'succeeded',text:'fixture',tools:[]}]:[],reviewStats:()=>({capture_attempts:views,model_calls:views}),budgetState:()=>({}),
-    async inspectReference(){inspections++;if(extra.denseLimit)throw new Error('SOURCE_LABEL_INVENTORY_LIMIT: synthetic dense source fixture');return {attempts:extra.providerFailure?[{id:'provider-failed-evidence',status:'failed',valid:false}]:[],valid:false,structured:null,evidence:{path:'benchmark/fixtures/vision-calibration.png',sha256:sourceHash,width:pixels.width,height:pixels.height}};},
+    async inspectReference(){inspections++;if(extra.uncertaintyReview)return {attempts:[],valid:true,structured:{version:1,drawing_kind:'layout',summary:'synthetic scope fixture',content_bounds:[[0,0],[1,1]],objects:[],visible_text:[],connections:[],unknowns:['Physical scale not requested']},evidence:{path:'benchmark/fixtures/vision-calibration.png',sha256:sourceHash,width:pixels.width,height:pixels.height}};if(extra.denseLimit)throw new Error('SOURCE_LABEL_INVENTORY_LIMIT: synthetic dense source fixture');return {attempts:extra.providerFailure?[{id:'provider-failed-evidence',status:'failed',valid:false}]:[],valid:false,structured:null,evidence:{path:'benchmark/fixtures/vision-calibration.png',sha256:sourceHash,width:pixels.width,height:pixels.height}};},
     async inspectProgressiveDraft(_path:string,region:any){return {valid:true,coverage:'partial',scope:region,source_sha256:sourceHash,agreements:[{trace:{id:'known_circle',kind:'circle',certainty:'clear',evidence:'fixture only',center:[(region.bounds[0][0]+region.bounds[1][0])/2,0.5],radius:0.01},independent_id:'fixture-second-read'}]};},
     async run(_profile:string,_text:string,req:any){
       const tool=req.extraTools?.[0];const exec={concludeTurn(){}};
       if(tool?.name==='cader_submit_progressive_plan')await tool.execute(overview,exec);
+      else if(tool?.name==='cader_review_region_uncertainties'){const region=saved.progressive.plan.regions.find((r:any)=>r.id===saved.progressive.active_region);assert.deepEqual(req.observationFrame,region.bounds);assert.equal(req.observationViewAware,true);assert.equal(req.maxImageViews,2);assert.ok(req.onlyTools.includes('cader_view_image'));assert.equal(req.skillResource,'source-observation');assert.ok(!_text.includes('base_crop_original_pixels'));await tool.execute({items:[{index:0,disposition:'out_of_request',feature:'physical_scale',anchor_ids:[],evidence:'Synthetic task does not request a physical scale'}]},exec);}
       else if(tool?.name==='cader_split_progressive_region'){const r=saved.progressive.plan.regions.find((r:any)=>r.id===saved.progressive.active_region);await tool.execute({axis:0,position:(r.bounds[0][0]+r.bounds[1][0])/2,descriptions:['first fixture subset','second fixture subset'],anchors:[]},exec);}
       else if(tool?.name==='cader_submit_acceptance_plan')await tool.execute({version:1,domain:'generic',components:[],visual_required:true,requirements:[{id:'visual',source_quote:requestTask,description:'Current part',check:'visual'},{id:'count',source_quote:requestTask,description:'One circle',check:'entity_count',entity_type:'AcDbCircle',min:1}]},exec);
       else if(req.onlyTools?.some((n:string)=>n.endsWith('__new_drawing'))){scratch='fixture.dwg';operations.push({operation_id:'new',outcome:'committed'});}
@@ -193,4 +194,18 @@ test('short source workflow does not turn provider transport failure into a prog
 
 test('dense label overflow refines bounded high-resolution scopes rather than blocking at the coarse depth or accepting a partial',async()=>{
  const f=await fixture({partial:true,denseLimit:true});assert.equal(f.draws(),0);assert.equal(f.result.quality_accepted,false);assert.equal(f.result.progressive?.regions.length,32);assert.equal(f.inspections(),62);assert.equal(f.events.filter(e=>e.type==='task.region_split').length,30);assert.ok(f.result.progressive!.regions.every(r=>r.status==='blocked'&&r.failure!.includes('SOURCE_LABEL_INVENTORY_LIMIT')));
+});
+
+
+test('draft text repair feedback exposes actual native bounds without weakening literal or geometry checks',()=>{
+ const trace={id:'label',kind:'text' as const,text:'TEST',bounds:[[10,10],[20,15]] as [[number,number],[number,number]],max_text_height:3};
+ const entity={object_id:71,type:'AcDbText',text_string:'TEST',bounding_box:{min:[7,10,0],max:[19,14,0]}};
+ const failed=verifyDraftGeometry([trace],[entity])[0]!;assert.equal(failed.status,'fail');const evidence=JSON.parse(failed.evidence);assert.equal(evidence.reason,'LITERAL_TEXT_MISSING_OR_OUTSIDE_VERIFIED_BOUNDS');assert.deepEqual(evidence.expected.bounds,trace.bounds);assert.deepEqual(evidence.actual_literal_matches[0].bounding_box,entity.bounding_box);
+ assert.equal(verifyDraftGeometry([trace],[{...entity,bounding_box:{min:[9,10,0],max:[21,14,0]}}])[0]!.status,'pass');
+ assert.equal(verifyDraftGeometry([trace],[{...entity,text_string:'test'}])[0]!.status,'fail');
+});
+
+
+test('Scheduler uncertainty review exposes bounded source crop inspection without bypassing acceptance',async()=>{
+ const f=await fixture({partial:true,uncertaintyReview:true});assert.equal(f.inspections(),2);assert.equal(f.result.quality_accepted,true);assert.ok(f.result.progressive!.regions.every(r=>r.uncertainty_review?.[0]?.feature==='physical_scale'));
 });
