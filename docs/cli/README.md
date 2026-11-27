@@ -13,6 +13,8 @@ The Agent chooses region order and stable source IDs. Harness compiles coordinat
 
 Indexed construction returns compact acknowledgements for direct CAD writes as well as source batches. Full native postflight remains in the execution audit and independent verifier; creating a layer does not copy the entire drawing into model history. Explicit entity queries retain their native results. This changes context projection, not verification or permission checks.
 
+Read-only closeups share a fresh native snapshot before and after the bounded observation group. Full-source windows are reviewed in groups of at most eight, with every window still required. Observations cannot accept an item or region before the fresh post-query; changed geometry, local writes, connection/target changes, frozen state or failed readback prevent acceptance. Native COM revision remains unsupported; this is guarded snapshot comparison, not an authoritative revision counter.
+
 ## dev.16: named source views
 
 Scoped source workers submit positions in BASE, DETAIL_n or a returned LOOKUP_n image, using that image own normalized 0..1 coordinates. Harness owns the transforms; original dimensions and crop origins are withheld from these workers. Their crop tool also uses BASE normalized coordinates; global image viewing keeps its original-pixel interface. Crop slots cannot be rebound or expand the source scope. Dense unexecuted regions can refine within bounded depth, area and region-count limits; verified batches and whole-drawing acceptance remain distinct.

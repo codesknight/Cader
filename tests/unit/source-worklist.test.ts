@@ -128,6 +128,8 @@ test('per-target visual re-observation combines real rows only; one close-up can
  const entities=[{object_id:1,type:'AcDbPolyline'},{object_id:2,type:'AcDbText',text_string:'A'}];
  const report=(ids:number[],failed:number[]=[])=>({review_valid:true,structured:{verdict:failed.length?'fail':'pass',checklist:[{requirement_id:'indexed_batch_fidelity',status:failed.length?'fail':'pass'}]},evidence:{reference:{sha256:'source'},document:'owned',review_scope:{id:'scope'+ids.join('-'),entity_ids:ids,geometry_only:true,source_sha256:'source',snapshot_hash:'state'}},scope_report:{scope_id:'scope'+ids.join('-'),checked_entity_ids:ids,geometry_checks:ids.flatMap(id=>[{entity_id:id,check:'primitive_visibility',status:failed.includes(id)?'uncertain':'pass'},...id===2?[{entity_id:id,check:'text_readability',status:'pass'}]:[]])}});
  const broad=report([1,2],[2]),close=report([2]);
+ const pending=sourcePrimitiveCoverage([broad,close],entities,'source','owned','state');
+ assert.equal(pending.observed_targets_complete,true);assert.equal(pending.pending_native_confirmation,true);assert.equal(pending.complete,false,'observations cannot accept without fresh native post-query');
  assert.equal(sourcePrimitiveCoverage([broad],entities,'source','owned','state','state').complete,false);
  assert.equal(sourcePrimitiveCoverage([close],entities,'source','owned','state','state').complete,false);
  assert.equal(sourcePrimitiveCoverage([broad,close],entities,'source','owned','state','state').complete,true);

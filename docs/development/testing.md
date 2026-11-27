@@ -434,3 +434,6 @@ BUG113：真实Vision在同一留存真实AutoCAD截图上，原source-compariso
 
 
 2026-11-28 BUG114 / #20：pnpm typecheck、pnpm test（381/381）、pnpm smoke（真实DSH组件，非API/CAD）通过。新增索引直接图层写回执440KB进入provider消息的反例，确认精简后仍先执行独立回调、保留操作关联，显式查询不受影响。同一748实体真实留存postflight的DSH组件对照473987→47316消息字符，减少90.02%，无新CAD/API调用、quality=false。attempt09原始图新鲜真实执行到885确认/0未知后为应用新修复而安全保全874实体待验稿；不修改原quality或算完整验收。原97份保护hash相同，新基线103份。新版完整模型＋AutoCAD整图回归结果随后补记。
+
+
+2026-11-28 BUG115 / #20：pnpm typecheck、pnpm test（393/393）、pnpm smoke（DSH组件、非API/CAD）通过。新增有界只读观察集成夹具：17源窗口全部评审、6次新鲜Native全读、3检查点；每组post-read之前零区域晋级。末次Native变化/失败、视觉取消、写入/断连/换图/换原生目标/frozen全为负例；无after hash的观察恒不能complete；无源对象的图层后钩子不重复Executor已有全读。7目标的3次补拍在2次全读之间完成，末次变化时所有源项保持committed。真实attempt10仅保全待验稿：557确认/0未知、547实体139527字节；旧103项hash相同，扩展109，quality未改写。
