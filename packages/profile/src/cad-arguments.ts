@@ -1,5 +1,12 @@
 import type {QualityPlan} from '@cader/config';
 import type {ToolDefinition} from '@cader/dsh-adapter';
+import {createHash} from 'node:crypto';
+
+/** Exact submitted payload binding, separate from default-normalized duplicate detection. */
+export function cadRequestDigest(tool:string,args:unknown):string{
+  const ordered=(v:any):any=>Array.isArray(v)?v.map(ordered):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,ordered(v[k])])):v;
+  return createHash('sha256').update(JSON.stringify([tool.split('__').at(-1),ordered(args)])).digest('hex');
+}
 
 /** Advertise the same point contract already enforced before native dispatch.
  * Preserve the server schema and its references; never silently invent Z. */
@@ -48,7 +55,13 @@ export function validateCadArguments(tool: string, args: Record<string, unknown>
   }
   if (tool === 'draw_line' && ['x','y','z'].every(axis => args[`start_${axis}`] !== undefined && args[`start_${axis}`] === args[`end_${axis}`]))
     throw new Error('CAD_ZERO_LENGTH_LINE');
-  for (const key of ['radius', 'height', 'scale_factor']) {
+  for (const key of ['radius', 'height', 'scale_factor','width_factor']) {
     if (key in args && (typeof args[key] !== 'number' || (args[key] as number) <= 0)) throw new Error('CAD_POSITIVE_VALUE_REQUIRED');
+  }
+  if(tool==='draw_polyline'&&args.width!==undefined&&(typeof args.width!=='number'||args.width<0))throw new Error('CAD_POLYLINE_WIDTH_INVALID');
+  if(tool==='draw_text'&&args.fit_box!==undefined&&args.fit_box!==null){
+    const box=args.fit_box as number[];
+    if(!Array.isArray(box)||box.length!==4||!box.every(v=>typeof v==='number'&&Number.isFinite(v))||box[0]!>=box[2]!||box[1]!>=box[3]!)throw new Error('CAD_TEXT_FIT_BOX_INVALID');
+    const rotation=Number(args.rotation??0);if(!Number.isFinite(rotation)||Math.abs(rotation/90-Math.round(rotation/90))>1e-8)throw new Error('CAD_TEXT_FIT_REQUIRES_ORTHOGONAL_ROTATION');
   }
 }

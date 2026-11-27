@@ -44,7 +44,7 @@ export function parseNativeBinding(value:unknown,expected:{instance_id:string;do
   return structuredClone(b);
 }
 export function observedArguments(name:string,p:Record<string,unknown>):{operation:string;arguments:Record<string,unknown>}|undefined{
-  const fields:Record<string,string[]>={new_drawing:['request_id'],draw_line:['start_x','start_y','start_z','end_x','end_y','end_z','layer'],draw_circle:['center_x','center_y','center_z','radius','layer'],draw_text:['position_x','position_y','position_z','text','height','layer','rotation'],move_entity:['object_id','offset_x','offset_y','offset_z'],delete_entity:['object_id'],get_entity:['object_id'],save_drawing:['file_path','overwrite'],query_entities:['entity_type'],export_current_view:['file_path','request_id','world_window','min_long_edge']};
+  const fields:Record<string,string[]>={new_drawing:['request_id'],draw_line:['start_x','start_y','start_z','end_x','end_y','end_z','layer'],draw_circle:['center_x','center_y','center_z','radius','layer'],draw_text:['position_x','position_y','position_z','text','height','layer','rotation','width_factor','fit_box'],draw_polyline:['points','closed','layer','width'],move_entity:['object_id','offset_x','offset_y','offset_z'],delete_entity:['object_id'],get_entity:['object_id'],save_drawing:['file_path','overwrite'],query_entities:['entity_type'],export_current_view:['file_path','request_id','world_window','min_long_edge']};
   if(fields[name]&&Object.keys(p).some(key=>!fields[name]!.includes(key)))throw new ToolArgumentsError(name,[{path:'/',keyword:'mapping',message:'Argument has no observed-operation mapping; no request sent'}]);
   const point=(prefix:string)=>['x','y','z'].map(axis=>p[`${prefix}_${axis}`]);
   const layer=p.layer?{layer:p.layer}:{};
@@ -52,7 +52,8 @@ export function observedArguments(name:string,p:Record<string,unknown>):{operati
     case 'new_drawing':return {operation:'new_document',arguments:{}};
     case 'draw_line':return {operation:name,arguments:{start:point('start'),end:point('end'),...layer}};
     case 'draw_circle':return {operation:name,arguments:{center:point('center'),radius:p.radius,...layer}};
-    case 'draw_text':return {operation:name,arguments:{position:point('position'),text:p.text,height:p.height,rotation:p.rotation??0,...layer}};
+    case 'draw_text':return {operation:name,arguments:{position:point('position'),text:p.text,height:p.height,rotation:p.rotation??0,...(p.width_factor!==undefined?{width_factor:p.width_factor}:{}),...(p.fit_box!==undefined?{fit_box:p.fit_box}:{}),...layer}};
+    case 'draw_polyline':return {operation:name,arguments:{points:p.points,closed:p.closed??false,...(p.width!==undefined?{width:p.width}:{}),...layer}};
     case 'move_entity':return {operation:name,arguments:{object_id:p.object_id,offset:point('offset')}};
     case 'delete_entity':case 'get_entity':return {operation:name,arguments:{object_id:p.object_id}};
     case 'save_drawing':return {operation:name,arguments:{file_path:p.file_path,overwrite:p.overwrite??false}};
@@ -73,7 +74,7 @@ export function parseExecutionEnvelope(value:unknown,request:ObservedRequest,isE
   if(r.stage==='completed'&&(r.status!=='succeeded'||r.observation!=='succeeded'||!r.affected_entities.complete||!r.result_document_id||!reading&&!ack||r.error!==null||isError))throw new EvidenceProtocolError('MCP_COMPLETION_CONTRADICTION');
   if(r.stage==='observation_failed'&&(r.status!=='failed'||r.observation!=='failed'||!reading&&!ack))throw new EvidenceProtocolError('MCP_OBSERVATION_CONTRADICTION');
   if(r.stage==='result_unknown'&&(r.status!=='failed'||!invoked||ack))throw new EvidenceProtocolError('MCP_UNKNOWN_CONTRADICTION');
-  const effectKey=['draw_line','draw_circle','draw_text'].includes(request.operation)?'created':request.operation==='move_entity'?'modified':request.operation==='delete_entity'?'deleted':null;
+  const effectKey=['draw_line','draw_circle','draw_text','draw_polyline'].includes(request.operation)?'created':request.operation==='move_entity'?'modified':request.operation==='delete_entity'?'deleted':null;
   for(const key of ['created','modified','deleted'] as const){
     const affected=r.affected_entities[key];
     if(key!==effectKey&&affected.length||key===effectKey&&(affected.length>1||r.stage==='completed'&&affected.length!==1))throw new EvidenceProtocolError('MCP_AFFECTED_ENTITY_MISMATCH');
@@ -89,7 +90,7 @@ export function receiptOutcome(r:ExecutionReceipt):'failed_before_dispatch'|'com
   return 'unknown';
 }
 export function legacyObservedResult(name:string,value:unknown,receipt:ExecutionReceipt):unknown{
-  if(['draw_line','draw_circle','draw_text'].includes(name)){
+  if(['draw_line','draw_circle','draw_text','draw_polyline'].includes(name)){
     const n=Number(value);if(typeof value!=='number'||!Number.isSafeInteger(n)||n<=0||!receipt.affected_entities.created.includes(String(value)))throw new EvidenceProtocolError('MCP_CREATED_ENTITY_MISMATCH');
     return `${name} ok, object_id=${n}`;
   }

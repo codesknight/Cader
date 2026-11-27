@@ -6,6 +6,20 @@ import {createHash} from 'node:crypto';
 import {loadConfig,readReferenceImage} from '@cader/config';
 import {createLiveRuntime,defineTool,ExecutionBudget} from '@cader/dsh-adapter';
 import type {StreamChunk,PublicEvent} from '@cader/dsh-adapter';
+
+test('source-ID alias uses original Patch admission and queues IDs for fresh compilation instead of replaying compiled leaves',async()=>{
+ const config=await loadConfig(process.cwd());process.env.CADER_INDEXED_FIXTURE='offline-fixture';config.profiles=config.profiles.map(p=>({...p,api_key_env:'CADER_INDEXED_FIXTURE'}));config.runtime={...config.runtime,max_tool_calls:8,validation_tool_reserve:1,max_cad_operations_per_round:4,max_task_tool_calls:40,max_cad_operations:30};
+ const writes:number[]=[],compilations:string[][]=[],events:PublicEvent[]=[];let step=0,settled=0;
+ const tool=defineTool({name:'mcp__autocad__draw_circle',description:'Fixture only',parameters:{radius:{type:'number',required:true}},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args){assert.ok(!writes.includes(args.radius));writes.push(args.radius);return 'fixture native ACK';}});
+ const runtime=await createLiveRuntime({...config,root:process.cwd(),runDirectory:resolve('.cader/tests/indexed-source-budget'),executionTools:[tool],onEvent:e=>events.push(e)});
+ runtime.ctx.on('llm/stream',async function*():AsyncGenerator<StreamChunk>{step++;if(step<=2){yield* call('cader_apply_source_batch',{ids:(step===1?[1,2,3]:[4,5,6]).map(String)},step);return;}yield {type:'block-start',index:0,blockType:'text'};yield {type:'text-delta',index:0,text:'Fixture complete, independent acceptance remains'};yield {type:'block-end',index:0,block:{type:'text',text:'Fixture complete'}};yield {type:'finish',reason:{kind:'stop'}};});
+ const request={harnessTask:true,onlyTools:[tool.name,'cader_apply_cad_patch'],sourceBatch:{async compile(ids:string[]){compilations.push(ids);assert.ok(ids.every(id=>!writes.includes(Number(id))));return {operations:ids.map(id=>({tool:tool.name,arguments:{radius:Number(id)}}))};},async settled(){settled++;}}};
+ try{
+  const first=await runtime.run('MainAgent','Fixture only',request);assert.equal(first.handoff?.code,'EXECUTION_ROUND_EXHAUSTED');assert.deepEqual(writes,[1,2,3]);
+  assert.equal(runtime.budgetState().pending[0]!.tool,'cader_apply_source_batch');assert.deepEqual(runtime.budgetState().pending[0]!.arguments,{ids:['4','5','6']});
+  const next=await runtime.run('MainAgent','Continue fixture',{...request,continuePending:true});assert.equal(next.status,'succeeded');assert.deepEqual(writes,[1,2,3,4,5,6]);assert.equal(compilations.length,3);assert.equal(settled,3);assert.equal(events.filter(e=>e.type==='budget.continue_dispatch').length,1);
+ }finally{await runtime.dispose();}
+});
 async function* call(name:string,args:unknown,index?:number):AsyncGenerator<StreamChunk>{
   const id=('progressive-fixture-call'+(index??'')) as Extract<StreamChunk,{type:'tool-call-delta'}>['id'],argumentsText=JSON.stringify(args);
   yield {type:'block-start',index:0,blockType:'tool-call'};

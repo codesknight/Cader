@@ -33,6 +33,9 @@ import { assertToolArguments, patchArgumentsSchema } from './tool-validation.js'
 import {inspectProgressiveDraft} from './progressive-evidence.js';
 import {sourceCoordinates,sourceRegionView,clipSourceView,sourceAspectViews} from './source-coordinates.js';
 import {sourceViewContract} from './source-view-contract.js';
+import {indexReferenceSource,compareSourceNative} from './reference-index.js';
+import type {ReferenceIndex,SourceItem} from './reference-index.js';
+import {reviewIndexedSource} from './reference-review.js';
 
 export interface PublicEvent { type: string; agentId?: string; role?: string; [key: string]: unknown }
 export interface AgentResult {
@@ -72,7 +75,7 @@ export async function createLiveRuntime(options: LiveOptions) {
   const sourceReviewLimit=2+1+2+1+Math.ceil(32/4)+32+2;
   let verificationScope='task';
   const scopeSourceCounts=new Map<string,number>(),scopeVisualCounts=new Map<string,number>();
-  const setVerificationScope=(id:string)=>{if(!scopeSourceCounts.has(id)&&scopeSourceCounts.size>=256)throw new Error('VERIFICATION_SCOPE_LIMIT');verificationScope=id;scopeSourceCounts.set(id,scopeSourceCounts.get(id)??0);};
+  const setVerificationScope=(id:string)=>{if(!scopeSourceCounts.has(id)&&scopeSourceCounts.size>=2048)throw new Error('VERIFICATION_SCOPE_LIMIT');verificationScope=id;scopeSourceCounts.set(id,scopeSourceCounts.get(id)??0);};
   const reserveSourceReview=()=>{sourceReviewReservations++;const n=(scopeSourceCounts.get(verificationScope)??0)+1;scopeSourceCounts.set(verificationScope,n);if(n>sourceReviewLimit)throw new Error('SOURCE_REVIEW_BUDGET_EXCEEDED');};
   const budget = new ExecutionBudget(options.runtime);
   let scheduled = false;
@@ -98,7 +101,7 @@ export async function createLiveRuntime(options: LiveOptions) {
     if(!Number.isFinite(elapsed)||elapsed<0||saved.model_steps!==undefined&&(!Number.isSafeInteger(saved.model_steps)||saved.model_steps<0))throw new Error('BUDGET_CHECKPOINT_INVALID');
     const scopes=saved.verification_scopes??{source:[],visual:[]};
     for(const entries of [scopes.source,scopes.visual]){
-      if(!Array.isArray(entries)||entries.length>256||entries.some(row=>!Array.isArray(row)||row.length!==2||typeof row[0]!=='string'||!row[0]||row[0].length>200||!Number.isSafeInteger(row[1])||row[1]<0)||new Set(entries.map(row=>row[0])).size!==entries.length)throw new Error('BUDGET_CHECKPOINT_INVALID');
+      if(!Array.isArray(entries)||entries.length>2048||entries.some(row=>!Array.isArray(row)||row.length!==2||typeof row[0]!=='string'||!row[0]||row[0].length>200||!Number.isSafeInteger(row[1])||row[1]<0)||new Set(entries.map(row=>row[0])).size!==entries.length)throw new Error('BUDGET_CHECKPOINT_INVALID');
     }
     if([saved.agent_delegations??0,saved.source_review_reservations??0].some(n=>!Number.isSafeInteger(n)||n<0))throw new Error('BUDGET_CHECKPOINT_INVALID');
     budget.restore({execution_round:saved.execution_round,tool_reservations:saved.tool_reservations,cad_reservations:saved.cad_reservations,reported_tokens:saved.reported_tokens,round_tool_reservations:saved.round_tool_reservations,round_cad_reservations:saved.round_cad_reservations});steps=saved.model_steps??0;taskStartedAt=saved.started_at??taskStartedAt;
@@ -212,6 +215,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       cadReview?: boolean;
       independentEvidence?:boolean;
       observationViewAware?:boolean;
+      sourceBatch?:{compile:(ids:string[],callId:string)=>Promise<{operations:{tool:string;arguments:Record<string,unknown>}[]}>;settled:(ids:string[],callId:string)=>Promise<void>};
       registerObservationView?:(id:string,crop:{left:number;top:number;width:number;height:number})=>void;
       sourceDetails?:{path:string;view:ImageView;label:string}[];
       cadDetails?:{path:string;evidence:unknown;entity_ids:number[];sourcePath?:string;sourceView?:ImageView}[];
@@ -252,6 +256,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       let handle: AgentHandle | undefined;
       const continuationResults: unknown[] = [];
       const reservedLeaves = new Set<string>();
+      const sourcePatchRoots=new Map<string,{tool:string;arguments:unknown}>();
       const queue = (call: PendingCall, code: BudgetStop) => {
         if (!pending.some(item => item.original_call_id === call.original_call_id)) pending.push(structuredClone(call));
         handoff = { kind: 'budget', code, renewable: code === 'EXECUTION_ROUND_EXHAUSTED' };
@@ -297,7 +302,7 @@ export async function createLiveRuntime(options: LiveOptions) {
             }
             if(profile.role==='main'&&(!request.onlyTools||request.onlyTools.includes('cader_apply_cad_patch'))&&!options.disableTools&&options.executionTools){
               const patchNames=options.executionTools.map(t=>t.name).filter(name=>(!request.onlyTools||request.onlyTools.includes(name))&&/^mcp__.+__(?:draw_\w+|create_layer|set_layer_properties|move_entity|rotate_entity|scale_entity|copy_entity|mirror_entity|delete_entity)$/.test(name));
-              const patchLimit=Math.min(request.harnessTask?8:32,options.runtime.max_cad_operations_per_round??64,options.runtime.max_tool_calls-(options.runtime.validation_tool_reserve??8)-1);
+              const patchLimit=Math.min(request.sourceBatch?32:request.harnessTask?8:32,options.runtime.max_cad_operations_per_round??64,options.runtime.max_tool_calls-(options.runtime.validation_tool_reserve??8)-1);
               if(patchNames.length&&patchLimit>0){
                 const definitions=new Map(options.executionTools.map(tool=>[tool.name,tool]));
                 const variants=patchNames.map((name,index)=>({type:'object',properties:{tool:{type:'string',const:name},arguments:patchArgumentsSchema(definitions.get(name)!,`#/properties/operations/items${patchNames.length===1?'':`/oneOf/${index}`}/properties/arguments`)},required:['tool','arguments'],additionalProperties:false}));
@@ -318,7 +323,7 @@ export async function createLiveRuntime(options: LiveOptions) {
                     if(scheduled){
                       const stopped=budget.admit(operations.length,operations.length,false,1);
                       if(stopped){
-                        queue({original_call_id:String(exec.callId),tool:patch.name,arguments:args},stopped);
+                        queue({original_call_id:String(exec.callId),...(sourcePatchRoots.get(String(exec.callId))??{tool:patch.name,arguments:args})},stopped);
                         throw new Error(JSON.stringify({code:stopped,dispatched:false,not_dispatched:operations.length,no_replay:true}));
                       }
                       for(const index of operations.keys())reservedLeaves.add(`${exec.callId}:patch:${index}`);
@@ -356,6 +361,20 @@ export async function createLiveRuntime(options: LiveOptions) {
                     }
                   }};
                 agentCtx.tools.register(patch,{when:()=>options.toolAvailable?.(patch.name)??true});allowed.push(patch.name);
+                if(request.sourceBatch){
+                  const sourceBatch=request.sourceBatch;
+                  const sourceTool:ToolDefinition={name:'cader_apply_source_batch',description:`Apply up to ${patchLimit} source item IDs selected by the Agent. Harness resolves frozen source coordinates and literal text, independently checks source evidence, then uses the SAME whole-patch preflight, leaf budget, permission, serial writer, readback and visual checks. Confirmed/unknown items cannot be replayed. No arbitrary shell, drawing adoption or completion.`,parameters:{type:'object',properties:{ids:{type:'array',minItems:1,maxItems:patchLimit,uniqueItems:true,items:{type:'string',pattern:'^[a-zA-Z0-9_]{1,64}$'}}},required:['ids'],additionalProperties:false},isConcurrencySafe:()=>false,output:patch.output,
+                    async execute(args,exec){
+                      assertToolArguments(sourceTool,args);const ids=(args as {ids:string[]}).ids;
+                      const compiled=await sourceBatch.compile(ids,String(exec.callId));
+                      sourcePatchRoots.set(String(exec.callId),{tool:sourceTool.name,arguments:args});
+                      let failed=false;
+                      try{return await patch.execute(compiled,exec);}
+                      catch(error){failed=true;throw error;}
+                      finally{sourcePatchRoots.delete(String(exec.callId));try{await sourceBatch.settled(ids,String(exec.callId));}catch(error){if(!failed)throw error;}}
+                    }};
+                  agentCtx.tools.register(sourceTool,{when:()=>options.toolAvailable?.(sourceTool.name)??true});allowed.push(sourceTool.name);
+                }
               }
             }
             if ((!request.onlyTools||request.onlyTools.includes('cader_review_cad_view')) && profile.role === 'main' && !options.disableTools && options.captureCadView) {
@@ -999,7 +1018,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       emit({ type: 'cad.review', ...result }); return result;
     }
 
-    return { ctx, run, executionStop,restoreTaskBudget,visionProfileId:options.profiles.find(p=>p.role==='vision')?.id,setVerificationScope,isCadReviewCurrent:async(report:{image_ref:string;evidence:unknown})=>{const capture=reviewCaptures.get(report.image_ref);if(!capture)return false;try{const pixels=await readReferenceImage(options.workspaceRoot??options.root,capture.path);if(createHash('sha256').update(pixels.data).digest('hex')!==(report.evidence as {sha256?:string})?.sha256)return false;for(const detail of reviewDetails.get(report.image_ref)??[]){const pixels=await readReferenceImage(options.workspaceRoot??options.root,detail.path);if(createHash('sha256').update(pixels.data).digest('hex')!==(detail.evidence as {sha256?:string})?.sha256)return false;}return true;}catch{return false;}},reviewStats:()=>({capture_attempts:visualReviews,model_calls:visualModelCalls,source_review_reservations:sourceReviewReservations,source_review_limit:sourceReviewLimit,agent_delegations:delegations}),enableTaskBudget,budgetState:()=>({...budget.snapshot(),model_steps:steps,started_at:taskStartedAt,limits:{task_model_steps:modelStepLimit(),task_tokens:options.runtime.max_task_tokens??2000000,task_duration_ms:scheduled?taskDuration():options.runtime.timeout_ms,task_tool_calls:options.runtime.max_task_tool_calls??600,task_cad_operations:options.runtime.max_cad_operations??400},agent_delegations:delegations,source_review_reservations:sourceReviewReservations,source_review_limit:sourceReviewLimit,verification_scopes:{source:[...scopeSourceCounts],visual:[...scopeVisualCounts]},pending:structuredClone(pending)}),inspectReference,inspectProgressiveDraft:(path:string,scope:{id:string;bounds:[[number,number],[number,number]]},task:string,signal?:AbortSignal)=>{const profile=options.profiles.find(p=>p.role==='vision')?.id;if(!profile)throw new Error('VISION_PROFILE_UNAVAILABLE');return inspectProgressiveDraft(run,profile,options.workspaceRoot??options.root,path,scope,task,signal,reserveSourceReview);},reviewCadView:(question:string,signal?:AbortSignal,referenceImage?:string,referenceDetails?:{path:string;view:ImageView;label:string}[],viewRequest?:CadReviewView)=>reviewCadView(question,signal,undefined,referenceImage,referenceDetails,undefined,viewRequest), reassessCadView:(question:string,imageRef:string,signal?:AbortSignal,referenceImage?:string,referenceDetails?:{path:string;view:ImageView;label:string}[],viewRequest?:CadReviewView)=>reviewCadView(question,signal,undefined,referenceImage,referenceDetails,imageRef,viewRequest),pool, completed: () => completed.slice(), toolNames: () => ctx.tools.schemas().map(tool => tool.name),
+    return { ctx, run, executionStop,restoreTaskBudget,visionProfileId:options.profiles.find(p=>p.role==='vision')?.id,setVerificationScope,isCadReviewCurrent:async(report:{image_ref:string;evidence:unknown})=>{const capture=reviewCaptures.get(report.image_ref);if(!capture)return false;try{const pixels=await readReferenceImage(options.workspaceRoot??options.root,capture.path);if(createHash('sha256').update(pixels.data).digest('hex')!==(report.evidence as {sha256?:string})?.sha256)return false;for(const detail of reviewDetails.get(report.image_ref)??[]){const pixels=await readReferenceImage(options.workspaceRoot??options.root,detail.path);if(createHash('sha256').update(pixels.data).digest('hex')!==(detail.evidence as {sha256?:string})?.sha256)return false;}return true;}catch{return false;}},reviewStats:()=>({capture_attempts:visualReviews,model_calls:visualModelCalls,source_review_reservations:sourceReviewReservations,source_review_limit:sourceReviewLimit,agent_delegations:delegations}),enableTaskBudget,budgetState:()=>({...budget.snapshot(),model_steps:steps,started_at:taskStartedAt,limits:{task_model_steps:modelStepLimit(),task_tokens:options.runtime.max_task_tokens??2000000,task_duration_ms:scheduled?taskDuration():options.runtime.timeout_ms,task_tool_calls:options.runtime.max_task_tool_calls??600,task_cad_operations:options.runtime.max_cad_operations??400},agent_delegations:delegations,source_review_reservations:sourceReviewReservations,source_review_limit:sourceReviewLimit,verification_scopes:{source:[...scopeSourceCounts],visual:[...scopeVisualCounts]},pending:structuredClone(pending)}),reviewIndexedSource:(path:string,index:ReferenceIndex,items:SourceItem[],task:string,signal?:AbortSignal)=>{const profile=options.profiles.find(p=>p.role==='vision')?.id;if(!profile)throw new Error('VISION_PROFILE_UNAVAILABLE');return reviewIndexedSource(run,profile,options.workspaceRoot??options.root,path,index,items,task,signal,reserveSourceReview);},compareSourceNative:(path:string,input:Parameters<typeof compareSourceNative>[4],signal?:AbortSignal)=>compareSourceNative(options.root,options.workspaceRoot??options.root,options.runDirectory,path,input,AbortSignal.any([lifetime.signal,...signal?[signal]:[]])),indexReferenceSource:(path:string,signal?:AbortSignal)=>indexReferenceSource(options.root,options.workspaceRoot??options.root,path,AbortSignal.any([lifetime.signal,...signal?[signal]:[]]),emit),inspectReference,inspectProgressiveDraft:(path:string,scope:{id:string;bounds:[[number,number],[number,number]]},task:string,signal?:AbortSignal)=>{const profile=options.profiles.find(p=>p.role==='vision')?.id;if(!profile)throw new Error('VISION_PROFILE_UNAVAILABLE');return inspectProgressiveDraft(run,profile,options.workspaceRoot??options.root,path,scope,task,signal,reserveSourceReview);},reviewCadView:(question:string,signal?:AbortSignal,referenceImage?:string,referenceDetails?:{path:string;view:ImageView;label:string}[],viewRequest?:CadReviewView)=>reviewCadView(question,signal,undefined,referenceImage,referenceDetails,undefined,viewRequest), reassessCadView:(question:string,imageRef:string,signal?:AbortSignal,referenceImage?:string,referenceDetails?:{path:string;view:ImageView;label:string}[],viewRequest?:CadReviewView)=>reviewCadView(question,signal,undefined,referenceImage,referenceDetails,imageRef,viewRequest),pool, completed: () => completed.slice(), toolNames: () => ctx.tools.schemas().map(tool => tool.name),
       async dispose() { clearTimeout(deadline); lifetime.abort(); await ctx.fiber.dispose(); } };
   } catch (error) { clearTimeout(deadline); await ctx.fiber.dispose(); throw error; }
 }

@@ -31,6 +31,10 @@ Use for complex reference redraw, multi-part CAD creation, dense drawings, expli
 6. Integrate verified regions, reconcile overlaps and shared anchors, validate cross-region topology and global layout. Perform final independent checks, save and reopen when supported. Report draft/partial/unverified status when evidence is incomplete.
 
 ## Region execution loop
+When the runtime exposes `cader_source_worklist` / `cader_apply_source_batch`, use the frozen ID worklist rather than recounting the region. Choose spatially coherent IDs (the suggested subset is advisory), let Harness compile the original-pixel transform, and continue only pending/accepted items. Native/visual checks remain mandatory. A committed item awaiting verification is not a missing item to redraw. Use the controlled CAD review entry to check it. Unknown outcomes require reconciliation.
+
+The local line-art index separates graphic reproduction from engineering interpretation. Isolated OCR glyphs or stacked typesetting may remain editable native paths instead of guessed TEXT. This preserves source appearance but does not prove a recovered literal, netlist, BOM or functional design. Explicit semantic tasks keep their semantic gates. Whole-image residual checks and final independent visual acceptance are still required; completing the candidate list alone is insufficient.
+
 - OBSERVE: inspect original-resolution crops with source-coordinate mapping; reuse prior observations; identify unresolved details.
 - PLAN: make a bounded patch or operation batch, with expected entities/relations and affected scope. Validate geometry, dependencies, target and authorization.
 - ACT: use only actual registered and authorized CAD tools. If a region-level write is not permitted, continue useful authorized analysis or request runtime recovery; do not pretend to have drawn.

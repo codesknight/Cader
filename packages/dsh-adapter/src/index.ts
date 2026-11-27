@@ -45,3 +45,9 @@ export type {ComFileArtifact,VerificationDocument,VerificationQuery} from './fil
 export {sourceCoordinates,sourceRegionView,clipSourceView,sourceAspectViews} from './source-coordinates.js';
 
 export {sourceViewContract} from './source-view-contract.js';
+
+export {indexReferenceSource,parseReferenceIndex} from './reference-index.js';
+export type {ReferenceIndex,SourceItem,PixelBox} from './reference-index.js';
+
+export {sourceItemView} from './reference-review.js';
+export type {IndexedSourceReading} from './reference-review.js';

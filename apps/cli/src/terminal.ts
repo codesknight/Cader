@@ -37,7 +37,7 @@ export async function runTerminal(options: { workspace?: string; stdio?: boolean
     '  ╚██████╗██║  ██║██████╔╝███████╗██║  ██║',
     '   ╚═════╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝',
   ].map((line, index) => paint(index < 3 ? '1;36' : '1;34', line)).join('\n') + '\n');
-  output.write(paint('1', '  Cader 0.4.0-dev.16') + '  ·  DeepSeek Harness  ·  CAD terminal\n'
+  output.write(paint('1', '  Cader 0.4.0-dev.17') + '  ·  DeepSeek Harness  ·  CAD terminal\n'
     + paint('2;36', '─'.repeat(Math.max(20, Math.min((output.columns ?? 80) - 2, 90)))) + '\n');
   write(`  ${session.model.model} · ${session.state.permission} · ${basename(workspace)}\n  ${session.startupStatus}\n  /help 命令  ·  @图片/图纸  ·  !Shell  ·  Tab 补全  ·  Esc 中断\n\n`);
   if (tty && process.env.TERM === 'dumb') write('当前终端声明TERM=dumb，使用简化输入。支持VT的终端可设置TERM=xterm-256color以启用完整编辑/补全。\n');
@@ -97,6 +97,9 @@ export async function runTerminal(options: { workspace?: string; stdio?: boolean
           else if(event.type==='task.drawing_unit')write(`\n  绘图进度：${String(event.unit_id)} 已读回登记，整图尚待验收。\n`);
           else if(event.type==='task.region')write(`\n  区域 ${String(event.region)} · ${regionStatus(event.status)} · ${String(event.entities)} 实体${event.failure?` · ${String(event.failure)}`:''}（整图尚待验收）\n`);
           else if(event.type==='task.region_split')write(`\n  区域细分：${String(event.parent)} → ${(event.children as string[]).join('、')}，保留原失败证据。\n`);
+          else if(event.type==='source.index_progress')write(`\n  本地源图索引：${String(event.tile)}/${String(event.tiles)}（候选分析，尚未验收）\n`);
+          else if(event.type==='source.index_loaded')write(`\n  已载入 ${String(event.items)} 个稳定源对象候选；逐批独立验证，不代表图纸已完成。\n`);
+          else if(event.type==='source.index_unavailable')write(`\n  本地源索引不可用：${String(event.reason)}，使用现有渐进式观察流程。\n`);
           else if(event.type==='task.progressive_fallback')write('\n  整图参考检查未通过，转为同一任务的局部分区；保留原失败及累计预算，未重放CAD操作。\n');
           else if(event.type==='task.batch_verified')write(`\n  批次 ${String(event.batch)} · ${event.status==='pass'?'结构与视觉通过':'待修正或复核'}（整图尚待验收）\n`);
           else if(event.type==='task.checkpoint')write(`\n  预算检查点 · 第${event.execution_round}回合 · ${event.continuing?'已读回并保存进度，自动续轮':'已保存进度，任务总限额暂停'} · ${String(event.document??'尚未新建图纸')}\n`);

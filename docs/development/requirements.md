@@ -210,3 +210,5 @@ REQ-050交付结果：原始房子与原始复杂手稿两项Cader真实模型/A
 REQ-051（#20，Milestone3，2026-11-27）：用户提供大图阻塞日志、Bug Triage 和 Progressive Drawing Skill，要求直接实施自动技能选择、合法局部 Reference Gate、渐进任务调度、每批结构/视觉验证、局部修复、同连接检查点恢复及真实大图 AutoCAD 回归。保留原始图纸、执行/屏障证据与独立MCP，不能以 Prompt/Skill 注册或简单圆测试代替。实施和职责边界见[工程记录](2026-11-27-progressive-drawing.md)，实际结果见[验证记录](../validation/2026-11-27-progressive-drawing.md)。
 
 REQ-052（#20，Milestone3，2026-11-27）：用户明确修复裁片坐标一致性、部分待验稿验收范围、批次视觉对象绑定与局部高清复核，并允许优化Skill。复用DSH/Cordis、Scheduler、ExecutionSession及独立MCP现有截图恢复。验收为：BASE坐标仅转换一次且OCR不反复定位；partial条件不能超出独立片段；视觉报告强制绑定scope/实体并保留原图/图纸/快照；小字使用真实原生局部导出，窗口/像素/状态恢复均核验；原始大图真实模型/CAD回归，旧图及unknown保留。沿用用户此前截图链路协同授权，独立MCP仅修改必要截图接口/证据/测试，不覆盖其他工作。[实施](2026-11-27-local-visual-scope.md)。
+
+REQ-053（#20，Milestone3，2026-11-27）：用户要求调研他人的大图/长任务解决方法并解决整图验收未通过。复用DSH、Scheduler、权限、原生文件/图像证据；借鉴重叠感知、OCR/图元/关联分离和持久待办清单，独立实现可缓存源证据索引、受控增量绘制与缺口复核，避免一轮轮全区清点或重画确认实体。须保留原图/旧DWG/unknown、独立验收与真实原始大图回归；不以新Prompt/增加token/固定测试绘图序列冒充解决，不复制未许可上游代码。调研与实现结果另记。

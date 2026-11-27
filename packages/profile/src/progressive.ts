@@ -3,6 +3,10 @@ import {readReferenceImage,parseAcceptancePlan,acceptancePlanSchema,parseProgres
 import type {QualityPlan,ProgressivePlanData,ReferenceObservationData} from '@cader/config';
 import type {ToolDefinition,createLiveRuntime,ImageView} from '@cader/dsh-adapter';
 import {sourceCoordinates} from '@cader/dsh-adapter';
+import type {ReferenceIndex} from '@cader/dsh-adapter';
+import {createSourceWorklist,assertSourceWorklist,sourceWorklistSummary} from './source-worklist.js';
+import type {SourceWorklist} from './source-worklist.js';
+import {runIndexedRegions} from './indexed-regions.js';
 import {verifyQuality,qualityTaskContext} from './quality.js';
 import type {runQualityTask,CheckResult,QualityPhase} from './quality.js';
 import {sourcePlanLayout,referenceLayoutHints,referencePlanHints,referencedPaths,referenceOutput} from './reference-input.js';
@@ -44,6 +48,7 @@ export interface ProgressiveState {
   observed_sha256:string|null;confirmed_operation_ids:string[];resume_count:number;
   decompositions?:{parent:string;children:string[];reason:string;source?:Observation}[];
   last_tool_error?:{tool:string;message:string};
+  source_worklist?:SourceWorklist;
 }
 
 /** Deterministic batch checks run on actual affected entities. They do not
@@ -144,6 +149,27 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
       progressive.resume_count++;
       if(options.resume.budget&&runtime.restoreTaskBudget)runtime.restoreTaskBudget(options.resume.budget);
     }
+    let sourceIndex:ReferenceIndex|undefined;
+    const indexedTools=owner.definitions(options.confirm),poly=indexedTools.find(t=>t.name.endsWith('__draw_polyline')),text=indexedTools.find(t=>t.name.endsWith('__draw_text'));
+    const supportsIndex=Boolean((poly?.parameters as any)?.properties?.width&&(text?.parameters as any)?.properties?.fit_box);
+    const semanticTask=/(?:验证|校验|核对|检查|保证|计算|分析|验算|提取|输出|生成).{0,12}(?:网表|BOM|电气性能|短路电流|功能逻辑|拓扑|连通性|连接关系|电路功能)|\b(?:netlist|BOM|simulate|electrical analysis|verify connectivity)\b/i.test(task);
+    if(reference&&runtime.indexReferenceSource&&(progressive.source_worklist||!progressive.plan&&image.width*image.height>=8000000&&!semanticTask&&supportsIndex)){
+      await enter('reference');const result=await runtime.indexReferenceSource(reference.image.path,signal);
+      if(result.available){sourceIndex=result.index;
+        if(progressive.source_worklist)assertSourceWorklist(sourceIndex,progressive.source_worklist);
+        else progressive.source_worklist=createSourceWorklist(sourceIndex,result.path);
+        if(!progressive.plan){
+          const candidates=sourceWorklistSummary(sourceIndex,progressive.source_worklist).tiles;
+          let order:string[]|undefined;
+          const submit:ToolDefinition={name:'cader_order_source_regions',description:'Choose execution order of ALL frozen source ownership tiles exactly once. Overlapping perception is independent of exclusive ownership. No item inventory or geometry generation required.',parameters:{type:'object',properties:{ids:{type:'array',minItems:candidates.length,maxItems:candidates.length,uniqueItems:true,items:{type:'string',enum:candidates.map(t=>t.id)}}},required:['ids'],additionalProperties:false},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args,exec){const ids=(args as {ids:string[]}).ids;if(new Set(ids).size!==candidates.length||ids.some(id=>!candidates.some(t=>t.id===id)))throw new Error('SOURCE_REGION_ORDER_INVALID');order=ids;exec.concludeTurn();return JSON.stringify({order,semantics:'not_verified'});}};
+          await model('使用中文。原图已建立只读候选索引，不是验收结论。选择所有source_tile的绘图先后顺序：请求的主要内容优先，图框和附属呈现后置。只提交cader_order_source_regions，不重新清点、不生成坐标。感知允许跨区；每个源对象由其bbox中心独占归属，跨区完整路径只画一次。'+JSON.stringify({task,tiles:candidates}),{image:reference.image.path,onlyTools:[submit.name],extraTools:[submit],maxModelSteps:3});
+          if(!order)throw new Error('SOURCE_REGION_ORDER_MISSING');
+          progressive.plan=parseProgressivePlan({version:1,content_bounds:[[0,0],[1,1]],units:'relative-layout-units',anchors:[],regions:order.map(id=>{const tile=sourceIndex!.tiles[Number(id.replace('source_tile_',''))]!,[x,y,a,b]=tile.owner;return {id,bounds:[[x/image.width,y/image.height],[a/image.width,b/image.height]],description:'Frozen source-ID worklist; local actual-pixel and native evidence required',depends_on:[]};})});
+          progressive.plan_sha256=digest(progressive.plan);progressive.regions=progressive.plan.regions.map(r=>({id:r.id,status:'pending',failure:null,entity_ids:[],boundary_links:[],batches:[],repairs:0}));await persist();
+        }
+      }else if(progressive.source_worklist)throw new Error(result.reason);
+      else options.emit({type:'source.index_unavailable',reason:result.reason,fallback:'existing progressive observation'});
+    }
     if(!progressive.plan){
       await enter('planning');
       const submit:ToolDefinition={name:'cader_submit_progressive_plan',description:'Partition the entire requested source scope into bounded non-overlapping rectangular regions with complete coverage, dependencies and shared boundary anchors. Overview only: no full inventory or CAD operations.',parameters:progressivePlanSchema,output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args,exec){progressive.plan=reference?rasterizeProgressivePlan(parseProgressivePlan(args),image):parseProgressivePlan(args);progressive.plan_sha256=digest(progressive.plan);progressive.regions=progressive.plan.regions.map(r=>({id:r.id,status:'pending',failure:null,entity_ids:[],boundary_links:[],batches:[],repairs:0}));await persist();exec.concludeTurn();return JSON.stringify(progressive.plan);}};
@@ -185,7 +211,14 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
       }};
       await enter('planning');await model('当前未执行区域的源观察失败；禁止重复相同整区清点。仅查看当前原图区域，选择避开符号本体的一条水平或垂直切线，调用cader_split_progressive_region将本区域完整分成两个更小区域；不改其他区域、不绘图。axis=0为竖切x坐标，1为横切y坐标，position必须是原始整图归一化坐标。描述两块独占内容并记录跨新边界的共享锚点，图框/基准线使用coincident，功能网络延续才用connected；不确定标uncertain。'+JSON.stringify({task,region:descriptor,failure:region.failure,region_pixel_dimensions:[(descriptor.bounds[1][0]-descriptor.bounds[0][0])*image.width,(descriptor.bounds[1][1]-descriptor.bounds[0][1])*image.height],source_contract:{max_labels_per_observation:32,reason:'Refine actual observation density; do not raise the label cap or waive completeness. Prefer reducing the longer pixel dimension, avoid thin strips and splitting symbols/text.'}}),{image:reference?.image.path,imageView:crop(descriptor.bounds),onlyTools:[submit.name],extraTools:[submit],maxModelSteps:3});return changed;
     };
-    for(let regionIndex=0;regionIndex<progressive.plan.regions.length;regionIndex++){
+    if(sourceIndex&&progressive.source_worklist){
+      if(!owner.taskScope(taskId).new_drawing_confirmed){
+        await enter('drawing');const tools=indexedTools.filter(t=>t.name.endsWith('__new_drawing')).map(t=>t.name);
+        await model('立即调用new_drawing，仅新建一次本任务工作图，不绘制、不保存。'+task,{onlyTools:tools,maxModelSteps:2,completeNewDrawing:async()=>{if(!owner.taskScope(taskId).new_drawing_confirmed)throw new Error('TASK_EXECUTION_REQUIRED');progressive.document=owner.facts().scratch;await checkpoint('new_document_confirmed');},resultText:()=>owner.taskScope(taskId).new_drawing_confirmed?'新工作图已确认，交回Scheduler。':undefined});
+        if(!owner.taskScope(taskId).new_drawing_confirmed)throw new Error('TASK_EXECUTION_REQUIRED');progressive.document=owner.facts().scratch;await checkpoint('new_document');
+      }
+      await runIndexedRegions({runtime,owner,progressive,index:sourceIndex,sourcePath:reference!.image.path,task,signal,model,enter,persist,checkpoint,observe,emit:options.emit,confirm:options.confirm,onEvidenceError:error=>{const code=(error as Error).message;if(taskStops.has(code))evidenceFailure=code;},onVisual:(review,hash)=>{visual=review;visualCalls.push({source:'harness',observed_state_hash:hash,review});assertEvidenceOutcome(review);}});
+    }else for(let regionIndex=0;regionIndex<progressive.plan.regions.length;regionIndex++){
       const stopped=runtime.executionStop?.();if(stopped)throw new Error(stopped);
       const descriptor=progressive.plan.regions[regionIndex]!;
       const region=progressive.regions.find(r=>r.id===descriptor.id)!;progressive.active_region=region.id;
@@ -418,12 +451,18 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
     checks.push({id:'coverage',status:progressive.regions.every(r=>r.status==='verified')?'pass':'not_run',evidence:'Every requested region must be independently verified'});
     if(progressive.regions.every(r=>r.status==='verified')){
       const snapshot=await observe();
+      if(sourceIndex&&progressive.source_worklist){
+        const work=progressive.source_worklist,summary=sourceWorklistSummary(sourceIndex,work);
+        if(!summary.all_verified)throw new Error('SOURCE_WORKLIST_INCOMPLETE');
+        const residual=await runtime.compareSourceNative(reference!.image.path,{source:sourceIndex.source,snapshot_sha256:digest(snapshot.entities),document:owner.facts().native_target,entities:snapshot.entities,verified_text_entity_ids:sourceIndex.items.filter(i=>i.kind==='text').flatMap(i=>work.items[i.id]!.entity_ids)},signal);
+        work.residual_reviews.push(residual);checks.push({id:'native_source_residual',status:residual.report.geometry_residual_clear?'pass':'fail',evidence:JSON.stringify(residual)});await persist();
+      }
       checks.push(...progressive.regions.map(r=>({id:'region_current_'+r.id,status:digest(snapshot.entities.filter(e=>r.entity_ids.includes(e.object_id)))===r.final_sha256?'pass':'not_run',evidence:'Final native readback must match the verified regional checkpoint'} as CheckResult)));
       const anchorChecks=progressive.plan.anchors.map(a=>({id:'anchor_'+a.id,status:a.regions.every(id=>snapshot.entities.some(e=>progressive.regions.find(r=>r.id===id)!.entity_ids.includes(e.object_id)&&[e.start_point,e.end_point].some(p=>Array.isArray(p)&&Math.hypot(p[0]-frame.point(a.position)[0]!,p[1]-frame.point(a.position)[1]!)<1e-5)))?'pass':'not_run',evidence:'Actual endpoints required in every owning region; source appearance/continuity is independently checked by final visual requirements, not inferred from native coincidence'} as CheckResult));checks.push(...anchorChecks);
       await enter('vision');runtime.setVerificationScope('final');
       const finalRequirements=[...plan.requirements.filter(r=>r.check==='visual'),...progressive.plan.anchors.filter(a=>a.certainty==='uncertain').map(a=>({id:'anchor_fidelity_'+a.id,description:'独立核对原图实际边界位置与连接，解决初始概貌中的不确定；不能只凭CAD端点相接判定源图连通：'+JSON.stringify(a)})),...progressive.regions.flatMap(r=>r.uncertainty_review?.filter(i=>i.disposition==='cross_region').map(i=>({id:`deferred_${r.id}_${i.index}`,description:r.source!.structured!.unknowns[i.index]!+'；共享锚点：'+i.anchor_ids.join(',')}))??[])];
       if(finalRequirements.length>32)throw new Error('GLOBAL_REVIEW_SCOPE_TOO_LARGE');
-      visual=await runtime.reviewCadView(JSON.stringify({original_request:task,requirements:finalRequirements,regions:progressive.plan.regions,anchors:progressive.plan.anchors,geometry:checks,entity_snapshot:snapshot.entities,note:'Final complete coverage, shared connections, layout and labels; cross-region uncertainty deferred from a regional gate MUST be resolved here. No partial-region acceptance can override a missing global condition.'}),signal,reference?.image.path);
+      visual=await runtime.reviewCadView(JSON.stringify({original_request:task,requirements:finalRequirements,regions:progressive.plan.regions,anchors:progressive.plan.anchors,geometry:checks,entity_snapshot:sourceIndex?{count:snapshot.entities.length,sha256:digest(snapshot.entities),native_details:'Independently checked per source ID; full immutable native snapshot retained by Harness.'}:snapshot.entities,note:'Final complete coverage, shared connections, layout and labels; cross-region uncertainty deferred from a regional gate MUST be resolved here. No partial-region acceptance can override a missing global condition.'}),signal,reference?.image.path);
       visualCalls.push({source:'harness',observed_state_hash:digest(snapshot.entities),review:visual});assertEvidenceOutcome(visual);
       const after=await observe();const sourceBound=!reference||(visual.evidence as {reference?:{sha256?:string}}).reference?.sha256===reference.image.sha256;
       const pass=visual.review_valid&&sourceBound&&(visual.evidence as {document?:string}).document===progressive.document&&!(visual.evidence as {image_bounds?:{possible_clipping?:boolean}}).image_bounds?.possible_clipping&&visual.structured?.verdict==='pass'&&finalRequirements.every(r=>visual!.structured!.checklist.some(c=>c.requirement_id===r.id&&c.status==='pass'))&&same(snapshot.entities,after.entities)&&checks.every(c=>c.status==='pass');

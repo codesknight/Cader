@@ -3,7 +3,13 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Project home](../../README.md) · [Documentation](../README.md)
 
-**Applies to Cader 0.4.0-dev.16 · Updated 2026-11-27**
+**Applies to Cader 0.4.0-dev.17 · Updated 2026-11-28**
+
+## dev.17: source worklists for large line drawings
+
+Large (at least 8 million pixels) monochrome reference redraws can use a local OCR/path proposal index when the optional vision environment and updated AutoCAD-MCP `draw_polyline.width` / `draw_text.fit_box` support are available. Install explicitly from the repository: `uv sync --project cader-mcp --extra vision`; startup never installs packages. Missing dependencies or unsupported color imagery use the existing progressive observation flow. Simple drawings load no index. Tasks explicitly requesting engineering analysis, a netlist or BOM retain semantic verification.
+
+The Agent chooses region order and stable source IDs. Harness compiles coordinates, uses the existing whole-Patch admission/permissions/serial writer, and verifies native geometry and actual rendered batches. Only unfinished IDs continue on the original live binding; committed/unknown requests are never replayed. Isolated OCR glyphs and unsupported stacked text remain editable native paths, with semantic interpretation unverified. Source proposals and residual scores cannot accept the task: full coverage, native readback, controlled visual review and requested DWG checks remain required. Local optional dependencies are separate from the AutoCAD-MCP conda environment. See [research, implementation and actual evidence](../development/2026-11-27-source-worklist-research.md).
 
 ## dev.16: named source views
 
@@ -750,3 +756,5 @@ Cader does not automatically compact and start a successor conversation at its l
 A tool-approval y/N is not factual confirmation of a source label or connection. Existing tools can bind actual confirmation text, but a complete structured pending-question, batch clarification and answer-continuation workflow is not implemented. Necessary unresolved conditions still block acceptance. Stable source facts, proactive clarification and safe automatic compaction are proposed work, documented in the [engineering review](../development/2026-11-25-complex-redraw-engineering-review.md).
 
 Internal semantic-unit/recovery/round invocations use new DSH model sessions with structured task state and readback. This is distinct from automatically summarizing or rolling over the user ChatSession; the native CAD binding and total task budgets are preserved.
+
+For explicit large-reference runs, configuration ceilings are 30,000 task tool reservations, 20,000 CAD operations and 500 counted execution rounds. Defaults remain 600/400/12; per-round limits, validation reserves, total time/tokens and approvals still apply. The index reports candidate volume before drawing; limits are not an acceptance criterion.

@@ -411,3 +411,5 @@ REQ-052补BUG104/105：文字失败附原生bbox与可信源范围；区域疑�
 BUG101追加真实密度反例：attempt03有273×526像素区包含33项文字，512²阈值仍会阻止合法细分。仅SOURCE_LABEL_INVENTORY_LIMIT分支允许继续到深度6，且两边必须大于64像素、面积大于128²；总区数64、未执行区限制和32项观察合同不变。普通语义不确定仍用原深度/面积限制。全量356测试/typecheck/组件smoke通过；合成永久溢出负例终止于64区/126次检查/62次细分、0CAD/未验收，验证不会无限拆分或冒充完整。当前真实attempt03仍是bab3e49基线，不把新代码离线结果冒充其运行效果。
 
 充值后原始整图attempt03终止于显式20M任务总预算（非QUOTA）：146确认/0未知，37区仅22部分通过，quality=false。保存24361字节/141实体待验DWG，真实P1与额外独立native只读支持字段比较均通过，Count未复现；123检查点/146ID单调唯一、同连接同图，旧63项摘要不变。最新补修356测试及CI通过，未将其离线结果冒充启动基线bab3的整图实测，详见whole-sheet-retest。原图整体验收仍未完成，不关闭Issue20/PR22。
+
+2026-11-28 REQ-053阶段验证：pnpm typecheck、pnpm test（361/361，含源ID账本及实际DSH预算交接）、pnpm smoke（组件，不是真实CAD/full app）通过；uv run --project cader-mcp ruff check cader-mcp、ruff format --check cader-mcp、pytest -q cader-mcp/tests（14通过）通过。MCP全量315通过/34跳过，真实native原始源图4实体组件检查0差异；完整原始图回归和最终CI待追加，见source-worklist-research。

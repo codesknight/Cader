@@ -7,7 +7,7 @@ import type { ComEvidence, NativeBinding, ObservedRequest, ExecutionReceipt,ComF
 import type { ToolDefinition } from '@cader/dsh-adapter';
 import { loadMcp, workspacePath, readReferenceImage } from '@cader/config';
 import { runUserShell } from './interactive-shell.js';
-import { publishCadInputContract,validateCadArguments,validatePlannedWire } from './cad-arguments.js';
+import { publishCadInputContract,validateCadArguments,validatePlannedWire,cadRequestDigest } from './cad-arguments.js';
 import { environmentRedactor } from './session-store.js';
 import type { QualityPlan } from '@cader/config';
 import { inspectLegacyBarrier, archiveReviewedBarrier } from './legacy-barrier.js';
@@ -23,7 +23,7 @@ export type Approval = (description: string, cwd: string) => Promise<boolean>;
 type Client = Awaited<ReturnType<typeof createMcpClient>>;
 type Outcome = 'committed' | 'committed_observation_failed' | 'unknown' | 'blocked_not_dispatched' | 'failed_before_dispatch' | 'read_failed';
 export interface CadOperationRecord { operation_id: string; tool_call_id?: string; agent_id?: string; tool: string;
-  arguments_sha256?:string;created_entity_ids?:number[];subject_entity_id?:number;
+  arguments_sha256?:string;request_arguments_sha256?:string;created_entity_ids?:number[];subject_entity_id?:number;
   stage: string; outcome: Outcome; dispatched: boolean; evidence_route?:string; execution_receipt?:ExecutionReceipt; transport_dispatched?:boolean; native_dispatched?:boolean; error?: unknown; target: string | null; duration_ms: number }
 
 /** One owner and one persistent MCP process per interactive workspace. COM retains its
@@ -533,6 +533,7 @@ export class ExecutionSession {
             } catch (error) { await this.audit({ ...correlation, phase: 'read_failed', tool: name, error: this.diagnostic(error) }); throw error; }
           }
           const record: CadOperationRecord = { ...correlation, tool: name, target: this.scratch, stage: 'preflight', outcome: 'failed_before_dispatch', dispatched: false, duration_ms: 0 };
+          record.request_arguments_sha256=cadRequestDigest(name,payload);
           if(Number.isSafeInteger(payload.object_id))record.subject_entity_id=Number(payload.object_id);
           let acknowledged = false;
           try {
