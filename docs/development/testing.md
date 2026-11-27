@@ -419,3 +419,5 @@ BUG101追加真实密度反例：attempt03有273×526像素区包含33项文字�
 BUG107分层验收：实际pnpm typecheck、pnpm test（368/368，后续Scheduler专例另记）、pnpm smoke通过；uv Ruff check/format及pytest（20通过）。新增源标记/短边、标注完整组高清、错窗拒绝、primitive不能冒充full-region、部分确认前缀不重放；Scheduler夹具11项源清单测试中验证全源primitive完成后仍逐窗调用完整评审，uncertain区域保持blocked，不冒充真实模型/CAD。原图v7只读2169中心线全部源支持，但独立提案预检仍有116缺像素、其中57处于标注，严格保留失败；已增加基于实际源残差的局部细化候选，v8整图回归待记。原81份证据hash不变，扩展85份基线。
 
 最终分层Scheduler基线：pnpm typecheck、pnpm test（369/369）、pnpm smoke均通过；Python20项通过、Ruff check/format通过。此前tsx不存在及新增测试snapshot字段不完整的开发命令失败均保留，已改用仓库build后node --test及补齐fixture字段；不能把那些失败命令报告通过。
+
+CI db30d89真实失败已确认：基础Python环境未安装可选vision依赖，新refinement测试直接import numpy导致1失败/15通过/4跳过。补importorskip并新增独立source-vision-components CI作业，显式装vision extra运行合成源像素测试，无付费API/真实CAD/OCR权重下载。原失败不删除。追加源坐标精度一致的最多3轮只读细化；固定OCR提案预检0缺像素、0显著多余分量只是源预检，尚不代表CAD验收。

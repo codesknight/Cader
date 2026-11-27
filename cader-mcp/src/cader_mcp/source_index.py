@@ -348,18 +348,35 @@ def refine_source_paths(paths, ink, labels):
 
     from .source_residual import raster_path
 
-    rendered = np.zeros_like(ink)
-    for path in paths:
-        raster_path(rendered, path["points"], path["closed"], max(1, round(path["stroke_width"])))
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    missing = ((ink > 127) & (cv2.dilate(rendered, kernel) <= 127)).astype(np.uint8) * 255
-    for label in labels:
-        x, y, a, b = label["bounds"]
-        cv2.rectangle(missing, (x, y), (a, b), 0, -1)
-    additions, _ = skeleton_paths(missing)
-    for path in additions:
-        path["representation"] = "source-residual-refinement"
-    return paths + additions
+    # Bounded refinement also closes small remnants left by skeletonizing the
+    # first residual. Quantize through the SAME declared native coordinate
+    # precision before measuring coverage; half-pixel rounding must not hide ink.
+    result = list(paths)
+    for _ in range(3):
+        rendered = np.zeros_like(ink)
+        height, width = ink.shape
+        scale = 1000 / width
+        for path in result:
+            pixels = [
+                [round(x * scale, 6) / scale, height - round((height - y) * scale, 6) / scale]
+                for x, y in path["points"]
+            ]
+            raster_path(rendered, pixels, path["closed"], max(1, round(path["stroke_width"])))
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        missing = ((ink > 127) & (cv2.dilate(rendered, kernel) <= 127)).astype(np.uint8) * 255
+        for label in labels:
+            x, y, a, b = label["bounds"]
+            cv2.rectangle(missing, (x, y), (a, b), 0, -1)
+        additions, _ = skeleton_paths(missing)
+        if not additions:
+            break
+        existing = {path["id"] for path in result}
+        for path in additions:
+            path["representation"] = "source-residual-refinement"
+            if path["id"] not in existing:
+                result.append(path)
+                existing.add(path["id"])
+    return result
 
 
 def build_index(path, *, use_ocr=True, edge=800):
@@ -471,7 +488,7 @@ def build_index(path, *, use_ocr=True, edge=800):
         "engine": {
             "method": "local-ocr-skeleton-graph",
             "coordinate_system": "original-pixels-top-left-y-down",
-            "engine_version": 8,
+            "engine_version": 9,
             "annotation_blocks": blocks,
             "outlined_ocr_ids": [
                 label["id"] for label in ocr_proposals if not native_text_candidate(label)

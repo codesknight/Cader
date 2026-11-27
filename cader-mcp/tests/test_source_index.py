@@ -223,8 +223,10 @@ def test_native_residual_catches_a_missing_branch_without_claiming_acceptance(tm
         compare(path, native)
 
 
-def test_source_refinement_retains_uncovered_decimal_without_inventing_blank_ink():
-    import numpy as np
+def test_source_refinement_retains_uncovered_decimal_without_inventing_blank_ink(tmp_path):
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("cv2")
+    pytest.importorskip("skimage")
 
     from cader_mcp.source_index import refine_source_paths
 
@@ -236,3 +238,49 @@ def test_source_refinement_retains_uncovered_decimal_without_inventing_blank_ink
     assert all(abs(x - 10) < 1 and abs(y - 10) < 1 for x, y in paths[0]["points"])
     assert refine_source_paths([], ink, [{"bounds": [9, 9, 11, 11]}]) == []
     assert refine_source_paths([], np.zeros_like(ink), []) == []
+
+    # Generator proposals must still survive the independent native transform
+    # and residual check; this is a fixture, not a real CAD execution result.
+    import cv2
+
+    from cader_mcp.source_residual import compare
+
+    image = tmp_path / "source.png"
+    assert cv2.imwrite(str(image), 255 - ink)
+    scale = 1000 / ink.shape[1]
+    entities = [
+        {
+            "object_id": i,
+            "type": "AcDb2dPolyline",
+            "coordinate_dimension": 3,
+            "coordinates": [
+                v
+                for x, y in p["points"]
+                for v in [round(x * scale, 6), round((ink.shape[0] - y) * scale, 6), 0]
+            ],
+            "closed": p["closed"],
+            "normal": [0, 0, 1],
+            "elevation": 0,
+            "constant_width": round(p["stroke_width"] * scale, 6),
+        }
+        for i, p in enumerate(paths)
+    ]
+    result = compare(
+        image,
+        {
+            "source": {
+                "sha256": hashlib.sha256(image.read_bytes()).hexdigest(),
+                "width": 30,
+                "height": 20,
+            },
+            "entities": entities,
+            "verified_text_entity_ids": [],
+            "annotation_bounds": [[0, 0, 29, 19]],
+            "snapshot_sha256": "fixture",
+            "document": "fixture",
+        },
+    )
+    assert result["missing_pixels"] == 0
+    assert result["annotation_missing_pixels"] == 0
+    assert result["geometry_residual_clear"] is True
+    assert result["quality_accepted"] is False

@@ -152,7 +152,7 @@ export async function indexReferenceSource(root: string, workspace: string, path
     const python = resolve(root, 'cader-mcp/.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
     if (!await stat(python).catch(() => null))
         return { available: false as const, reason: 'SOURCE_INDEX_ENVIRONMENT_UNAVAILABLE' };
-    const directory = resolve(root, '.cader/cache/source-index/v8', fingerprint.sha256), cached = join(directory, 'index.json');
+    const directory = resolve(root, '.cader/cache/source-index/v9', fingerprint.sha256), cached = join(directory, 'index.json');
     try {
         const value = parseReferenceIndex(JSON.parse(await readFile(cached, 'utf8')), fingerprint);
         emit({ type: 'source.index_loaded', cached: true, source_sha256: fingerprint.sha256, items: value.items.length });
