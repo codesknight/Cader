@@ -159,8 +159,9 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
     if(!progressive.document&&owner.taskScope(taskId).new_drawing_confirmed){progressive.document=owner.facts().scratch;await checkpoint('original_new_document_ACK_reconciled');}
     const splitDepth=(id:string)=>{let depth=0,ancestor=id;for(;;){const parent=progressive.decompositions?.find(d=>d.children.includes(ancestor));if(!parent)break;depth++;ancestor=parent.parent;}return depth;};
     const canRefineRegion=(region:ProgressiveRegion,descriptor:ProgressivePlanData['regions'][number])=>{
-      const depth=splitDepth(region.id),pixels=(descriptor.bounds[1][0]-descriptor.bounds[0][0])*image.width*(descriptor.bounds[1][1]-descriptor.bounds[0][1])*image.height;
-      return !region.entity_ids.length&&progressive.plan!.regions.length<64&&(depth<2||Boolean(reference)&&depth<4&&pixels>512*512);
+      const depth=splitDepth(region.id),width=(descriptor.bounds[1][0]-descriptor.bounds[0][0])*image.width,height=(descriptor.bounds[1][1]-descriptor.bounds[0][1])*image.height,pixels=width*height;
+      const denseOverflow=region.failure?.startsWith('SOURCE_LABEL_INVENTORY_LIMIT')&&depth<6&&width>64&&height>64&&pixels>128*128;
+      return !region.entity_ids.length&&progressive.plan!.regions.length<64&&(depth<2||Boolean(reference)&&(depth<4&&pixels>512*512||denseOverflow));
     };
     const splitRegion=async(region:ProgressiveRegion,descriptor:ProgressivePlanData['regions'][number])=>{
       const history=progressive.decompositions??=[];

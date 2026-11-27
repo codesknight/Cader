@@ -193,7 +193,7 @@ test('short source workflow does not turn provider transport failure into a prog
 
 
 test('dense label overflow refines bounded high-resolution scopes rather than blocking at the coarse depth or accepting a partial',async()=>{
- const f=await fixture({partial:true,denseLimit:true});assert.equal(f.draws(),0);assert.equal(f.result.quality_accepted,false);assert.equal(f.result.progressive?.regions.length,32);assert.equal(f.inspections(),62);assert.equal(f.events.filter(e=>e.type==='task.region_split').length,30);assert.ok(f.result.progressive!.regions.every(r=>r.status==='blocked'&&r.failure!.includes('SOURCE_LABEL_INVENTORY_LIMIT')));
+ const f=await fixture({partial:true,denseLimit:true});assert.equal(f.draws(),0);assert.equal(f.result.quality_accepted,false);assert.equal(f.result.progressive?.regions.length,64);assert.equal(f.inspections(),126);assert.equal(f.events.filter(e=>e.type==='task.region_split').length,62);assert.ok(f.result.progressive!.regions.every(r=>r.status==='blocked'&&r.failure!.includes('SOURCE_LABEL_INVENTORY_LIMIT')));
 });
 
 
