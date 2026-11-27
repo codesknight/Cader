@@ -49,5 +49,5 @@ export {sourceViewContract} from './source-view-contract.js';
 export {indexReferenceSource,parseReferenceIndex} from './reference-index.js';
 export type {ReferenceIndex,SourceItem,PixelBox} from './reference-index.js';
 
-export {sourceItemView} from './reference-review.js';
+export {sourceItemView,sourceLiteralKey,reviewIndexedSource} from './reference-review.js';
 export type {IndexedSourceReading} from './reference-review.js';

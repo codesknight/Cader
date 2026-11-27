@@ -13,9 +13,11 @@ export interface IndexedSourceReading {
     evidence: string;
     semantic_pending: boolean;
 }
-export function sourceItemView(index: ReferenceIndex, items: SourceItem[]) {
-    const left = Math.max(0, Math.floor(Math.min(...items.map(i => i.bounds[0])) - 24)), top = Math.max(0, Math.floor(Math.min(...items.map(i => i.bounds[1])) - 24));
-    const right = Math.min(index.source.width, Math.ceil(Math.max(...items.map(i => i.bounds[2])) + 25)), bottom = Math.min(index.source.height, Math.ceil(Math.max(...items.map(i => i.bounds[3])) + 25));
+export const sourceLiteralKey=(text:string|null)=>text===null?null:text.normalize('NFC').trim().replace(/\s+/gu,' ');
+const sameReading=(a:IndexedSourceReading,b:IndexedSourceReading)=>sourceLiteralKey(a.text)===sourceLiteralKey(b.text)&&a.rotation===b.rotation;
+export function sourceItemView(index: ReferenceIndex, items: SourceItem[],padding=24) {
+    const left = Math.max(0, Math.floor(Math.min(...items.map(i => i.bounds[0])) - padding)), top = Math.max(0, Math.floor(Math.min(...items.map(i => i.bounds[1])) - padding));
+    const right = Math.min(index.source.width, Math.ceil(Math.max(...items.map(i => i.bounds[2])) + padding + 1)), bottom = Math.min(index.source.height, Math.ceil(Math.max(...items.map(i => i.bounds[3])) + padding + 1));
     return { crop: { left, top, width: right - left, height: bottom - top } };
 }
 /** Independent actual-pixel review, separate from producer OCR/CV scores and CAD.
@@ -26,9 +28,9 @@ export async function reviewIndexedSource(run: (profile: string, instruction: st
         throw new Error('REFERENCE_CHANGED_RESELECT_REQUIRED');
     if (!items.length || items.length > 32 || new Set(items.map(i => i.id)).size !== items.length)
         throw new Error('SOURCE_REVIEW_IDS_INVALID');
-    const read = async (targets: SourceItem[], independentText = false) => {
+    const read = async (targets: SourceItem[], independentText = false, tight=false) => {
         reserve();
-        const view = sourceItemView(index, targets), b = view.crop;
+        const view = sourceItemView(index, targets,tight?1:24), b = view.crop;
         const frame: [
             [
                 number,
@@ -53,26 +55,31 @@ export async function reviewIndexedSource(run: (profile: string, instruction: st
                 return JSON.stringify({ source_sha256: sha, items: rows, complete_source_accepted: false });
             } };
         const candidates = targets.map(i => ({ id: i.id, kind: i.kind, bounds: [local(i.bounds.slice(0, 2)), local(i.bounds.slice(2))], ...(i.kind === 'path' ? { points: i.points.map(local), closed: i.closed, stroke_width_pixels: i.stroke_width } : { ...(!independentText ? { ocr_hypothesis: i.text } : {}), notice: 'Read literal and orientation independently; do not use the producer score as evidence.' }) }));
-        const result = await run(profile, '只独立核对实际原图BASE裁片内指定ID的图形外观/位置/文字。候选是本地图像处理的假设，不是答案，不是已绘CAD。逐项调用cader_submit_indexed_source_review。clear表示当前像素足以支持该路径/轮廓或准确字面值；uncertain表示实际不能辨认；reject表示候选坐标/形状/文字对应范围错误。可见的线条不因未知用途、图框角色、未请求比例尺或跨区功能关系而变成不可见；这些语义用semantic_pending单独保存，不声称拓扑已验收。路径可能是未识别字符的笔画：可核实几何，但不能把描出字形称为已识别数值，semantic_pending=true，后续完整可读性另验。文字必须从像素逐字读，不猜单位/大小写，clear时text和rotation必填；非文字两项为null。整个图纸是否画完不在本次源观察范围，不能用它改变可见性结论。' + (independentText ? '这是对有冲突字面值的第二次独立读取；没有给出前次结论，不能自行求一致。' : '') + JSON.stringify({ task, coordinate_system: 'normalized-BASE-top-left-y-down', candidates }), { image: path, imageView: view, sourceDetails: sourceAspectViews(view).map((view, i) => ({ path, view, label: 'Actual-pixel source detail ' + i + '. Report only the stable IDs, never new positions or offsets.' })), observationFrame: frame, observationViewAware: true, independentEvidence: true, taskState: () => ({ phase: 'reference', source_sha256: sha, requested_item_ids: targets.map(i => i.id), semantics: 'pending separately; no prior CAD review' }), signal, skill: 'progressive-drawing', skillResource: 'source-observation', onlyTools: [tool.name, 'cader_view_image', 'cader_load_skill'], extraTools: [tool], maxImageViews: 2, maxModelSteps: 4, resultText: () => structured ? JSON.stringify(structured) : undefined });
+        const result = await run(profile, '只独立核对实际原图BASE裁片内指定ID的图形外观/位置/文字。候选是本地图像处理的假设，不是答案，不是已绘CAD。逐项调用cader_submit_indexed_source_review。clear表示当前像素足以支持该路径/轮廓或准确字面值；uncertain表示实际不能辨认；reject表示候选坐标/形状/文字对应范围错误。可见的线条不因未知用途、图框角色、未请求比例尺或跨区功能关系而变成不可见；这些语义用semantic_pending单独保存，不声称拓扑已验收。路径可能是未识别字符的笔画：可核实几何，但不能把描出字形称为已识别数值，semantic_pending=true，后续完整可读性另验。文字严格限于每项bounds内，不能串入相邻标签或邻行；高清单项目裁片只显示该目标和极小边缘。文字必须从像素逐字读，不猜单位/大小写，clear时text和rotation必填；非文字两项为null。整个图纸是否画完不在本次源观察范围，不能用它改变可见性结论。' + (independentText ? '这是对有冲突字面值的第二次独立读取；没有给出前次结论，不能自行求一致。' : '') + JSON.stringify({ task, coordinate_system: 'normalized-BASE-top-left-y-down', candidates }), { image: path, imageView: view, sourceDetails: sourceAspectViews(view).map((view, i) => ({ path, view, label: 'Actual-pixel source detail ' + i + '. Report only the stable IDs, never new positions or offsets.' })), observationFrame: frame, observationViewAware: true, independentEvidence: true, taskState: () => ({ phase: 'reference', source_sha256: sha, requested_item_ids: targets.map(i => i.id), semantics: 'pending separately; no prior CAD review' }), signal, skill: 'progressive-drawing', skillResource: 'source-observation', onlyTools: [tool.name, 'cader_view_image', 'cader_load_skill'], extraTools: [tool], maxImageViews: 2, maxModelSteps: 4, resultText: () => structured ? JSON.stringify(structured) : undefined });
         if (!structured || result.status !== 'succeeded')
             throw new Error(result.errorCode ?? 'SOURCE_ITEM_REVIEW_INVALID');
         return { id: result.id, items: structured, view };
     };
     const first = await read(items);
-    const disputed = items.filter(i => i.kind === 'text' && first.items.find(r => r.id === i.id)?.status === 'clear' && (first.items.find(r => r.id === i.id)?.text !== i.text || i.alternatives.length));
+    const disputed = items.filter(i => i.kind === 'text' && first.items.find(r => r.id === i.id)?.status === 'clear' && (sourceLiteralKey(first.items.find(r => r.id === i.id)?.text??null) !== sourceLiteralKey(i.text) || i.alternatives.length));
     const second = disputed.length ? await read(disputed, true) : null;
-    let readings = first.items.map(row => { const other = second?.items.find(r => r.id === row.id); return other && (other.status !== 'clear' || other.text !== row.text || other.rotation !== row.rotation) ? { ...row, status: 'uncertain' as const, evidence: 'Independent literal readings disagree; explicit clarification or new evidence required.' } : row; });
+    let readings = first.items.map(row => { const other = second?.items.find(r => r.id === row.id); return other && (other.status !== 'clear' || !sameReading(other,row)) ? { ...row, status: 'uncertain' as const, evidence: 'Independent literal readings disagree; explicit clarification or new evidence required.' } : row; });
     const details: Awaited<ReturnType<typeof read>>[] = [];
     // A small glyph on a broad BASE must be re-observed in a bounded actual-pixel
     // crop before asking the user. Never re-read already accepted unrelated facts.
     for (const row of readings.filter(r => r.status === 'uncertain').slice(0, 8)) {
         const item = items.find(i => i.id === row.id)!;
-        const detail = await read([item], true);
+        const detail = await read([item], true, true);
         details.push(detail);
         const refined = detail.items[0]!;
-        const old = first.items.find(r => r.id === row.id)!;
-        if (refined.status === 'clear' && (old.status !== 'clear' || old.text === refined.text && old.rotation === refined.rotation))
-            readings = readings.map(r => r.id === row.id ? refined : r);
+        if (refined.status !== 'clear') continue;
+        // Two fresh target-only reads may correct a broad-view neighbor leak.
+        // Keep ALL original disagreements; never force a new reading to match
+        // the old broad crop or normalize case/units/numerical punctuation.
+        const confirm = await read([item], true, true);
+        details.push(confirm);
+        if (confirm.items[0]!.status === 'clear' && sameReading(refined,confirm.items[0]!))
+            readings = readings.map(r => r.id === row.id ? {...refined,text:sourceLiteralKey(refined.text),evidence:refined.evidence+'; confirmed by independent target-only reread; earlier broad evidence retained.'} : r);
     }
     const again = await readReferenceImage(root, path);
     if (createHash('sha256').update(again.data).digest('hex') !== sha)

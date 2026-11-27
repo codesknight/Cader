@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseReferenceIndex, sourceItemView, observedArguments } from '@cader/dsh-adapter';
 import type { ReferenceIndex, SourceItem } from '@cader/dsh-adapter';
-import { createSourceWorklist, assertSourceWorklist, sourceSelection, sourceItemOperation, reconcileSourceBatch, verifySourceItem, sourceWorklistPage, sourceDigest, cadRequestDigest, sourceBatchReviewAccepted,bindSourceReview,verifySourceGraph,sourceGroupReviewScope,sourceBatchSelection,sourceWindowReviewScope,scopedNativeWindowContainsTargets,runIndexedRegions } from '@cader/profile';
+import { createSourceWorklist, assertSourceWorklist, sourceSelection, sourceItemOperation, reconcileSourceBatch, verifySourceItem, sourceWorklistPage, sourceDigest, cadRequestDigest, sourceBatchReviewAccepted,bindSourceReview,verifySourceGraph,sourceGroupReviewScope,sourceBatchSelection,sourceWindowReviewScope,scopedNativeWindowContainsTargets,runIndexedRegions,sourcePrimitiveCoverage } from '@cader/profile';
 const path: SourceItem = { id: 'path_a', kind: 'path', status: 'proposal', bounds: [10, 20, 70, 60], points: [[10, 20], [70, 20], [70, 60]], closed: false, pixel_length: 100, stroke_width: 2 };
 const text: SourceItem = { id: 'text_b', kind: 'text', status: 'proposal', bounds: [25, 70, 55, 80], text: '10kΩ', quad: [[25, 70], [55, 70], [55, 80], [25, 80]], score: .9, alternatives: [] };
 test('full source window uses exact paired pixel edges; primitive passes cannot release full fidelity',()=>{
@@ -122,4 +122,25 @@ test('Scheduler cannot promote primitive checkpoints without every full source-w
  const runtime:any={executionStop:()=>null,setVerificationScope:()=>{},async reviewCadView(question:string){const q=JSON.parse(question);questions.push(q);return {review_valid:true,image_ref:'fixture',evidence:{reference:{sha256:v.source.sha256},document:'owned',review_scope:q.review_scope},structured:{verdict:questions.length===1?'uncertain':'pass',checklist:[{requirement_id:'indexed_region_fidelity',status:questions.length===1?'uncertain':'pass'}]}};}};
  await runIndexedRegions({runtime,owner:{definitions:()=>[],facts:()=>({native_target:{document_id:'identity'}})} as any,progressive:p,index:v,sourcePath:'fixture',task:'fixture',model:async()=>{modelCalls++;throw new Error('Unexpected model');},enter:async()=>{},persist:async()=>{},checkpoint:async()=>{},assertSource:async()=>{},observe:async()=>({entities,document:'owned',document_revision:null,observed_at:'fixture'}),emit:()=>{},onEvidenceError:()=>{},onVisual:()=>{}});
  assert.equal(questions.length,2);assert.equal(modelCalls,0);assert.equal(regions[0]!.status,'blocked');assert.equal(regions[1]!.status,'verified');assert.equal(regions[0]!.failure,'SOURCE_FULL_REGION_VISUAL_PENDING');assert.ok(questions.every(q=>q.review_scope.mode==='source-window'&&!q.review_scope.geometry_only));assert.ok(!regions.every(r=>r.status==='verified'));
+});
+
+test('per-target visual re-observation combines real rows only; one close-up cannot pass unobserved neighbors',()=>{
+ const entities=[{object_id:1,type:'AcDbPolyline'},{object_id:2,type:'AcDbText',text_string:'A'}];
+ const report=(ids:number[],failed:number[]=[])=>({review_valid:true,structured:{verdict:failed.length?'fail':'pass',checklist:[{requirement_id:'indexed_batch_fidelity',status:failed.length?'fail':'pass'}]},evidence:{reference:{sha256:'source'},document:'owned',review_scope:{id:'scope'+ids.join('-'),entity_ids:ids,geometry_only:true,source_sha256:'source',snapshot_hash:'state'}},scope_report:{scope_id:'scope'+ids.join('-'),checked_entity_ids:ids,geometry_checks:ids.flatMap(id=>[{entity_id:id,check:'primitive_visibility',status:failed.includes(id)?'uncertain':'pass'},...id===2?[{entity_id:id,check:'text_readability',status:'pass'}]:[]])}});
+ const broad=report([1,2],[2]),close=report([2]);
+ assert.equal(sourcePrimitiveCoverage([broad],entities,'source','owned','state','state').complete,false);
+ assert.equal(sourcePrimitiveCoverage([close],entities,'source','owned','state','state').complete,false);
+ assert.equal(sourcePrimitiveCoverage([broad,close],entities,'source','owned','state','state').complete,true);
+ assert.equal(sourcePrimitiveCoverage([close,broad],entities,'source','owned','state','state').complete,false);
+ assert.equal(sourcePrimitiveCoverage([broad,close],entities,'source','owned','state','changed').complete,false);
+ assert.equal(sourcePrimitiveCoverage([broad,close],entities,'wrong-source','owned','state','state').complete,false);
+ assert.equal(sourcePrimitiveCoverage([broad,{...close,scope_report:{...close.scope_report,geometry_checks:[]}}],entities,'source','owned','state','state').complete,false);
+ assert.equal(broad.structured.verdict,'fail'); // Never rewrite the old model report.
+});
+test('Scheduler blocks geometry edits when native source coordinates already match despite a visual complaint',async()=>{
+ const v=index();v.items=[path];const w=createSourceWorklist(v,'fixture');w.items[path.id]!.status='committed';w.items[path.id]!.entity_ids=[1];
+ const entity={object_id:1,type:'AcDb2dPolyline',closed:false,coordinates:[100,800,0,700,800,0,700,400,0],coordinate_dimension:3,normal:[0,0,1],elevation:0,constant_width:20,bulges:[0,0,0]};
+ let calls=0;const p:any={document:'owned',source_worklist:w,regions:[{id:'source_tile_0',status:'drawing',failure:null,entity_ids:[1],batches:[],repairs:0}],plan:{regions:[{id:'source_tile_0'}]}};
+ await runIndexedRegions({runtime:{executionStop:()=>null} as any,owner:{definitions:()=>[],facts:()=>({operations:[]})} as any,progressive:p,index:v,sourcePath:'fixture',task:'fixture',model:async(_task,request)=>{calls++;await assert.rejects(request!.beforeCadOperation!('mcp__autocad__move_entity',{object_id:1}),/SOURCE_NATIVE_GEOMETRY_MATCHES/);return {} as any;},enter:async()=>{},persist:async()=>{},checkpoint:async()=>{},assertSource:async()=>{},observe:async()=>({entities:[entity],document:'owned',document_revision:null,observed_at:'fixture'}),emit:()=>{},onEvidenceError:()=>{},onVisual:()=>{}});
+ assert.equal(calls,3);assert.equal(w.items[path.id]!.status,'committed');assert.equal(p.regions[0].status,'blocked');assert.equal(entity.coordinates[0],100);
 });

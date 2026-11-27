@@ -33,6 +33,30 @@ export interface SourceWorklist {
     residual_reviews: unknown[];
 }
 export const sourceDigest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+/** Aggregate actual per-target observations, never synthesize a model verdict.
+ * A closer view can supersede only the targets it really inspected. All raw
+ * conflicting reports stay in the batch history and full fidelity stays pending. */
+export function sourcePrimitiveCoverage(reviews: any[], entities: Entity[], source: string, document: string, before: string, after: string) {
+    const expected = new Map(entities.flatMap(e => [[`${e.object_id}:primitive_visibility`, e.object_id], ...typeof e.text_string === 'string' ? [[`${e.object_id}:text_readability`, e.object_id]] : []] as [
+        string,
+        number
+    ][]));
+    const statuses = new Map<string, string>(), ids = new Set(entities.map(e => e.object_id));
+    let admitted = 0;
+    for (const report of reviews) {
+        const evidence = report?.evidence, scope = evidence?.review_scope, result = report?.scope_report, rows = result?.geometry_checks;
+        if (before !== after || !report.review_valid || !report.structured?.checklist?.some((c: any) => c.requirement_id === 'indexed_batch_fidelity') || evidence.reference?.sha256 !== source || evidence.document !== document || !scope?.geometry_only || scope.source_sha256 !== source || scope.snapshot_hash !== before || result?.scope_id !== scope.id || !Array.isArray(scope.entity_ids) || !scope.entity_ids.length || new Set(scope.entity_ids).size !== scope.entity_ids.length || scope.entity_ids.some((id: number) => !ids.has(id)) || !Array.isArray(result.checked_entity_ids) || sourceDigest([...result.checked_entity_ids].sort()) !== sourceDigest([...scope.entity_ids].sort()) || !Array.isArray(rows) || evidence.image_bounds?.possible_clipping && !scopedNativeWindowContainsTargets(evidence))
+            continue;
+        const keys = [...expected].filter(([, id]) => scope.entity_ids.includes(id)).map(([key]) => key), actual = rows.map((r: any) => `${r.entity_id}:${r.check}`);
+        if (actual.length !== keys.length || new Set(actual).size !== keys.length || actual.some((key: string) => !keys.includes(key)) || rows.some((r: any) => !['pass', 'fail', 'uncertain'].includes(r.status)))
+            continue;
+        admitted++;
+        for (const row of rows)
+            statuses.set(`${row.entity_id}:${row.check}`, row.status);
+    }
+    const unresolved = [...new Set([...expected].filter(([key]) => statuses.get(key) !== 'pass').map(([, id]) => id))];
+    return { complete: entities.length > 0 && !unresolved.length && before === after, unresolved_entity_ids: unresolved, admitted_reports: admitted, checks: [...expected].map(([key, id]) => ({ entity_id: id, check: key.split(':')[1], status: statuses.get(key) ?? 'not_run' })) };
+}
 /** Full source coverage is reviewed only after all primitives exist. The crop
  * is an exact pixel-edge window shared by source and native plotting; crossing
  * entities are intentionally cropped on BOTH sides, never silently omitted. */
@@ -72,8 +96,12 @@ export function bindSourceReview(scope: ReturnType<typeof progressiveReviewScope
         throw new Error('SOURCE_REVIEW_CROP_BINDING_REQUIRED');
     const local = ([x, y]: number[]) => [Number(((x! - crop.left) / crop.width).toFixed(7)), Number(((y! - crop.top) / crop.height).toFixed(7))];
     const source_bindings = items.map(item => ({ source_id: item.id, group_id: item.group_id ?? null, entity_ids: work.items[item.id]!.entity_ids, geometry: item.kind === 'path' ? { kind: 'path', points: item.points.map(local), closed: item.closed } : { kind: 'text', text: work.items[item.id]!.text ?? item.text, bounds: [local(item.bounds.slice(0, 2)), local(item.bounds.slice(2))] } }));
-    const targets = scope.binding.targets.map(target => { const members = source_bindings.filter(b => b.entity_ids.includes(target.entity_id)); if (members.length !== 1)
-        throw new Error('SOURCE_REVIEW_ENTITY_BINDING_INVALID'); return { ...target, source_trace_ids: [members[0]!.source_id] }; });
+    const targets = scope.binding.targets.map(target => {
+        const members = source_bindings.filter(b => b.entity_ids.includes(target.entity_id));
+        if (members.length !== 1)
+            throw new Error('SOURCE_REVIEW_ENTITY_BINDING_INVALID');
+        return { ...target, source_trace_ids: [members[0]!.source_id] };
+    });
     const { id: _id, ...previous } = scope.binding;
     const binding = { ...previous, targets, source_coordinate_system: 'normalized-attached-reference-crop-top-left-y-down', source_bindings };
     return { ...scope, binding: { ...binding, id: sourceDigest(binding) } };

@@ -421,3 +421,7 @@ BUG107分层验收：实际pnpm typecheck、pnpm test（368/368，后续Schedule
 最终分层Scheduler基线：pnpm typecheck、pnpm test（369/369）、pnpm smoke均通过；Python20项通过、Ruff check/format通过。此前tsx不存在及新增测试snapshot字段不完整的开发命令失败均保留，已改用仓库build后node --test及补齐fixture字段；不能把那些失败命令报告通过。
 
 CI db30d89真实失败已确认：基础Python环境未安装可选vision依赖，新refinement测试直接import numpy导致1失败/15通过/4跳过。补importorskip并新增独立source-vision-components CI作业，显式装vision extra运行合成源像素测试，无付费API/真实CAD/OCR权重下载。原失败不删除。追加源坐标精度一致的最多3轮只读细化；固定OCR提案预检0缺像素、0显著多余分量只是源预检，尚不代表CAD验收。
+
+BUG108/109专项17项及typecheck通过（确定性worker/Scheduler，非真实CAD）。首次全量在本机并行Node测试进程中出现Zone Allocation failed/系统内存不足，保留tests-reobservation.txt，未将其当成产品用例失败或通过。测试入口限制4个并发文件，不关闭任何用户AutoCAD/其他进程、不提高内存限额；全量复验结果随后记录。attempt06操作账本只有75 draw_polyline、4 create_layer、1 new_drawing；未观察到移动，相关文档与聊天推断已纠正。
+
+复验：pnpm typecheck通过；pnpm test在4个文件并发下375/375通过；pnpm smoke通过。最后仅将每实体视觉证据缩为本实体检查，避免全批覆盖矩阵在每个实体重复存储；typecheck及17项源读取/覆盖/Scheduler专项再次通过。真实回归仍需新运行，不能以夹具或前一基线局部通过代表整体。
