@@ -96,7 +96,7 @@ try {
       intent: intent as 'assess' | 'redraw', imageView: { rotation: rotation as 0 | 90 | 180 | 270, crop } };
   }
   if (command === '--version' || command === '-v') {
-    console.log('Cader 0.4.0-dev.14');
+    console.log('Cader 0.4.0-dev.15');
   } else if (command === '--help' || command === 'help' || (command === 'exec' && process.argv.includes('--help'))) {
     console.log(usage);
     console.log('\nNo command: interactive Cader terminal. chat [--workspace <dir>] [--stdio]\n--version  Show version without configuration or network.');

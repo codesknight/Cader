@@ -58,7 +58,7 @@ test('batch checks reject out-of-region effects and duplicate geometry independe
   assert.deepEqual(context.pending_reasons,['SOURCE_COMPONENT_INVENTORY_FAILED']);
 });
 // Scheduler fixture, not model or native AutoCAD evidence.
-async function fixture(extra:{badBatch?:boolean;pause?:boolean;partial?:boolean;taskReport?:boolean;sharedLayerCase?:boolean;readOnlySlices?:number;scopeReconcile?:boolean;alwaysVisualFailure?:boolean;uncertain?:boolean;taskText?:string;priorNative?:boolean}={}){
+async function fixture(extra:{badBatch?:boolean;pause?:boolean;partial?:boolean;taskReport?:boolean;sharedLayerCase?:boolean;readOnlySlices?:number;scopeReconcile?:boolean;alwaysVisualFailure?:boolean;uncertain?:boolean;taskText?:string;priorNative?:boolean;providerFailure?:string;reviewProviderFailure?:string;providerRecovered?:boolean}={}){
   const requestTask=extra.taskText??task;let factories=0;
   let scratch:string|null=null,grant=false,draws=0,views=0,inspections=0,saved:any,paused=false,bad=extra.badBatch;
   const entities:Record<string,any>[]=[];const operations:any[]=[];const states:any[]=[];const events:any[]=[];
@@ -69,8 +69,8 @@ async function fixture(extra:{badBatch?:boolean;pause?:boolean;partial?:boolean;
   const scope=()=>({owned:!!scratch||grant,target:scratch,connection:'fixture-connection',new_drawing_confirmed:!!scratch,geometry_confirmed:draws,entity_ids:entities.map(e=>e.object_id)});
   const facts=()=>({frozen:false,transport:'connected',local_connection_id:'fixture-connection',scratch,operations,session_counts:{committed:operations.length,unknown:0}});
   const owner={workspace:process.cwd(),facts,taskScope:scope,endTask(){grant=false;},async authorizeTask(){grant=true;return true;},async refineTaskPlan(){},async saveTaskArtifact(){return {path:'fixture-only-not-a-real-DWG',bytes:0,sha256:'fixture-only'};},async snapshot(){return {document:scratch,entities:structuredClone(entities)};},definitions(){return ['new_drawing','draw_circle','move_entity','delete_entity'].map(n=>({name:'mcp__autocad__'+n}));}};
-  const runtime={visionProfileId:'VisionAgent',setVerificationScope(){},enableTaskBudget(){},dispose:async()=>{},completed:()=>extra.taskReport?[{id:'fixture-old-failed-stage',profile:'MainAgent',status:'failed',text:'',tools:[],errorCode:'OUTPUT_TRUNCATED'},{id:'fixture-final-stage',profile:'MainAgent',status:'succeeded',text:'fixture',tools:[]}]:[],reviewStats:()=>({capture_attempts:views,model_calls:views}),budgetState:()=>({}),
-    async inspectReference(){inspections++;return {valid:false,structured:null,evidence:{path:'benchmark/fixtures/vision-calibration.png',sha256:sourceHash,width:pixels.width,height:pixels.height}};},
+  const runtime={visionProfileId:'VisionAgent',setVerificationScope(){},enableTaskBudget(){},dispose:async()=>{},completed:()=>extra.providerFailure||extra.reviewProviderFailure?[{id:'provider-failed-evidence',status:'failed',errorCode:extra.providerFailure??extra.reviewProviderFailure,recovered_by:extra.providerRecovered?'successful-source-replacement':undefined}]:extra.taskReport?[{id:'fixture-old-failed-stage',profile:'MainAgent',status:'failed',text:'',tools:[],errorCode:'OUTPUT_TRUNCATED'},{id:'fixture-final-stage',profile:'MainAgent',status:'succeeded',text:'fixture',tools:[]}]:[],reviewStats:()=>({capture_attempts:views,model_calls:views}),budgetState:()=>({}),
+    async inspectReference(){inspections++;return {attempts:extra.providerFailure?[{id:'provider-failed-evidence',status:'failed',valid:false}]:[],valid:false,structured:null,evidence:{path:'benchmark/fixtures/vision-calibration.png',sha256:sourceHash,width:pixels.width,height:pixels.height}};},
     async inspectProgressiveDraft(_path:string,region:any){return {valid:true,coverage:'partial',scope:region,source_sha256:sourceHash,agreements:[{trace:{id:'known_circle',kind:'circle',certainty:'clear',evidence:'fixture only',center:[(region.bounds[0][0]+region.bounds[1][0])/2,0.5],radius:0.01},independent_id:'fixture-second-read'}]};},
     async run(_profile:string,_text:string,req:any){
       const tool=req.extraTools?.[0];const exec={concludeTurn(){}};
@@ -91,7 +91,7 @@ async function fixture(extra:{badBatch?:boolean;pause?:boolean;partial?:boolean;
         await tool.execute({unit_id:region},exec);
       }
       return {status:'succeeded',text:'fixture',tools:[],id:'fixture'};
-    },async reviewCadView(question:string){views++;const q=JSON.parse(question);if(q.partial_batch){assert.notEqual(q.original_request,requestTask);assert.equal(q.verification_scope,'affected-batch');assert.equal(q.region.description,undefined);assert.deepEqual(q.entity_snapshot.map((e:any)=>e.object_id),q.affected_entity_ids);}else assert.equal(q.original_request,requestTask);const fail=extra.alwaysVisualFailure||bad&&q.partial_batch;bad=false;return {image_ref:'fixture-'+views,evidence:{document:scratch,sha256:'fixture',reference:{sha256:sourceHash},image_bounds:{possible_clipping:false}},review_valid:true,structured:{verdict:extra.uncertain?'uncertain':fail?'fail':'pass',defects:[],uncertainties:extra.uncertain?['Synthetic unresolved pixels']:[],checklist:q.requirements.map((r:any)=>({requirement_id:r.id,status:extra.uncertain?'uncertain':fail?'fail':'pass',evidence:'fixture only'}))},attempts:[]};}};
+    },async reviewCadView(question:string){views++;if(extra.reviewProviderFailure)return {image_ref:'failed-fixture',evidence:{document:scratch},review_valid:false,structured:null,attempts:[{id:'provider-failed-evidence',status:'failed',text:'',valid:false}]};const q=JSON.parse(question);if(q.partial_batch){assert.notEqual(q.original_request,requestTask);assert.equal(q.verification_scope,'affected-batch');assert.equal(q.region.description,undefined);assert.deepEqual(q.entity_snapshot.map((e:any)=>e.object_id),q.affected_entity_ids);}else assert.equal(q.original_request,requestTask);const fail=extra.alwaysVisualFailure||bad&&q.partial_batch;bad=false;return {image_ref:'fixture-'+views,evidence:{document:scratch,sha256:'fixture',reference:{sha256:sourceHash},image_bounds:{possible_clipping:false}},review_valid:true,structured:{verdict:extra.uncertain?'uncertain':fail?'fail':'pass',defects:[],uncertainties:extra.uncertain?['Synthetic unresolved pixels']:[],checklist:q.requirements.map((r:any)=>({requirement_id:r.id,status:extra.uncertain?'uncertain':fail?'fail':'pass',evidence:'fixture only'}))},attempts:[]};}};
   let reconciliations=0;
   if(extra.scopeReconcile)(runtime as any).reassessCadView=async(question:string,imageRef:string)=>{reconciliations++;const result=await runtime.reviewCadView(question);return {...result,image_ref:imageRef};};
   const options:any={runtime,owner,task:requestTask,root:process.cwd(),profile:'MainAgent',persist:async(s:unknown)=>{saved=structuredClone(s);states.push(saved);},emit:(e:unknown)=>events.push(e)};
@@ -170,4 +170,22 @@ test('partial source contracts reject guessed geometry and verify native endpoin
 
 test('unobservable batch pixels with passing native checks do not trigger blind geometry repair loops',async()=>{
   const f=await fixture({uncertain:true});assert.equal(f.result.quality_accepted,false);assert.equal(f.draws(),2);assert.ok(f.result.progressive!.regions.every(r=>r.repairs===0&&r.failure==='REGION_VISUAL_EVIDENCE_UNCERTAIN'));assert.ok(!f.states.some(s=>s.phase==='correcting'));
+});
+
+
+for(const code of ['TRANSPORT','TIMEOUT','SERVER'])test(`source provider ${code} pauses the task rather than refining or spending other regions`,async()=>{
+  const f=await fixture({partial:true,providerFailure:code});assert.equal(f.result.failure?.code,code);assert.equal(f.result.phase,'pending_verification');assert.equal(f.result.quality_accepted,false);assert.equal(f.draws(),0);assert.equal(f.inspections(),1);assert.equal(f.result.progressive?.regions.length,2);assert.ok(!f.events.some(e=>e.type==='task.region_split'));assert.equal(f.result.progressive?.regions[1]?.status,'pending');
+});
+test('vision provider failure survives a tool callback handoff and preserves a confirmed prefix without more drawing',async()=>{
+  const f=await fixture({reviewProviderFailure:'TRANSPORT'});assert.equal(f.result.failure?.code,'TRANSPORT');assert.equal(f.result.quality_accepted,false);assert.equal(f.draws(),1);assert.equal(f.views(),1);assert.equal(f.result.progressive?.regions[1]?.status,'pending');assert.equal(f.result.execution.session_counts.unknown,0);
+});
+
+
+test('already-recovered provider errors do not masquerade as a new source outage',async()=>{
+ const f=await fixture({partial:true,providerFailure:'TRANSPORT',providerRecovered:true});assert.notEqual(f.result.failure?.code,'TRANSPORT');assert.ok(f.inspections()>1);assert.ok(f.events.some(e=>e.type==='task.region_split'));assert.equal(f.result.quality_accepted,false);
+});
+
+
+test('short source workflow does not turn provider transport failure into a progressive semantic fallback',async()=>{
+ const f=await fixture({taskReport:true,partial:true,providerFailure:'TRANSPORT',taskText:'复现这张图纸。'});assert.equal(f.report!.quality!.progressive,null);assert.equal(f.draws(),0);assert.equal(f.factories(),1);assert.equal(f.inspections(),1);
 });

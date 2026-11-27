@@ -399,3 +399,5 @@ REQ-051最终代码离线检查：`pnpm typecheck`、`pnpm test` **316/316**、`
 实际`pnpm typecheck`、`pnpm test`331/331、`pnpm smoke`通过；Skill quick_validate通过。独立MCP python -m pytest -q为304通过/34跳过，实际stdio更新export_current_view schema。真实原始大图先有4M观察回归47确认/0未知、36实体P1文件通过但整图pending；最终2M默认回归7确认/0未知、1个整批通过、2份视觉pass和2份实际原生小图元近景，同连接中断恢复不变量通过。之后模型服务QUOTA（893326 tokens，未达本地2M），保存16826字节/3实体待验DWG，独立只读重开及额外原生支持字段核对通过，整图false。背景触边补修后只对留存真实证据重算、没有新模型/CAD全程复验；5个文字bbox动态差异反例另保留，不抹除或放宽verifier。旧30份文件摘要不变。
 
 实施文件、精确命令、Skill摘要、分层实测和未解决项见[实施记录](2026-11-27-local-visual-scope.md)及[验证记录](../validation/2026-11-27-local-visual-scope.md)。原始轨迹保存在.cader/runs/progressive-scope-20261127/；模型额度/源清点稳定性与整图质量仍待后续回归，不关闭Issue20/PR22。
+
+2026-11-27充值后REQ-052：dev.15离线typecheck、344/344、DSH组件smoke通过；请求重试专项4/4与source/vision故障传播反例通过（确定性模型/工具，非真实CAD）。同一留存真实PNG的新模型逐目标复核pass，0新CAD调用；独立源区新运行时50.191秒有效，仍保留一次流终止故障。原始全图attempt01三次同连接执行累计4.99M/61确认0未知、整图未通过；当前修复后的完整原图另跑，详见[回归](../validation/2026-11-27-whole-sheet-retest.md)。

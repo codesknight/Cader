@@ -3,7 +3,11 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Project home](../../README.md) · [Documentation](../README.md)
 
-**Applies to Cader 0.4.0-dev.14 · Updated 2026-11-27**
+**Applies to Cader 0.4.0-dev.15 · Updated 2026-11-27**
+
+## dev.15: Request recovery and target checks
+
+DSH retries a failed open model request at most twice for TRANSPORT/TIMEOUT/SERVER/RATE_LIMIT/EMPTY_RESPONSE. It preserves confirmed tool history, discards failed-stream tool calls and accumulates task time/tokens. QUOTA/auth failures are not retried. Exhaustion pauses the task with preserved progress instead of treating a provider failure as an unreadable region. geometry_only reports require per-target checks. Independent source/vision workers can read role-authorized registered skills; permissions are unchanged.
 
 ## dev.14: scoped source and native visual checks
 
@@ -14,6 +18,8 @@ Batch reports bind the actual document, snapshot, scope ID and entity IDs. Nativ
 A partial draft checks independently admitted primitives and text. Unobserved stroke weight, fill, color, font style and complete topology remain pending for later acceptance. Small text and tiny primitives receive up to three native close-ups from actual bounding boxes. Independent source/vision workers do not inherit another region’s stale capture state.
 
 A background line may cross a local image edge. It does not block the batch only when verified native window settings match the scope and all declared target bounding boxes lie inside. Visual and geometry checks must still pass.
+
+A geometry_only local report must provide per-entity geometry_checks for visibility, text readability or expected absence, consistent with its scoped verdict. Harness keeps full-source style, coverage and topology pending separately. Actual unobservable targets remain pending.
 
 ## Progressive complex drawing (dev.13)
 

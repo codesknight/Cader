@@ -17,6 +17,7 @@ import ToolsService, { defineTool } from '@deepseek-ai/dsh-tools';
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools';
 import * as nativeExecutor from '@deepseek-ai/dsh-tool-executor-native';
 import * as piAi from '@deepseek-ai/dsh-llm-pi-ai';
+import * as llmRetry from '@deepseek-ai/dsh-llm-retry';
 import * as mcpClient from '@deepseek-ai/dsh-mcp-client';
 import Attachments from '@deepseek-ai/dsh-attachment-local';
 import FileSystem from '@deepseek-ai/dsh-fs-local';
@@ -164,10 +165,16 @@ export async function createLiveRuntime(options: LiveOptions) {
           reasoningEfforts: { off: 'none', low: 'low', high: 'high', max: 'max' } }],
         compat: { supportsStore: false, supportsDeveloperRole: false, maxTokensField: 'max_tokens',
           thinkingFormat: 'deepseek', requiresReasoningContentOnAssistantMessages: true },
-        retryPolicy: { mode: 'normal', maxRetries: 0 },
+        retryPolicy: { mode: 'normal', maxRetries: 2,retryableCodes:['TRANSPORT','TIMEOUT','SERVER','RATE_LIMIT','EMPTY_RESPONSE'],backoff:{initialDelayMs:500,maxDelayMs:5000,jitterRatio:0.1} },
       };
     }
     await ctx.plugin(piAi, { providers });
+    await ctx.plugin(llmRetry);
+    ctx.on('session/event',(session,event)=>{
+      if(event.type!=='llm/retry'&&event.type!=='llm/retry-started')return;
+      const data=event.data as {failure?:{code?:string};retry?:number;maxRetries?:number;delayMs?:number};
+      emit({type:event.type==='llm/retry'?'model.request_retry':'model.request_retry_started',agentId:String(session.id),code:data.failure?.code,retry:data.retry,max_retries:data.maxRetries,delay_ms:data.delayMs,scope:'same open DSH request; no tool replay'});
+    });
     if (options.mcp) {
       const config = options.mcp;
       await ctx.plugin(mcpClient, {
@@ -588,7 +595,12 @@ export async function createLiveRuntime(options: LiveOptions) {
               errorCode = payload.failure.code;
               emit({ type: 'model.error', agentId: id, role: profile.role, code: errorCode,
                 status: payload.failure.status });
-              return next();
+              const decision=await next();
+              if(decision?.kind==='retry'){
+                emit({type:'model.request_retry',agentId:id,role:profile.role,code:payload.failure.code,scope:'same open DSH request; no tool replay'});
+                errorCode=undefined;currentText='';outputTruncated=false;
+              }
+              return decision;
             });
             agentCtx.on('agent/error', ({ error }) => {
               errorCode ??= error instanceof LlmError ? error.code : 'AGENT_FAILED';
@@ -703,7 +715,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       const imageView:ImageView|undefined=bounds?sourceRegionView(bounds,source):undefined;
       const scopeNote=scope?'当前仅核实区域 '+scope.id+'，只报告BASE裁片0..1局部坐标，coordinate_system必须为normalized-crop-top-left-y-down；程序负责转换整图坐标，禁止手算或再次套用整图偏移。仅列本区完整对象；跨区导线延伸到边界，区外连接延后。局部仅有文字、图框或表格时报告layout，可零器件。unknowns只列本区必要复现疑问；物理比例尺未请求时不把它变成门禁。':'';
       const scopedRun:typeof run=(profile,instruction,request={})=>{
-        if(!scope)return run(profile,instruction,{...request,independentEvidence:true,taskState:()=>({phase:'reference',source_sha256:createHash('sha256').update(source.data).digest('hex'),coordinate_system:'normalized-image-top-left-y-down',evidence_scope:'Source pixels only; no CAD or earlier visual claims'})});
+        if(!scope)return run(profile,instruction,{...request,onlyTools:request.onlyTools?[...new Set([...request.onlyTools,'cader_load_skill'])]:undefined,independentEvidence:true,taskState:()=>({phase:'reference',source_sha256:createHash('sha256').update(source.data).digest('hex'),coordinate_system:'normalized-image-top-left-y-down',evidence_scope:'Source pixels only; no CAD or earlier visual claims'})});
         const independentInventory=request.extraTools?.some(t=>['cader_submit_reference_component_inventory','cader_submit_reference_label_inventory'].includes(t.name));
         const localIndex=!independentInventory&&structured?sourceCoordinates({coordinate_system:structured.coordinate_system,content_bounds:structured.content_bounds,objects:structured.objects,visible_text:structured.visible_text},scope.bounds,'to-crop'):null;
         const tools=request.extraTools?.map(tool=>{
@@ -717,7 +729,7 @@ export async function createLiveRuntime(options: LiveOptions) {
           }};
         });
         const details=request.sourceDetails?.map(d=>({...d,view:clipSourceView(d.view,imageView! as ReturnType<typeof sourceRegionView>),label:d.label+' All report positions remain in the BASE region frame; this detail is magnification only.'}));
-        return run(profile,scopeNote+instruction+'\n本次提交的坐标契约优先于历史整图描述。以下索引已由程序转换为BASE裁片坐标，只是定位数据，必须独立看实际像素，不能照抄结论：'+JSON.stringify(localIndex),{...request,independentEvidence:true,taskState:()=>({phase:'reference',reference_scope:{id:scope.id,base_crop_original_pixels:imageView!.crop},coordinate_system:'normalized-crop-top-left-y-down',source_sha256:createHash('sha256').update(source.data).digest('hex'),evidence_scope:'Current BASE source pixels only; no CAD or earlier visual claims'}),sourceDetails:details,extraTools:tools,imageView,observationFrame:scope.bounds,maxModelSteps:4,skill:'progressive-drawing',skillResource:'source-observation'});
+        return run(profile,scopeNote+instruction+'\n本次提交的坐标契约优先于历史整图描述。以下索引已由程序转换为BASE裁片坐标，只是定位数据，必须独立看实际像素，不能照抄结论：'+JSON.stringify(localIndex),{...request,independentEvidence:true,taskState:()=>({phase:'reference',reference_scope:{id:scope.id,base_crop_original_pixels:imageView!.crop},coordinate_system:'normalized-crop-top-left-y-down',source_sha256:createHash('sha256').update(source.data).digest('hex'),evidence_scope:'Current BASE source pixels only; no CAD or earlier visual claims'}),sourceDetails:details,extraTools:tools,onlyTools:request.onlyTools?[...new Set([...request.onlyTools,'cader_load_skill'])]:undefined,imageView,observationFrame:scope.bounds,maxModelSteps:4,skill:'progressive-drawing',skillResource:'source-observation'});
       };
       const sourceNetHistory:{id:string;before:ReturnType<typeof parseReferenceNets>['nets'];reviewed:ReturnType<typeof parseReferenceNets>['nets']|null;valid:boolean}[]=[];
       for(let attempt=0;attempt<2;attempt++){
@@ -884,16 +896,21 @@ export async function createLiveRuntime(options: LiveOptions) {
       let trustedConnections:ReturnType<typeof parseSourceConnectionReview>['connections']=[];
       type SourceTopologyEvidence={raw_report:ReturnType<typeof parseReferenceNets>;confirmations:ReturnType<typeof parseSourceConnectionReview>['connections'];report:ReturnType<typeof parseReferenceNets>;all_clear:boolean;matches_cad_groups:boolean;native_verified:boolean;source_sha256:string};
       let sourceTopologyEvidence:SourceTopologyEvidence|null=null;
-      let scopeReport:{scope_id:unknown;checked_entity_ids:unknown}|null=null;
+      let scopeReport:{scope_id:unknown;checked_entity_ids:unknown;geometry_checks?:unknown}|null=null;
       const reportSchema=structuredClone(visualReportSchema);
       const primitiveDefects=['primitive_not_visible','text_unreadable','rendering_artifact','unexpected_visible_target'];
+      const geometryKeys: string[]=boundScope?.geometry_only?evidenceInput.entity_snapshot.flatMap((e:any)=>e.expected_absent?[`${e.object_id}:expected_absence`]:[`${e.object_id}:primitive_visibility`,...(typeof e.text_string==='string'?[`${e.object_id}:text_readability`]:[])]):[];
       if(boundScope){
         reportSchema.properties.scope_id={type:'string',const:boundScope.id};reportSchema.required.push('scope_id');
         reportSchema.properties.checked_entity_ids={type:'array',uniqueItems:true,minItems:knownIds!.size,maxItems:knownIds!.size,items:{type:'integer',...(knownIds!.size?{enum:[...knownIds!]}:{})}};reportSchema.required.push('checked_entity_ids');
         if(knownIds!.size)reportSchema.properties.defects.items.properties.entity_ids.items.enum=[...knownIds!];
         if(boundScope.mode!=='complete-region')reportSchema.properties.defects.items.properties.entity_ids.minItems=1;
         if(requirementIds?.size)reportSchema.properties.checklist.items.properties.requirement_id.enum=[...requirementIds];
-        if(boundScope.geometry_only)reportSchema.properties.defects.items.properties.type={type:'string',enum:primitiveDefects};
+        if(boundScope.geometry_only){
+          reportSchema.properties.defects.items.properties.type={type:'string',enum:primitiveDefects};
+          reportSchema.properties.geometry_checks={type:'array',minItems:geometryKeys.length,maxItems:geometryKeys.length,description:'One row per supplied entity/check key. Required keys: '+geometryKeys.join(', ')+'. Pending full-source style/topology is not a target visibility uncertainty.',items:{type:'object',additionalProperties:false,required:['entity_id','check','status','evidence'],properties:{entity_id:{type:'integer',...(knownIds!.size?{enum:[...knownIds!]}:{})},check:{type:'string',enum:['primitive_visibility','text_readability','expected_absence']},status:{type:'string',enum:['pass','fail','uncertain']},evidence:{type:'string',minLength:1,maxLength:800}}}};
+          reportSchema.required.push('geometry_checks');
+        }
       }
       if(requirementIds?.size)reportSchema.allOf=[{if:{properties:{verdict:{const:'uncertain'}},required:['verdict']},then:{properties:{checklist:{contains:{properties:{status:{enum:['uncertain','fail']}},required:['status']},minContains:1}}}}];
       if(needsSourceTopology){
@@ -906,11 +923,19 @@ export async function createLiveRuntime(options: LiveOptions) {
         reportSchema.properties.source_topology=referenceMembershipSchema(sourceFrame);reportSchema.required.push('source_topology');
       }
       const validateReport=(value:unknown)=>{
-        const {source_topology,scope_id,checked_entity_ids,...visualValue}=value as Record<string,unknown>;
+        const {source_topology,scope_id,checked_entity_ids,geometry_checks,...visualValue}=value as Record<string,unknown>;
         const parsed=parseVisualReport(visualValue);
         if(boundScope&&(scope_id!==boundScope.id||!Array.isArray(checked_entity_ids)||checked_entity_ids.length!==knownIds!.size||new Set(checked_entity_ids).size!==knownIds!.size||checked_entity_ids.some(id=>!knownIds!.has(id))))throw new Error('CAD_REVIEW_SCOPE_MISMATCH: echo the supplied scope_id and inspect every declared target entity exactly once');
         if(boundScope?.mode!=='complete-region'&&boundScope&&parsed.defects.some(d=>!d.entity_ids.length))throw new Error('CAD_REVIEW_DEFECT_TARGET_REQUIRED: batch/subset defects must identify a submitted entity; unsubmitted features are not defects');
         if(boundScope?.geometry_only&&parsed.defects.some(d=>!primitiveDefects.includes(d.type)||d.type==='text_unreadable'&&d.entity_ids.some(id=>!evidenceInput.entity_snapshot.some((e:any)=>e.object_id===id&&typeof e.text_string==='string'))))throw new Error('CAD_REVIEW_UNVERIFIED_ATTRIBUTE: this draft verifies primitive visibility/literal text only. Stroke weight/fill/color/font/style and full source fidelity remain pending; do not claim them passed or invent repairs. Use only the allowed target defect categories.');
+        if(boundScope?.geometry_only){
+          assertToolArguments({name:'cader_submit_visual_report.geometry_checks',parameters:reportSchema.properties.geometry_checks},geometry_checks);
+          const rows=geometry_checks as {entity_id:number;check:string;status:'pass'|'fail'|'uncertain';evidence:string}[];
+          const keys=rows.map(r=>`${r.entity_id}:${r.check}`);
+          if(new Set(keys).size!==geometryKeys.length||keys.some(k=>!geometryKeys.includes(k)))throw new Error('CAD_REVIEW_TARGET_CHECKS_MISMATCH: independently inspect exactly these current target checks: '+geometryKeys.join(', '));
+          const expected=rows.some(r=>r.status==='fail')?'fail':rows.some(r=>r.status==='uncertain')?'uncertain':'pass';
+          if(parsed.verdict!==expected||parsed.checklist.some(c=>c.status!==expected))throw new Error('CAD_REVIEW_TARGET_OUTCOME_CONFLICT: scoped verdict/checklist must agree with actual per-target checks ('+expected+'). Pending full-source style/coverage/topology is recorded by Harness, not a reason to change target visibility. Do not force pass: if a target is actually unobservable, mark that specific check uncertain with pixel evidence.');
+        }else if(geometry_checks!==undefined)throw new Error('UNREQUESTED_GEOMETRY_CHECKS');
         if(knownIds&&parsed.defects.some(d=>d.entity_ids.some(id=>!knownIds!.has(id))))throw new Error('UNKNOWN_REVIEW_ENTITY_ID: use only IDs from entity_snapshot, or [] when uncertain');
         if(requirementIds&&(parsed.checklist.length!==requirementIds.size||new Set(parsed.checklist.map(c=>c.requirement_id)).size!==requirementIds.size||parsed.checklist.some(c=>!requirementIds!.has(c.requirement_id))))throw new Error('REVIEW_CHECKLIST_MISMATCH: report each supplied visual requirement ID exactly once; do not invent IDs or report geometry-only conditions');
         if(needsSourceTopology){
@@ -925,7 +950,7 @@ export async function createLiveRuntime(options: LiveOptions) {
           if(parsed.checklist.find(c=>c.requirement_id==='source_topology_fidelity')?.status!==status)throw new Error('SOURCE_TOPOLOGY_REPORT_CONFLICT: independently trace Image A in source_topology.membership. The program compares those groups with CAD. Expected checklist status='+status+'. Actual source_connection_confirmations, when present, resolve ONLY their explicitly confirmed connectivity; raw uncertain pixel readings remain in evidence. CAD T contacts and microscopic gaps are determined by native coordinates, not extra visible dots. Uncertainty must concern the ORIGINAL source path, not re-proving verified CAD contacts.');
           sourceTopologyEvidence={raw_report:rawReport,confirmations,report,all_clear:allClear,matches_cad_groups:matches,native_verified:nativeVerified,source_sha256:evidenceInput.source_terminal_index.sha256};
         }else if(source_topology!==undefined)throw new Error('UNREQUESTED_SOURCE_TOPOLOGY_REPORT');
-        if(boundScope)scopeReport={scope_id,checked_entity_ids:structuredClone(checked_entity_ids)};
+        if(boundScope)scopeReport={scope_id,checked_entity_ids:structuredClone(checked_entity_ids),...(boundScope.geometry_only?{geometry_checks:structuredClone(geometry_checks)}:{})};
         return parsed;
       };
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -935,8 +960,8 @@ export async function createLiveRuntime(options: LiveOptions) {
           async execute(args, exec) { structured=validateReport(args);exec.concludeTurn();return JSON.stringify(structured); } };
         const review = await pool.run('main', () => run(vision.id,
           (boundScope?'用中文只审查review_scope指定的对象和条件。Image A是同一局部原图，Image B是原生局部CAD图；paired details是指定实体的真实局部高清证据。提交scope_id与全部checked_entity_ids；batch/draft-subset不要求原图未提交的符号、框角、刻线、标注或完整回路。所有缺陷必须绑定本次提交实体；背景其他实体仅作上下文，不能要求补画它们。线段身份/端点及文字字面值已由native校核时，不通过缺少邻件或缩放后像素位置反证这些事实；核查实际可见外观/笔画/文字可读性，仍无法观察的必要项保留uncertain。':'用中文审查实际CAD图片与原始需求。若有Image A/B，A是原始用户手稿，B是本任务CAD结果：必须比较符号、可读标注、连接和布局，不能只说结果好看或拿旧图当参考。')+'没有真实依据的条件标uncertain。必须调用cader_submit_visual_report提交；不要输出长篇解释。每条证据与建议保持简短，最多8个缺陷。checklist逐项核验要求的视觉条件；程序几何/拓扑事实不要求通过像素重复证实，不得仅凭图像推翻实体坐标。总判定uncertain必须有对应checklist条目标uncertain或fail，不可全部条件pass却以可选minor建议阻止完成；真正影响必要条件的疑问必须保留并标出对应条目，不能为得到通过而删除。uncertainties仅记录影响必要视觉条件的未解决问题，不记录用户未要求的特征、无关观察或程序已证明的几何精度。' +
-          (boundScope?.geometry_only?'\n当前是geometry_only待验稿。只检查已核实图元可见及字面文字可读，不核查未采集的线宽、填充、颜色或字体。只能使用工具列出的图元缺陷类型；源样式、完整覆盖/拓扑明确仍待全图验收，不能宣称已完整复现。':'')+(needsSourceTopology?'\nsource_topology报告原图A的外部连接读数；source_connection_confirmations是程序核对过的真实用户确认，优先于相应模糊笔触，程序仅合并已确认端子并保留原读数，不能伪装纯视觉成功。按每个源端子键提交membership及每组evidence/certainty；不要从CAD图片B的像素重证接点/微小间隙，也不要求T接点额外实心圆点。程序将原图分组与已读回验证的CAD分组比较。源图轻微笔触抖动或同路径叠笔不是断路证明，确实不清则在对应源net标uncertain。':'')+(attempt ? '\n上次未提交有效报告或输出被截断。请按工具schema简短重报，不要增加自定义字段。' : '') + '\n需求与程序证据：\n' + question,
-          { parent, cadReview:true,independentEvidence:true,taskState:()=>({phase:'vision',review_scope:boundScope??null,evidence_scope:'Current supplied images and native facts only; prior task reviews excluded'}),...(verificationScope!=='task'?{skill:'progressive-drawing',skillResource:'verification-and-repair'}:{}),maxModelSteps:4,image: referenceImage??capture.path,imageView:referenceImage?viewRequest?.sourceView:undefined, comparisonImage:referenceImage?capture.path:undefined,sourceDetails:viewRequest?undefined:referenceDetails,cadDetails:(reviewDetails.get(ref)??[]).map(d=>({...d,sourcePath:referenceImage})), signal, onlyTools: [submit.name], extraTools: [submit], resultText: () => structured ? JSON.stringify(structured) : undefined }));
+          (boundScope?.geometry_only?'\n当前是geometry_only待验稿。必须按geometry_checks为每个本批实体提交primitive_visibility，文字另交text_readability，删除对象检查expected_absence；逐项给像素证据和pass/fail/uncertain。批次verdict及checklist须与这些具体检查一致。只检查已核实图元可见及字面文字可读，不核查未采集的线宽、填充、颜色或字体；这些已由Harness记为全图待验，不能倒灌成批次visibility不确定。只能使用工具列出的图元缺陷类型；不能宣称已完整复现。':'')+(needsSourceTopology?'\nsource_topology报告原图A的外部连接读数；source_connection_confirmations是程序核对过的真实用户确认，优先于相应模糊笔触，程序仅合并已确认端子并保留原读数，不能伪装纯视觉成功。按每个源端子键提交membership及每组evidence/certainty；不要从CAD图片B的像素重证接点/微小间隙，也不要求T接点额外实心圆点。程序将原图分组与已读回验证的CAD分组比较。源图轻微笔触抖动或同路径叠笔不是断路证明，确实不清则在对应源net标uncertain。':'')+(attempt ? '\n上次未提交有效报告或输出被截断。请按工具schema简短重报，不要增加自定义字段。' : '') + '\n需求与程序证据：\n' + question,
+          { parent, cadReview:true,independentEvidence:true,taskState:()=>({phase:'vision',review_scope:boundScope??null,evidence_scope:'Current supplied images and native facts only; prior task reviews excluded'}),...(verificationScope!=='task'?{skill:'progressive-drawing',skillResource:'verification-and-repair'}:{}),maxModelSteps:4,image: referenceImage??capture.path,imageView:referenceImage?viewRequest?.sourceView:undefined, comparisonImage:referenceImage?capture.path:undefined,sourceDetails:viewRequest?undefined:referenceDetails,cadDetails:(reviewDetails.get(ref)??[]).map(d=>({...d,sourcePath:referenceImage})), signal, onlyTools: [submit.name,'cader_load_skill'], extraTools: [submit], resultText: () => structured ? JSON.stringify(structured) : undefined }));
         if (!structured && review.status === 'succeeded') {
           try { structured=validateReport(JSON.parse(review.text.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,''))); } catch { /* Format repair is bounded and never constitutes acceptance. */ }
         }
@@ -947,7 +972,7 @@ export async function createLiveRuntime(options: LiveOptions) {
         }
         if (structured || (review.status !== 'succeeded'&&!['OUTPUT_TRUNCATED','MALFORMED_RESPONSE','INVOCATION_MODEL_STEP_BUDGET_EXCEEDED'].includes(review.errorCode??'')) || signal?.aborted) break;
       }
-      const result = { image_ref: ref, evidence: {...capture.evidence as Record<string,unknown>,reference:reference?{path:referenceImage,sha256:createHash('sha256').update(reference.data).digest('hex'),width:reference.width,height:reference.height}:null,local_details:reviewDetails.get(ref)??[],review_scope:boundScope??null}, requirements: question, review_valid: structured !== null, structured,scope_report:structured?scopeReport:null,source_topology_evidence:sourceTopologyEvidence as SourceTopologyEvidence|null, attempts };
+      const result = { image_ref: ref, evidence: {...capture.evidence as Record<string,unknown>,reference:reference?{path:referenceImage,sha256:createHash('sha256').update(reference.data).digest('hex'),width:reference.width,height:reference.height}:null,local_details:reviewDetails.get(ref)??[],review_scope:boundScope??null}, requirements: question, review_valid: structured !== null, structured,scope_report:structured?(scopeReport as {scope_id:unknown;checked_entity_ids:unknown;geometry_checks?:unknown}|null):null,source_topology_evidence:sourceTopologyEvidence as SourceTopologyEvidence|null, attempts };
       emit({ type: 'cad.review', ...result }); return result;
     }
 

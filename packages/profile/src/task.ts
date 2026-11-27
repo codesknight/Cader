@@ -138,7 +138,7 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
         const operationMark=input.referenceTask?input.executionOwner.facts().operations.length:0;
         quality = await executeQuality(runtime);
         const sourceGateFailures=new Set(['REFERENCE_INSPECTION_FAILED','SOURCE_COMPONENT_INVENTORY_FAILED','SOURCE_NET_REPORT_INVALID','SOURCE_TOPOLOGY_UNCERTAIN','SOURCE_LABEL_INVENTORY_FAILED']);
-        const providerBlocked=runtime.completed().some(agent=>agent.status!=='succeeded'&&!agent.recovered_by&&/^(?:QUOTA|ACCOUNT_QUOTA|AUTH|AUTHENTICATION_ERROR|NETWORK|RATE_LIMIT|TIMEOUT|HTTP_[1-5][0-9]{2})$/.test(agent.errorCode??''));
+        const providerBlocked=runtime.completed().some(agent=>agent.status!=='succeeded'&&!agent.recovered_by&&/^(?:QUOTA|ACCOUNT_QUOTA|AUTH|AUTHENTICATION_ERROR|NETWORK|TRANSPORT|SERVER|INVALID_REQUEST|EMPTY_RESPONSE|PI_AI_ERROR|CONTEXT_WINDOW_EXCEEDED|RATE_LIMIT|TIMEOUT|HTTP_[1-5][0-9]{2})$/.test(agent.errorCode??''));
         const noNativeWrites=Boolean(input.referenceTask)&&input.executionOwner.facts().operations.slice(operationMark).every(op=>!['committed','committed_observation_failed','unknown'].includes(op.outcome));
         if(!progressive&&input.referenceTask&&sourceGateFailures.has(quality.failure?.code??'')&&noNativeWrites&&!input.executionOwner.taskScope(quality.task_id).new_drawing_confirmed&&!input.executionOwner.facts().frozen&&!runtime.executionStop?.()&&!providerBlocked&&!input.signal?.aborted){
           await atomicPrivateState(join(directory,'quality-global-attempt.json'),cleanEnvironment(redactSecrets(JSON.stringify(quality,null,2),config.profiles)));
