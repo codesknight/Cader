@@ -3,7 +3,11 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Project home](../../README.md) · [Documentation](../README.md)
 
-**Applies to Cader 0.4.0-dev.15 · Updated 2026-11-27**
+**Applies to Cader 0.4.0-dev.16 · Updated 2026-11-27**
+
+## dev.16: named source views
+
+Scoped source workers submit positions in BASE, DETAIL_n or a returned LOOKUP_n image, using that image own normalized 0..1 coordinates. Harness owns the transforms; original dimensions and crop origins are withheld from these workers. Their crop tool also uses BASE normalized coordinates; global image viewing keeps its original-pixel interface. Crop slots cannot be rebound or expand the source scope. Dense unexecuted regions can refine within bounded depth, area and region-count limits; verified batches and whole-drawing acceptance remain distinct.
 
 ## dev.15: Request recovery and target checks
 

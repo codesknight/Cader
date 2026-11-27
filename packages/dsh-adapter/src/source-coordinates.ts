@@ -4,6 +4,17 @@ export function sourceRegionView(bounds:Box,image:{width:number;height:number}){
   if(left<0||top<0||right>image.width||bottom>image.height||right<=left||bottom<=top)throw new Error('SOURCE_REGION_INVALID');
   return {crop:{left,top,width:right-left,height:bottom-top}};
 }
+/** Very wide/tall BASE images lose small labels when fitted to a model's image
+ * edge limit. Supply bounded real-pixel tiles; they do not broaden the scope. */
+export function sourceAspectViews(base:ReturnType<typeof sourceRegionView>){
+  const b=base.crop,horizontal=b.width>=b.height,long=horizontal?b.width:b.height,short=horizontal?b.height:b.width;
+  if(long<=1536||long/short<=3)return [];
+  const count=Math.min(4,Math.max(2,Math.ceil(long/Math.max(1024,short*2))));
+  return Array.from({length:count},(_,i)=>{
+    const start=Math.max(0,Math.floor(i*long/count)-Math.ceil(long/count*0.05)),end=Math.min(long,Math.ceil((i+1)*long/count)+Math.ceil(long/count*0.05));
+    return {crop:{left:b.left+(horizontal?start:0),top:b.top+(horizontal?0:start),width:horizontal?end-start:b.width,height:horizontal?b.height:end-start}};
+  });
+}
 /** Supplemental pixels never broaden an analysis scope. They retain ORIGINAL
  * pixel coordinates; only the report uses the BASE region normalized frame. */
 export function clipSourceView(view:{crop?:{left:number;top:number;width:number;height:number};rotation?:number},base:ReturnType<typeof sourceRegionView>){

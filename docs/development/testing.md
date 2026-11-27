@@ -401,3 +401,7 @@ REQ-051最终代码离线检查：`pnpm typecheck`、`pnpm test` **316/316**、`
 实施文件、精确命令、Skill摘要、分层实测和未解决项见[实施记录](2026-11-27-local-visual-scope.md)及[验证记录](../validation/2026-11-27-local-visual-scope.md)。原始轨迹保存在.cader/runs/progressive-scope-20261127/；模型额度/源清点稳定性与整图质量仍待后续回归，不关闭Issue20/PR22。
 
 2026-11-27充值后REQ-052：dev.15离线typecheck、344/344、DSH组件smoke通过；请求重试专项4/4与source/vision故障传播反例通过（确定性模型/工具，非真实CAD）。同一留存真实PNG的新模型逐目标复核pass，0新CAD调用；独立源区新运行时50.191秒有效，仍保留一次流终止故障。原始全图attempt01三次同连接执行累计4.99M/61确认0未知、整图未通过；当前修复后的完整原图另跑，详见[回归](../validation/2026-11-27-whole-sheet-retest.md)。
+
+REQ-052/dev.16继续：补修BUG101密集源细分、BUG102具名源视图与局部高清裁图，协同MCP修复BUG103只读重开后Count观测。attempt02保留31确认/0未知和文件ACK后失败屏障，未重放Open；新隔离实例210940用于后续原图真实回归。精确测试及最终状态见2026-11-27-whole-sheet-retest.md，不将部分图或源观察当作整图验收。
+
+dev.16实际离线命令pnpm typecheck、pnpm test（353/353）、pnpm smoke均通过，Skill quick_validate通过。新增实际DSH视图/裁图/非法ref反例为确定性模型＋合成宽图夹具，0CAD；与真实源诊断及真实整图结果严格区分。

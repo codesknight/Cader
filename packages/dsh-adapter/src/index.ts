@@ -42,4 +42,6 @@ export type { ComEvidence, NativeBinding, ObservedRequest, ExecutionReceipt } fr
 
 export {parseFileResult} from './file-evidence.js';
 export type {ComFileArtifact,VerificationDocument,VerificationQuery} from './file-evidence.js';
-export {sourceCoordinates,sourceRegionView,clipSourceView} from './source-coordinates.js';
+export {sourceCoordinates,sourceRegionView,clipSourceView,sourceAspectViews} from './source-coordinates.js';
+
+export {sourceViewContract} from './source-view-contract.js';

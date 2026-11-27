@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdir,mkdtemp,rm,readFile,writeFile,readdir} from 'node:fs/promises';
 import {resolve,join,sep} from 'node:path';
 import {ExecutionSession,atomicPrivateState,draftAcceptancePlan,progressiveReviewScope,scopedNativeWindowContainsTargets} from '@cader/profile';
-import {createToolRuntime,defineTool,invokeTool,sourceCoordinates,sourceRegionView,clipSourceView} from '@cader/dsh-adapter';
+import {createToolRuntime,defineTool,invokeTool,sourceCoordinates,sourceRegionView,clipSourceView,sourceAspectViews} from '@cader/dsh-adapter';
 import type {createMcpClient} from '@cader/dsh-adapter';
 import {parseProgressivePlan,rasterizeProgressivePlan} from '@cader/config';
 test('trusted BASE-crop transform maps every geometry/label location and leaves source pin identity intact',()=>{
@@ -76,4 +76,11 @@ test('execution ledger prevents replay of a confirmed progressive creation befor
     assert.equal((await invokeTool(ctx,'mcp__autocad__move_entity',{object_id:42,offset_x:5,offset_y:0,offset_z:0})).isError,false);assert.equal((await invokeTool(ctx,'mcp__autocad__draw_circle',args)).isError,false);assert.equal(writes,2);
     assert.equal((await invokeTool(ctx,'mcp__autocad__delete_entity',{object_id:43})).isError,false);assert.equal((await invokeTool(ctx,'mcp__autocad__draw_circle',args)).isError,false);assert.equal(writes,3);
   }finally{await ctx.fiber.dispose();await owner.dispose();assert.ok(root.startsWith(parent+sep));await rm(root,{recursive:true});}
+});
+
+
+for(const vertical of [false,true])test(`source aspect tiles preserve pixel scope and legible magnification without changing BASE coordinates: vertical=${vertical}`,()=>{
+ const base={crop:{left:31,top:47,width:vertical?400:4967,height:vertical?4967:400}};const tiles=sourceAspectViews(base);assert.equal(tiles.length,4);assert.deepEqual(clipSourceView(tiles[0]!,base),tiles[0]);const axis=vertical?'top':'left',size=vertical?'height':'width';assert.equal(tiles[0]!.crop[axis],base.crop[axis]);assert.equal(tiles.at(-1)!.crop[axis]+tiles.at(-1)!.crop[size],base.crop[axis]+base.crop[size]);
+ for(let i=0;i<tiles.length;i++){assert.deepEqual(clipSourceView(tiles[i]!,base),tiles[i]);assert.ok(tiles[i]!.crop[size]<1536);if(i)assert.ok(tiles[i]!.crop[axis]<=tiles[i-1]!.crop[axis]+tiles[i-1]!.crop[size]);}
+ assert.deepEqual(sourceAspectViews({crop:{left:0,top:0,width:512,height:512}}),[]);assert.deepEqual(sourceAspectViews({crop:{left:0,top:0,width:800,height:100}}),[]);
 });

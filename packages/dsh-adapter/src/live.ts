@@ -31,7 +31,8 @@ import { prepareImageView, attachmentToSource } from './image-view.js';
 import type { ImageView,CadCaptureRequest,CadReviewView } from './image-view.js';
 import { assertToolArguments, patchArgumentsSchema } from './tool-validation.js';
 import {inspectProgressiveDraft} from './progressive-evidence.js';
-import {sourceCoordinates,sourceRegionView,clipSourceView} from './source-coordinates.js';
+import {sourceCoordinates,sourceRegionView,clipSourceView,sourceAspectViews} from './source-coordinates.js';
+import {sourceViewContract} from './source-view-contract.js';
 
 export interface PublicEvent { type: string; agentId?: string; role?: string; [key: string]: unknown }
 export interface AgentResult {
@@ -139,12 +140,13 @@ export async function createLiveRuntime(options: LiveOptions) {
       emit({ type: 'image.attached', agentId, ...audit });
       return { attachment, audit };
     }
-    function viewCoordinates(audit:Awaited<ReturnType<typeof attachView>>['audit'],frame?:[[number,number],[number,number]]){
+    function viewCoordinates(audit:Awaited<ReturnType<typeof attachView>>['audit'],frame?:[[number,number],[number,number]],viewAware=false){
+      if(frame&&viewAware)return {source_sha256:audit.source_sha256,coordinate_system:'normalized-current-view-top-left-y-down',rule:'Use this named image own normalized 0..1 coordinates with its view_ref. Harness owns all transforms. Root content_bounds and provided indices use BASE. Cropping tool coordinates use BASE 0..1. A crop edge is not a broken wire.'};
       const [a,b,c,d,e,f]=audit.view_to_source,w=audit.view_width,h=audit.view_height,sw=audit.source_width,sh=audit.source_height;
       return {original_pixels:{width:sw,height:sh},source_sha256:audit.source_sha256,crop_original_pixels:audit.crop,rotation:audit.rotation,
-        ...(frame?{submission_frame:'normalized-crop-top-left-y-down',base_crop_normalized_original:frame,normalized_view_to_submission:[a!*w/sw/(frame[1][0]-frame[0][0]),b!*h/sw/(frame[1][0]-frame[0][0]),(c!/sw-frame[0][0])/(frame[1][0]-frame[0][0]),d!*w/sh/(frame[1][1]-frame[0][1]),e!*h/sh/(frame[1][1]-frame[0][1]),(f!/sh-frame[0][1])/(frame[1][1]-frame[0][1])]}:{}),
+        ...(frame?{submission_frame:'normalized-crop-top-left-y-down',base_crop_normalized_original:frame,...(viewAware?{}:{normalized_view_to_submission:[a!*w/sw/(frame[1][0]-frame[0][0]),b!*h/sw/(frame[1][0]-frame[0][0]),(c!/sw-frame[0][0])/(frame[1][0]-frame[0][0]),d!*w/sh/(frame[1][1]-frame[0][1]),e!*h/sh/(frame[1][1]-frame[0][1]),(f!/sh-frame[0][1])/(frame[1][1]-frame[0][1])]} )}:{}),
         ...(frame?{}:{normalized_view_to_original:[a!*w/sw,b!*h/sw,c!/sw,d!*w/sh,e!*h/sh,f!/sh]}),
-        rule:frame?'Observation tool submissions MUST use normalized BASE crop coordinates. The Harness transforms them to the original frame. Original-pixel crop tools still use original pixels. Detail views have a supplied mapping to this base crop. A crop edge is not a broken wire.':'Coordinates refer to the ORIGINAL image. For this displayed view use normalized (u,v) in 0..1 and the supplied affine transform. A crop edge is not a broken wire. Do not interpret local crop coordinates as original coordinates.'};
+        rule:frame?(viewAware?'Positional items use their named view_ref (BASE or DETAIL_n) in that attachment normalized 0..1 coordinates. Harness converts to BASE and original. Root content_bounds and supplied indices remain BASE. Do not hand-calculate offsets. A crop edge is not a broken wire.':'Observation tool submissions MUST use normalized BASE crop coordinates. The Harness transforms them to the original frame. Original-pixel crop tools still use original pixels. Detail views have a supplied mapping to this base crop. A crop edge is not a broken wire.'):'Coordinates refer to the ORIGINAL image. For this displayed view use normalized (u,v) in 0..1 and the supplied affine transform. A crop edge is not a broken wire. Do not interpret local crop coordinates as original coordinates.'};
     }
     await ctx.plugin(LlmRuntime);
     await ctx.plugin(SessionStore);
@@ -209,6 +211,8 @@ export async function createLiveRuntime(options: LiveOptions) {
       schedulerStepSlice?:number;
       cadReview?: boolean;
       independentEvidence?:boolean;
+      observationViewAware?:boolean;
+      registerObservationView?:(id:string,crop:{left:number;top:number;width:number;height:number})=>void;
       sourceDetails?:{path:string;view:ImageView;label:string}[];
       cadDetails?:{path:string;evidence:unknown;entity_ids:number[];sourcePath?:string;sourceView?:ImageView}[];
       history?: { role: 'user' | 'assistant'; content: string; status?: string }[]; summary?: string; domain?: string;
@@ -272,8 +276,10 @@ export async function createLiveRuntime(options: LiveOptions) {
           async setup(agentCtx, agent) {
             roles.set(agent, profile.role);
             const roleSkills = skills.list(profile.role);
-            const imageRefs = profile.input.includes('image') ? [...images.keys()].filter(ref => profile.role === 'main'
-              || images.get(ref) === request.image) : [];
+            const authorizedImages=new Set([request.image,request.comparisonImage,...request.sourceDetails?.map(d=>d.path)??[],...request.cadDetails?.flatMap(d=>[d.path,d.sourcePath])??[]].filter(Boolean));
+            for(const path of authorizedImages)if(path&&![...images.values()].includes(path))images.set('image-'+randomUUID(),path);
+            const imageRefs = profile.input.includes('image') ? [...images.keys()].filter(ref => request.independentEvidence
+              ? authorizedImages.has(images.get(ref)) : profile.role === 'main'||images.get(ref) === request.image) : [];
             const allowed = options.disableTools ? [] : options.runtime.read_only_tools.filter(name => Boolean(ctx.tools.get(name))&&(!request.onlyTools||request.onlyTools.includes(name)));
             if (profile.role === 'main' && !options.disableTools && options.executionTools) {
               for (const tool of options.executionTools) { if (!request.onlyTools || request.onlyTools.includes(tool.name)) {
@@ -434,23 +440,31 @@ export async function createLiveRuntime(options: LiveOptions) {
               if(allowed.includes('cader_view_image'))return;
               const viewTool:ToolDefinition={ name: 'cader_view_image',
                 isConcurrencySafe:()=>false,
-                description: 'Inspect a crop from an authorized ORIGINAL image. Crop uses original pixel edges; optional rotation is clockwise. No CAD writes.'+(sourceViewLimits?' This observation is limited to BASE original-pixel bounds '+JSON.stringify(sourceViewLimits)+'; no foreign-region crops.':''),
+                description: sourceViewLimits?'Inspect a high-resolution crop within the attached BASE. left/top/width/height are BASE normalized 0..1 coordinates, with left+width and top+height at most 1. Return names LOOKUP_n identify the resulting image own normalized coordinates. No CAD writes.':'Inspect a crop from an authorized ORIGINAL image. Crop uses original pixel edges; optional rotation is clockwise. No CAD writes.',
                 parameters: {type:'object',additionalProperties:false,required:['image_ref','left','top','width','height'],properties:{ image_ref: { type: 'string', enum: imageRefs },
-                  left: { type: 'integer',...(sourceViewLimits?{minimum:sourceViewLimits.left,maximum:sourceViewLimits.left+sourceViewLimits.width-1}:{}) }, top: { type: 'integer',...(sourceViewLimits?{minimum:sourceViewLimits.top,maximum:sourceViewLimits.top+sourceViewLimits.height-1}:{}) },
-                  width: { type: 'integer',minimum:1,...(sourceViewLimits?{maximum:sourceViewLimits.width}:{}) }, height: { type: 'integer',minimum:1,...(sourceViewLimits?{maximum:sourceViewLimits.height}:{}) },
+                  left: sourceViewLimits?{type:'number',minimum:0,maximum:1}:{type:'integer'}, top: sourceViewLimits?{type:'number',minimum:0,maximum:1}:{type:'integer'},
+                  width: sourceViewLimits?{type:'number',exclusiveMinimum:0,maximum:1}:{type:'integer',minimum:1}, height: sourceViewLimits?{type:'number',exclusiveMinimum:0,maximum:1}:{type:'integer',minimum:1},
                   rotation: { type: 'integer', enum: sourceViewLimits?[0]:[0, 90, 180, 270] } }},
                 output: { schema: { type: 'string' }, render: (_args, value) => {
-                  const result = JSON.parse(String(value)) as { attachment: Awaited<ReturnType<typeof ctx.attachments.saveImage>>; audit: unknown };
-                  return [{ type: 'text', text: JSON.stringify(result.audit) }, { type: 'image', attachment: result.attachment }];
+                  const result = JSON.parse(String(value)) as { attachment: Awaited<ReturnType<typeof ctx.attachments.saveImage>>; audit: Awaited<ReturnType<typeof attachView>>['audit']; view_ref?:string };
+                  return [{ type: 'text', text: JSON.stringify(sourceViewLimits?{view_ref:result.view_ref,...viewCoordinates(result.audit,request.observationFrame,true)}:result.audit) }, { type: 'image', attachment: result.attachment }];
                 } },
                 async execute(args:any) {
                   assertToolArguments(viewTool,args);
                   if(imageViews>=(request.maxImageViews??Infinity))throw new Error('IMAGE_VIEW_BUDGET_EXHAUSTED: use the attached source and verified observations; return to planning instead of repeating crops');
                   if (!imageRefs.includes(args.image_ref)) throw new Error('IMAGE_REFERENCE_DENIED');
-                  if(sourceViewLimits){const wanted={left:args.left,top:args.top,width:args.width,height:args.height};try{if(args.rotation||JSON.stringify(clipSourceView({crop:wanted},{crop:sourceViewLimits}).crop)!==JSON.stringify(wanted))throw new Error('outside');}catch{throw new Error('SOURCE_VIEW_OUTSIDE_BASE: inspect only original pixel crops inside '+JSON.stringify(sourceViewLimits));}}
+                  let crop={left:args.left,top:args.top,width:args.width,height:args.height};
+                  if(sourceViewLimits){if(args.rotation||args.left+args.width>1||args.top+args.height>1)throw new Error('SOURCE_VIEW_OUTSIDE_BASE');
+                    const left=Math.floor(sourceViewLimits.left+args.left*sourceViewLimits.width),top=Math.floor(sourceViewLimits.top+args.top*sourceViewLimits.height);
+                    crop={left,top,width:Math.ceil(sourceViewLimits.left+(args.left+args.width)*sourceViewLimits.width)-left,height:Math.ceil(sourceViewLimits.top+(args.top+args.height)*sourceViewLimits.height)-top};
+                    if(crop.width<1||crop.height<1)throw new Error('SOURCE_VIEW_EMPTY');
+                  }
                   const result=await attachView(images.get(args.image_ref)!, { rotation: args.rotation as 0 | 90 | 180 | 270,
-                    crop: { left: args.left, top: args.top, width: args.width, height: args.height } }, id);imageViews++;
-                  return JSON.stringify(result);
+                    crop }, id);
+                  const view_ref=sourceViewLimits?'LOOKUP_'+imageViews:undefined;
+                  if(view_ref){request.registerObservationView?.(view_ref,crop);emit({type:'source.view_registered',agentId:id,view_ref,crop,source_sha256:result.audit.source_sha256});}
+                  imageViews++;
+                  return JSON.stringify({...result,view_ref});
                 },
               };agentCtx.tools.register(viewTool,{when:()=>imageViews<(request.maxImageViews??Infinity)});
               allowed.push('cader_view_image');
@@ -674,16 +688,17 @@ export async function createLiveRuntime(options: LiveOptions) {
         if (signal.aborted) abort();
         const content: ContentBlock[] = [{ type: 'text', text: instruction }];
         if (request.image) {
+          if(request.observationViewAware)content.push({type:'text',text:'source_view_ref=BASE: primary authorized source region; root content_bounds uses this frame.'});
           if(request.comparisonImage)content.push({type:'text',text:'Image A: ORIGINAL USER REFERENCE. Read its symbols, labels and topology; do not confuse it with the generated drawing.'});
           const { attachment: image,audit } = await attachView(request.image, request.imageView ?? {}, id);
-          content.push({type:'text',text:'Image coordinate evidence: '+JSON.stringify(viewCoordinates(audit,request.observationFrame))});
+          content.push({type:'text',text:'Image coordinate evidence: '+JSON.stringify(viewCoordinates(audit,request.observationFrame,request.observationViewAware))});
           content.push({ type: 'image', attachment: image });
         }
         if(request.comparisonImage){
           content.push({type:'text',text:'Image B: GENERATED CAD RESULT. Compare this result with image A and the acceptance requirements.'});
-          const {attachment,audit}=await attachView(request.comparisonImage,{},id);content.push({type:'text',text:'Image coordinate evidence: '+JSON.stringify(viewCoordinates(audit,request.observationFrame))});content.push({type:'image',attachment});
+          const {attachment,audit}=await attachView(request.comparisonImage,{},id);content.push({type:'text',text:'Image coordinate evidence: '+JSON.stringify(viewCoordinates(audit,request.observationFrame,request.observationViewAware))});content.push({type:'image',attachment});
         }
-        for(const detail of request.sourceDetails?.slice(0,4)??[]){content.push({type:'text',text:detail.label});const {attachment,audit}=await attachView(detail.path,detail.view,id);content.push({type:'text',text:'Image coordinate evidence: '+JSON.stringify(viewCoordinates(audit,request.observationFrame))});content.push({type:'image',attachment});}
+        for(const detail of request.sourceDetails?.slice(0,4)??[]){content.push({type:'text',text:detail.label});const {attachment,audit}=await attachView(detail.path,detail.view,id);content.push({type:'text',text:'Image coordinate evidence: '+JSON.stringify(viewCoordinates(audit,request.observationFrame,request.observationViewAware))});content.push({type:'image',attachment});}
         for(const detail of request.cadDetails??[]){
           if(detail.sourcePath&&detail.sourceView){content.push({type:'text',text:'Paired ORIGINAL detail for target entity IDs '+JSON.stringify(detail.entity_ids)});const {attachment,audit}=await attachView(detail.sourcePath,detail.sourceView,id);content.push({type:'text',text:JSON.stringify(viewCoordinates(audit))},{type:'image',attachment});}
           content.push({type:'text',text:'Paired NATIVE CAD detail for ONLY target entity IDs '+JSON.stringify(detail.entity_ids)+'; real window plot, not an interpolated enlargement. '+JSON.stringify(detail.evidence)});const {attachment}=await attachView(detail.path,{},id);content.push({type:'image',attachment});
@@ -713,23 +728,31 @@ export async function createLiveRuntime(options: LiveOptions) {
       let structured:ReturnType<typeof parseReferenceObservation>|null=null;
       const attempts:{id:string;status:string;valid:boolean}[]=[];
       const imageView:ImageView|undefined=bounds?sourceRegionView(bounds,source):undefined;
-      const scopeNote=scope?'当前仅核实区域 '+scope.id+'，只报告BASE裁片0..1局部坐标，coordinate_system必须为normalized-crop-top-left-y-down；程序负责转换整图坐标，禁止手算或再次套用整图偏移。仅列本区完整对象；跨区导线延伸到边界，区外连接延后。局部仅有文字、图框或表格时报告layout，可零器件。unknowns只列本区必要复现疑问；物理比例尺未请求时不把它变成门禁。':'';
+      const scopeNote=scope?'当前仅核实区域 '+scope.id+'，根content_bounds及给定索引用BASE裁片0..1。含位置条目按view_ref所指的当前图像0..1坐标提交，未提供view_ref时默认BASE（schema要求时必须提供）；coordinate_system为normalized-crop-top-left-y-down。程序负责换算，禁止手算整图或DETAIL偏移。仅列本区完整对象；跨区导线延伸到边界，区外连接延后。局部仅有文字、图框或表格时报告layout，可零器件。unknowns只列本区必要复现疑问；物理比例尺未请求时不把它变成门禁。':'';
       const scopedRun:typeof run=(profile,instruction,request={})=>{
         if(!scope)return run(profile,instruction,{...request,onlyTools:request.onlyTools?[...new Set([...request.onlyTools,'cader_load_skill'])]:undefined,independentEvidence:true,taskState:()=>({phase:'reference',source_sha256:createHash('sha256').update(source.data).digest('hex'),coordinate_system:'normalized-image-top-left-y-down',evidence_scope:'Source pixels only; no CAD or earlier visual claims'})});
+        const base=imageView! as ReturnType<typeof sourceRegionView>;
+        const supplied=request.sourceDetails??[];
+        const rawDetails=supplied.length?supplied.flatMap(d=>{const clipped=clipSourceView(d.view,base),tiles=sourceAspectViews(clipped);return (tiles.length?tiles:[clipped]).map(view=>({...d,view}));}).slice(0,4):sourceAspectViews(base).map(view=>({path,view,label:'Real-pixel detail from current BASE.'}));
+        const details=rawDetails.map((d,i)=>({...d,label:'source_view_ref=DETAIL_'+i+'. '+d.label.replace('positions MUST use BASE region normalized coordinates. No extra affine conversion.','')+' Use this image local coordinates only with view_ref=DETAIL_'+i+'; list each physical feature once.'}));
+        const requireView=sourceAspectViews(base).length>0||supplied.some(d=>sourceAspectViews(clipSourceView(d.view,base)).length>0);
         const independentInventory=request.extraTools?.some(t=>['cader_submit_reference_component_inventory','cader_submit_reference_label_inventory'].includes(t.name));
         const localIndex=!independentInventory&&structured?sourceCoordinates({coordinate_system:structured.coordinate_system,content_bounds:structured.content_bounds,objects:structured.objects,visible_text:structured.visible_text},scope.bounds,'to-crop'):null;
+        const crops=details.map(d=>d.view.crop);
+        const contracts:ReturnType<typeof sourceViewContract>[]=[];
         const tools=request.extraTools?.map(tool=>{
           const parameters=JSON.parse(JSON.stringify(tool.parameters).replaceAll('normalized-image-top-left-y-down','normalized-crop-top-left-y-down'));
           const acceptsFrame=Boolean(parameters.properties?.coordinate_system);
           parameters.properties.coordinate_system={type:'string',const:'normalized-crop-top-left-y-down'};parameters.required=[...new Set([...parameters.required??[],'coordinate_system'])];
-          return {...tool,description:tool.description+' All submissions MUST explicitly declare coordinate_system=normalized-crop-top-left-y-down. Coordinates use the BASE region crop; Harness performs the original-image transform.',parameters,execute:(args:unknown,exec:Parameters<ToolDefinition['execute']>[1])=>{
-            assertToolArguments({name:tool.name,parameters},args);
-            const converted=sourceCoordinates(args,scope.bounds,'to-source') as Record<string,unknown>;if(!acceptsFrame)delete converted.coordinate_system;
+          const contract=sourceViewContract(parameters,base.crop,crops,requireView,request.maxImageViews??2);contracts.push(contract);
+          return {...tool,description:tool.description.replace('normalized original pixel positions','positions in the declared source view').replace('entire original image','current authorized BASE region')+' Declare coordinate_system=normalized-crop-top-left-y-down. Positional items use view_ref=BASE or the named DETAIL image; Harness transforms them. Root content_bounds and location indices use BASE. OCR indices do not submit positions.',parameters:contract.parameters,execute:(args:unknown,exec:Parameters<ToolDefinition['execute']>[1])=>{
+            assertToolArguments({name:tool.name,parameters:contract.parameters},args);
+            const converted=sourceCoordinates(contract.normalize(args),scope.bounds,'to-source') as Record<string,unknown>;if(!acceptsFrame)delete converted.coordinate_system;
             return tool.execute(converted,exec);
           }};
         });
-        const details=request.sourceDetails?.map(d=>({...d,view:clipSourceView(d.view,imageView! as ReturnType<typeof sourceRegionView>),label:d.label+' All report positions remain in the BASE region frame; this detail is magnification only.'}));
-        return run(profile,scopeNote+instruction+'\n本次提交的坐标契约优先于历史整图描述。以下索引已由程序转换为BASE裁片坐标，只是定位数据，必须独立看实际像素，不能照抄结论：'+JSON.stringify(localIndex),{...request,independentEvidence:true,taskState:()=>({phase:'reference',reference_scope:{id:scope.id,base_crop_original_pixels:imageView!.crop},coordinate_system:'normalized-crop-top-left-y-down',source_sha256:createHash('sha256').update(source.data).digest('hex'),evidence_scope:'Current BASE source pixels only; no CAD or earlier visual claims'}),sourceDetails:details,extraTools:tools,onlyTools:request.onlyTools?[...new Set([...request.onlyTools,'cader_load_skill'])]:undefined,imageView,observationFrame:scope.bounds,maxModelSteps:4,skill:'progressive-drawing',skillResource:'source-observation'});
+        emit({type:'source.view_contract',scope:scope.id,stage_tools:tools?.map(t=>t.name),source_sha256:createHash('sha256').update(source.data).digest('hex'),base_crop:base.crop,details:details.map((d,i)=>({view_ref:'DETAIL_'+i,crop:d.view.crop})),required_view_ref:requireView});
+        return run(profile,scopeNote+instruction+'\n位置条目使用view_ref选定图像自己的0..1坐标，程序统一换算；BASE索引不能当作DETAIL局部坐标。根content_bounds始终BASE，索引OCR仅提交index/text/certainty不提交view_ref或bounds。以下索引已转换为BASE，仅供定位，必须独立核对像素：'+JSON.stringify(localIndex),{...request,independentEvidence:true,observationViewAware:true,registerObservationView:(id,crop)=>{for(const contract of contracts)contract.registerView(id,crop);},taskState:()=>({phase:'reference',reference_scope:{id:scope.id},source_views:['BASE',...details.map((_,i)=>'DETAIL_'+i)],coordinate_system:'normalized-crop-top-left-y-down',source_sha256:createHash('sha256').update(source.data).digest('hex'),evidence_scope:'Current authorized source pixels only; no CAD or earlier visual claims'}),sourceDetails:details,extraTools:tools,onlyTools:request.onlyTools?[...new Set([...request.onlyTools,'cader_load_skill'])]:undefined,imageView,observationFrame:scope.bounds,maxModelSteps:4,skill:'progressive-drawing',skillResource:'source-observation'});
       };
       const sourceNetHistory:{id:string;before:ReturnType<typeof parseReferenceNets>['nets'];reviewed:ReturnType<typeof parseReferenceNets>['nets']|null;valid:boolean}[]=[];
       for(let attempt=0;attempt<2;attempt++){
@@ -758,7 +781,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       if(observation?.drawing_kind==='schematic'){
         signal?.throwIfAborted();reserveSourceReview();
         let inventoried:ReturnType<typeof reconcileSourceComponents>|null=null;
-        const inventoryTool:ToolDefinition={name:'cader_submit_reference_component_inventory',description:'Inventory every actual component from the entire original image, independently of an earlier list. Include symbols without labels and single-pin reference symbols; wires and labels are not devices.',parameters:referenceComponentInventorySchema,output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args,exec){const parsed=parseReferenceComponentInventory(args),merged=reconcileSourceComponents(observation.objects.filter(o=>o.category==='component'),parsed);if(merged.unmatched_prior_ids.length)throw new Error('SOURCE_COMPONENT_INVENTORY_DISAGREEMENT: independently recheck positions/port counts; prior components not matched: '+JSON.stringify(observation.objects.filter(o=>merged.unmatched_prior_ids.includes(o.id)).map(({id,bounds,terminals})=>({id,bounds,terminal_count:terminals.length})))+'; prior locations are disputed observations, not authority. Use cader_view_image to inspect actual pixels in these regions; do not copy positions without evidence');inventoried=merged;exec.concludeTurn();return JSON.stringify({objects:parsed.objects,added:merged.additions.map(o=>o.id)});}};
+        const inventoryTool:ToolDefinition={name:'cader_submit_reference_component_inventory',description:'Inventory every actual component from the entire original image, independently of an earlier list. Include symbols without labels and single-pin reference symbols; wires and labels are not devices.',parameters:referenceComponentInventorySchema,output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args,exec){const parsed=parseReferenceComponentInventory(args),merged=reconcileSourceComponents(observation.objects.filter(o=>o.category==='component'),parsed);if(merged.unmatched_prior_ids.length){const disputed=observation.objects.filter(o=>merged.unmatched_prior_ids.includes(o.id)).map(({id,bounds,terminals})=>({id,bounds,terminal_count:terminals.length}));const feedback=scope?sourceCoordinates(disputed,scope.bounds,'to-crop').map(o=>({...o,view_ref:'BASE'})):disputed;throw new Error('SOURCE_COMPONENT_INVENTORY_DISAGREEMENT: independently recheck positions/port counts; prior components not matched: '+JSON.stringify(feedback)+'; locations are disputed observations, not authority. Scope feedback positions are BASE, not DETAIL. Inspect actual pixels; do not copy positions without evidence');}inventoried=merged;exec.concludeTurn();return JSON.stringify({objects:parsed.objects,added:merged.additions.map(o=>o.id)});}};
         const reading=await pool.run('main',()=>scopedRun(vision.id,'独立扫描当前授权图像范围，必须调用cader_submit_reference_component_inventory列出所有实际器件。逐区域清点，不依赖任何先前器件清单，不用常见电路补全；无文字的圆形源、接地/参考符号也须列入。每个实际符号独立id、按本次坐标契约的bounds及全部terminal，三端器件不能压为两端。category只允许component；导线、标签不是器件。保留具体轮廓、填充、极性、箭头与方向，不把不同制式统称标准符号。只清点器件，不追网、不规划、不省略无标注符号。边界仅包含符号本体，不包含引线或标签；若位置/端子复核有分歧，用cader_view_image局部核对实际像素（最多两次），仍不确定则明确保留失败，不照抄旧位置。用户请求及确认：'+task,{image:path,maxImageViews:2,sourceDetails:contentDetails,signal,onlyTools:[inventoryTool.name,'cader_view_image'],extraTools:[inventoryTool],resultText:()=>inventoried?JSON.stringify(inventoried):undefined}));
         const merged=inventoried as ReturnType<typeof reconcileSourceComponents>|null;componentInventory={id:reading.id,valid:Boolean(merged),added:merged?.additions.map(o=>o.id)??[]};attempts.push({id:reading.id,status:reading.status,valid:Boolean(merged)});
         if(!merged)structured=null;
@@ -815,7 +838,7 @@ export async function createLiveRuntime(options: LiveOptions) {
         if(!scanned)structured=null;
         else{
           const merged=reconcileSourceLabels(observation.visible_text,scanned.visible_text);
-          if(merged.length>32)throw new Error('SOURCE_LABEL_INVENTORY_LIMIT');
+          if(merged.length>32)throw new Error('SOURCE_LABEL_INVENTORY_LIMIT: '+JSON.stringify({observed_label_count:merged.length,limit:32,scope:scope?.id??'whole-source'}));
           observation.visible_text=merged.sort((a,b)=>a.bounds[0][1]-b.bounds[0][1]||a.bounds[0][0]-b.bounds[0][0]);
         }
       }

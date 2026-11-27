@@ -58,7 +58,7 @@ test('batch checks reject out-of-region effects and duplicate geometry independe
   assert.deepEqual(context.pending_reasons,['SOURCE_COMPONENT_INVENTORY_FAILED']);
 });
 // Scheduler fixture, not model or native AutoCAD evidence.
-async function fixture(extra:{badBatch?:boolean;pause?:boolean;partial?:boolean;taskReport?:boolean;sharedLayerCase?:boolean;readOnlySlices?:number;scopeReconcile?:boolean;alwaysVisualFailure?:boolean;uncertain?:boolean;taskText?:string;priorNative?:boolean;providerFailure?:string;reviewProviderFailure?:string;providerRecovered?:boolean}={}){
+async function fixture(extra:{badBatch?:boolean;pause?:boolean;partial?:boolean;taskReport?:boolean;sharedLayerCase?:boolean;readOnlySlices?:number;scopeReconcile?:boolean;alwaysVisualFailure?:boolean;uncertain?:boolean;taskText?:string;priorNative?:boolean;providerFailure?:string;reviewProviderFailure?:string;providerRecovered?:boolean;denseLimit?:boolean}={}){
   const requestTask=extra.taskText??task;let factories=0;
   let scratch:string|null=null,grant=false,draws=0,views=0,inspections=0,saved:any,paused=false,bad=extra.badBatch;
   const entities:Record<string,any>[]=[];const operations:any[]=[];const states:any[]=[];const events:any[]=[];
@@ -70,7 +70,7 @@ async function fixture(extra:{badBatch?:boolean;pause?:boolean;partial?:boolean;
   const facts=()=>({frozen:false,transport:'connected',local_connection_id:'fixture-connection',scratch,operations,session_counts:{committed:operations.length,unknown:0}});
   const owner={workspace:process.cwd(),facts,taskScope:scope,endTask(){grant=false;},async authorizeTask(){grant=true;return true;},async refineTaskPlan(){},async saveTaskArtifact(){return {path:'fixture-only-not-a-real-DWG',bytes:0,sha256:'fixture-only'};},async snapshot(){return {document:scratch,entities:structuredClone(entities)};},definitions(){return ['new_drawing','draw_circle','move_entity','delete_entity'].map(n=>({name:'mcp__autocad__'+n}));}};
   const runtime={visionProfileId:'VisionAgent',setVerificationScope(){},enableTaskBudget(){},dispose:async()=>{},completed:()=>extra.providerFailure||extra.reviewProviderFailure?[{id:'provider-failed-evidence',status:'failed',errorCode:extra.providerFailure??extra.reviewProviderFailure,recovered_by:extra.providerRecovered?'successful-source-replacement':undefined}]:extra.taskReport?[{id:'fixture-old-failed-stage',profile:'MainAgent',status:'failed',text:'',tools:[],errorCode:'OUTPUT_TRUNCATED'},{id:'fixture-final-stage',profile:'MainAgent',status:'succeeded',text:'fixture',tools:[]}]:[],reviewStats:()=>({capture_attempts:views,model_calls:views}),budgetState:()=>({}),
-    async inspectReference(){inspections++;return {attempts:extra.providerFailure?[{id:'provider-failed-evidence',status:'failed',valid:false}]:[],valid:false,structured:null,evidence:{path:'benchmark/fixtures/vision-calibration.png',sha256:sourceHash,width:pixels.width,height:pixels.height}};},
+    async inspectReference(){inspections++;if(extra.denseLimit)throw new Error('SOURCE_LABEL_INVENTORY_LIMIT: synthetic dense source fixture');return {attempts:extra.providerFailure?[{id:'provider-failed-evidence',status:'failed',valid:false}]:[],valid:false,structured:null,evidence:{path:'benchmark/fixtures/vision-calibration.png',sha256:sourceHash,width:pixels.width,height:pixels.height}};},
     async inspectProgressiveDraft(_path:string,region:any){return {valid:true,coverage:'partial',scope:region,source_sha256:sourceHash,agreements:[{trace:{id:'known_circle',kind:'circle',certainty:'clear',evidence:'fixture only',center:[(region.bounds[0][0]+region.bounds[1][0])/2,0.5],radius:0.01},independent_id:'fixture-second-read'}]};},
     async run(_profile:string,_text:string,req:any){
       const tool=req.extraTools?.[0];const exec={concludeTurn(){}};
@@ -95,7 +95,7 @@ async function fixture(extra:{badBatch?:boolean;pause?:boolean;partial?:boolean;
   let reconciliations=0;
   if(extra.scopeReconcile)(runtime as any).reassessCadView=async(question:string,imageRef:string)=>{reconciliations++;const result=await runtime.reviewCadView(question);return {...result,image_ref:imageRef};};
   const options:any={runtime,owner,task:requestTask,root:process.cwd(),profile:'MainAgent',persist:async(s:unknown)=>{saved=structuredClone(s);states.push(saved);},emit:(e:unknown)=>events.push(e)};
-  if(extra.partial)options.referenceTask={request:requestTask,image:{path:'benchmark/fixtures/vision-calibration.png',sha256:sourceHash,width:pixels.width,height:pixels.height},outputPath:'.cader/tests/fixture-pending.dwg',freshDrawing:true};
+  if(extra.partial)options.referenceTask={request:requestTask,image:{path:'benchmark/fixtures/vision-calibration.png',sha256:sourceHash,width:extra.denseLimit?4096:pixels.width,height:extra.denseLimit?4096:pixels.height},outputPath:'.cader/tests/fixture-pending.dwg',freshDrawing:true};
   const report=extra.taskReport?await runTask(process.cwd(),{task:requestTask,referenceTask:options.referenceTask,executionOwner:owner as never,executionTools:owner.definitions() as never,executionState:facts as never,permissionMode:'ask'},async()=>{factories++;return runtime as never;}):undefined;
   const result=report?.quality??await runProgressiveTask(options);
   return {result:result!,report,states,events,options,owner,entities,draws:()=>draws,views:()=>views,inspections:()=>inspections,reconciliations:()=>reconciliations,factories:()=>factories,saved:()=>saved};
@@ -188,4 +188,9 @@ test('already-recovered provider errors do not masquerade as a new source outage
 
 test('short source workflow does not turn provider transport failure into a progressive semantic fallback',async()=>{
  const f=await fixture({taskReport:true,partial:true,providerFailure:'TRANSPORT',taskText:'复现这张图纸。'});assert.equal(f.report!.quality!.progressive,null);assert.equal(f.draws(),0);assert.equal(f.factories(),1);assert.equal(f.inspections(),1);
+});
+
+
+test('dense label overflow refines bounded high-resolution scopes rather than blocking at the coarse depth or accepting a partial',async()=>{
+ const f=await fixture({partial:true,denseLimit:true});assert.equal(f.draws(),0);assert.equal(f.result.quality_accepted,false);assert.equal(f.result.progressive?.regions.length,32);assert.equal(f.inspections(),62);assert.equal(f.events.filter(e=>e.type==='task.region_split').length,30);assert.ok(f.result.progressive!.regions.every(r=>r.status==='blocked'&&r.failure!.includes('SOURCE_LABEL_INVENTORY_LIMIT')));
 });

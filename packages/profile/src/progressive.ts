@@ -157,10 +157,14 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
     progressive.connection=owner.facts().local_connection_id;
     if(!progressive.document&&owner.taskScope(taskId).new_drawing_confirmed){progressive.document=owner.facts().scratch;await checkpoint('original_new_document_ACK_reconciled');}
     const splitDepth=(id:string)=>{let depth=0,ancestor=id;for(;;){const parent=progressive.decompositions?.find(d=>d.children.includes(ancestor));if(!parent)break;depth++;ancestor=parent.parent;}return depth;};
+    const canRefineRegion=(region:ProgressiveRegion,descriptor:ProgressivePlanData['regions'][number])=>{
+      const depth=splitDepth(region.id),pixels=(descriptor.bounds[1][0]-descriptor.bounds[0][0])*image.width*(descriptor.bounds[1][1]-descriptor.bounds[0][1])*image.height;
+      return !region.entity_ids.length&&progressive.plan!.regions.length<64&&(depth<2||Boolean(reference)&&depth<4&&pixels>512*512);
+    };
     const splitRegion=async(region:ProgressiveRegion,descriptor:ProgressivePlanData['regions'][number])=>{
       const history=progressive.decompositions??=[];
       const depth=splitDepth(region.id);
-      if(depth>=2||progressive.plan!.regions.length>=64||region.entity_ids.length)return false;
+      if(!canRefineRegion(region,descriptor))return false;
       let changed=false;
       const first=region.id.slice(0,24)+'_a'+history.length,second=region.id.slice(0,24)+'_b'+history.length;
       const submit:ToolDefinition={name:'cader_split_progressive_region',description:'Refine only this unexecuted region after a source failure. Select one shared global normalized cut avoiding actual symbol bodies. Existing owned geometry and other region scopes cannot change.',parameters:{type:'object',properties:{axis:{type:'integer',enum:[0,1]},position:{type:'number'},descriptions:{type:'array',minItems:2,maxItems:2,items:{type:'string',minLength:1,maxLength:800}},anchors:{type:'array',maxItems:16,items:{type:'object',properties:{id:{type:'string',pattern:'^[a-zA-Z][a-zA-Z0-9_-]{0,23}$'},position:{type:'array',minItems:2,maxItems:2,items:{type:'number',minimum:0,maximum:1}},relation:{type:'string',enum:['connected','coincident']},certainty:{type:'string',enum:['clear','uncertain']},evidence:{type:'string',minLength:1,maxLength:400}},required:['id','position','relation','certainty','evidence'],additionalProperties:false}}},required:['axis','position','descriptions','anchors'],additionalProperties:false},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args,exec){
@@ -177,7 +181,7 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
         progressive.regions.splice(progressive.regions.findIndex(r=>r.id===region.id),1,...children.map(r=>({id:r.id,status:'pending' as const,failure:null,entity_ids:[],boundary_links:[],batches:[],repairs:0})));
         changed=true;await persist();options.emit({type:'task.region_split',parent:region.id,children:[first,second],reason:region.failure});exec.concludeTurn();return JSON.stringify(children);
       }};
-      await enter('planning');await model('当前未执行区域的源观察失败；禁止重复相同整区清点。仅查看当前原图区域，选择避开符号本体的一条水平或垂直切线，调用cader_split_progressive_region将本区域完整分成两个更小区域；不改其他区域、不绘图。axis=0为竖切x坐标，1为横切y坐标，position必须是原始整图归一化坐标。描述两块独占内容并记录跨新边界的共享锚点，图框/基准线使用coincident，功能网络延续才用connected；不确定标uncertain。'+JSON.stringify({task,region:descriptor,failure:region.failure}),{image:reference?.image.path,imageView:crop(descriptor.bounds),onlyTools:[submit.name],extraTools:[submit],maxModelSteps:3});return changed;
+      await enter('planning');await model('当前未执行区域的源观察失败；禁止重复相同整区清点。仅查看当前原图区域，选择避开符号本体的一条水平或垂直切线，调用cader_split_progressive_region将本区域完整分成两个更小区域；不改其他区域、不绘图。axis=0为竖切x坐标，1为横切y坐标，position必须是原始整图归一化坐标。描述两块独占内容并记录跨新边界的共享锚点，图框/基准线使用coincident，功能网络延续才用connected；不确定标uncertain。'+JSON.stringify({task,region:descriptor,failure:region.failure,region_pixel_dimensions:[(descriptor.bounds[1][0]-descriptor.bounds[0][0])*image.width,(descriptor.bounds[1][1]-descriptor.bounds[0][1])*image.height],source_contract:{max_labels_per_observation:32,reason:'Refine actual observation density; do not raise the label cap or waive completeness. Prefer reducing the longer pixel dimension, avoid thin strips and splitting symbols/text.'}}),{image:reference?.image.path,imageView:crop(descriptor.bounds),onlyTools:[submit.name],extraTools:[submit],maxModelSteps:3});return changed;
     };
     for(let regionIndex=0;regionIndex<progressive.plan.regions.length;regionIndex++){
       const stopped=runtime.executionStop?.();if(stopped)throw new Error(stopped);
@@ -203,7 +207,7 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
         }
         const sourceReady=region.source?.valid&&region.source.structured&&!region.source.structured.objects.some(o=>o.certainty==='uncertain')&&!region.source.structured.nets?.some(n=>n.certainty!=='clear');
         if(reference&&!sourceReady){
-          if(splitDepth(region.id)<2)throw new Error(region.source?.valid?'REGION_SOURCE_UNCERTAIN':'REGION_REFERENCE_FAILED');
+          if(canRefineRegion(region,descriptor))throw new Error(region.source?.valid?'REGION_SOURCE_UNCERTAIN':'REGION_REFERENCE_FAILED');
           if(!region.draft_source){region.draft_source=await runtime.inspectProgressiveDraft(reference.image.path,{id:region.id,bounds:descriptor.bounds},task,signal);await persist();options.emit({type:'reference.draft_inspected',region:region.id,valid:region.draft_source.valid,coverage:'partial',source_sha256:region.draft_source.source_sha256,verified_traces:region.draft_source.agreements.length});}
           assertEvidenceOutcome(region.draft_source);
           if(!region.draft_source.valid||region.draft_source.source_sha256!==reference.image.sha256)throw new Error('VERIFIED_DRAFT_SOURCE_UNAVAILABLE');
@@ -231,7 +235,7 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
           if(result.status!=='succeeded'||!reviewed)throw new Error('REGION_UNCERTAINTY_REVIEW_FAILED');region.uncertainty_review=reviewed;await persist();
         }
         if(reference&&region.uncertainty_review?.some(i=>i.disposition==='local_required')){
-          if(splitDepth(region.id)<2)throw new Error('REGION_SOURCE_UNCERTAIN');
+          if(canRefineRegion(region,descriptor))throw new Error('REGION_SOURCE_UNCERTAIN');
           if(!region.draft_source){region.draft_source=await runtime.inspectProgressiveDraft(reference.image.path,{id:region.id,bounds:descriptor.bounds},task,signal);await persist();}
           assertEvidenceOutcome(region.draft_source);
           if(!region.draft_source.valid||region.draft_source.source_sha256!==reference.image.sha256)throw new Error('VERIFIED_DRAFT_SOURCE_UNAVAILABLE');
@@ -404,7 +408,7 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
       }catch(error){
         if(owner.facts().frozen||signal?.aborted||taskStops.has((error as Error).message))throw error;
         region.status='blocked';region.failure=(error as Error).message;await persist();emitRegion(region);
-        if(/REGION_(?:REFERENCE_FAILED|SOURCE_UNCERTAIN|BOUNDARY_UNCERTAIN)/.test(region.failure)&&!region.entity_ids.length){try{if(await splitRegion(region,descriptor))regionIndex--;}catch(splitError){if(taskStops.has((splitError as Error).message))throw splitError;region.failure+='; refinement: '+(splitError as Error).message;await persist();}}
+        if(/REGION_(?:REFERENCE_FAILED|SOURCE_UNCERTAIN|BOUNDARY_UNCERTAIN)|SOURCE_LABEL_INVENTORY_LIMIT/.test(region.failure)&&!region.entity_ids.length){try{if(await splitRegion(region,descriptor))regionIndex--;}catch(splitError){if(taskStops.has((splitError as Error).message))throw splitError;region.failure+='; refinement: '+(splitError as Error).message;await persist();}}
       }
     }
     progressive.active_region=null;await enter('geometry');
