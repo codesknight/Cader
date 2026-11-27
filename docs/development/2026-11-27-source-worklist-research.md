@@ -40,3 +40,9 @@
 - 协同MCP只读性能：使用原生集合Count/Item和只读DISPID调用，成员编号缓存绑定同一canonical IUnknown及文档，属性值每次重新读。相同ObjectID或文件名不能复用另一个对象缓存。151实体同图对照：旧查询17.430秒，首次3.496秒、后续1.689秒，所有字段0差异、0CAD写入。依据[Microsoft IDispatch保证](https://learn.microsoft.com/en-us/windows/win32/api/oaidl/nf-oaidl-idispatch-getidsofnames)仅采用单对象生命周期内成员编号，不依赖跨对象或旧pywin32类型图；真实AutoCAD的ITypeInfo.GetIDsOfNames返回未实现，因此未采用那条路径。
 
 本轮离线365项TS、16项Python及MCP316通过/34真实CAD未启用跳过，DSH组件smoke通过。新的完整原始图联合回归另记；没有把模拟、提案或局部文件有效当作完整通过。
+
+### 分层验收补修（真实attempt05反例）
+
+实际原生图遗漏小数点；不是视觉模型单纯误报。源骨架曾过滤孤立点和短边，已改为保留原始正长度边及本机可追溯小标记。低置信OCR不强行转TEXT，保留原生可编辑字形；不将识别分数当语义事实。
+
+SAHI启发的是重叠观察与统一坐标，不是每裁片都要求提前包含完整图。Harness批次只验已提交图元，区域checkpoint仍为partial_verified。所有源ID存在后，程序逐一触发原图/原生同窗高清完整复核，绑定source hash、document、snapshot及同一像素窗口；随后仍要全图覆盖、残差、图面连接和最终视觉。不以primitive pass或OCR完备性证明整图完成。真实attempt05安全停于221确认/0未知，214实体另存并保留旧失败，下一轮原图回归结果另记。

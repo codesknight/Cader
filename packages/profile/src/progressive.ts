@@ -455,7 +455,7 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
         const work=progressive.source_worklist,summary=sourceWorklistSummary(sourceIndex,work);
         if(!summary.all_verified)throw new Error('SOURCE_WORKLIST_INCOMPLETE');
         checks.push(verifySourceGraph(sourceIndex,work,snapshot.entities));
-        const residual=await runtime.compareSourceNative(reference!.image.path,{source:sourceIndex.source,snapshot_sha256:digest(snapshot.entities),document:owner.facts().native_target,entities:snapshot.entities,verified_text_entity_ids:sourceIndex.items.filter(i=>i.kind==='text').flatMap(i=>work.items[i.id]!.entity_ids)},signal);
+        const residual=await runtime.compareSourceNative(reference!.image.path,{source:sourceIndex.source,annotation_bounds:((sourceIndex.engine.annotation_blocks??[]) as {bounds:[number,number,number,number]}[]).map(b=>b.bounds),snapshot_sha256:digest(snapshot.entities),document:owner.facts().native_target,entities:snapshot.entities,verified_text_entity_ids:sourceIndex.items.filter(i=>i.kind==='text').flatMap(i=>work.items[i.id]!.entity_ids)},signal);
         work.residual_reviews.push(residual);checks.push({id:'native_source_residual',status:residual.report.geometry_residual_clear?'pass':'fail',evidence:JSON.stringify(residual)});await persist();
       }
       checks.push(...progressive.regions.map(r=>({id:'region_current_'+r.id,status:digest(snapshot.entities.filter(e=>r.entity_ids.includes(e.object_id)))===r.final_sha256?'pass':'not_run',evidence:'Final native readback must match the verified regional checkpoint'} as CheckResult)));

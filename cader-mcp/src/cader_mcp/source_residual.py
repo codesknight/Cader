@@ -14,6 +14,19 @@ import json
 from pathlib import Path
 
 
+def raster_path(image, points, closed, width):
+    import cv2
+    import numpy as np
+
+    pixels = np.rint(points).astype(np.int32)
+    if len(pixels) > 1 and np.all(pixels == pixels[0]):
+        # A positive subpixel contour covers this source pixel. OpenCV drops
+        # degenerate rounded closed polylines; native CAD keeps the true vertices.
+        cv2.circle(image, tuple(pixels[0]), 0, 255, -1)
+    else:
+        cv2.polylines(image, [pixels], closed, 255, width, cv2.LINE_AA)
+
+
 def compare(image_path, native):
     import cv2
     import numpy as np
@@ -63,14 +76,7 @@ def compare(image_path, native):
             ):
                 unsupported.append(entity["object_id"])
                 continue
-            cv2.polylines(
-                rendered,
-                [np.rint(points).astype(np.int32)],
-                entity.get("closed") is True,
-                255,
-                width,
-                cv2.LINE_AA,
-            )
+            raster_path(rendered, points, entity.get("closed") is True, width)
         elif (
             entity["type"] == "AcDbText"
             and entity["object_id"] in native["verified_text_entity_ids"]
@@ -100,6 +106,14 @@ def compare(image_path, native):
         ]
 
     missing_items, extra_items = components(missing), components(extra)
+    annotation_mask = np.zeros_like(ink)
+    for x, y, a, b in native.get("annotation_bounds", []):
+        cv2.rectangle(annotation_mask, (int(x), int(y)), (int(a), int(b)), 255, -1)
+    critical = missing & (annotation_mask > 0)
+    # A decimal point is small but significant. Annotation regions do not use
+    # the noise-size exception for unrepresented source pixels. Native TEXT is
+    # excluded above only because literal and rendered readability are separate.
+    critical_pixels = int(critical.sum())
     return {
         "version": 1,
         "source_sha256": source["sha256"],
@@ -115,7 +129,11 @@ def compare(image_path, native):
         "extra": extra_items,
         "unsupported_entity_ids": unsupported,
         "separately_verified_text_ids": native["verified_text_entity_ids"],
-        "geometry_residual_clear": not unsupported and not missing_items and not extra_items,
+        "annotation_missing_pixels": critical_pixels,
+        "geometry_residual_clear": not unsupported
+        and not missing_items
+        and not extra_items
+        and not critical_pixels,
         "quality_accepted": False,
         "semantics": "not_verified",
         "limitations": (
@@ -158,20 +176,11 @@ def path_support(image_path, request):
         a = min(source["width"], int(np.ceil(points[:, 0].max())) + margin + 1)
         b = min(source["height"], int(np.ceil(points[:, 1].max())) + margin + 1)
         rendered = np.zeros((b - y, a - x), np.uint8)
-        cv2.polylines(
-            rendered,
-            [np.rint(points - [x, y]).astype(np.int32)],
-            item["closed"],
-            255,
-            width,
-            cv2.LINE_AA,
-        )
+        raster_path(rendered, points - [x, y], item["closed"], width)
         count = int((rendered > 127).sum())
         unexplained = int(((rendered > 127) & (supported[y:b, x:a] <= 127)).sum())
         center = np.zeros_like(rendered)
-        cv2.polylines(
-            center, [np.rint(points - [x, y]).astype(np.int32)], item["closed"], 255, 1, cv2.LINE_AA
-        )
+        raster_path(center, points - [x, y], item["closed"], 1)
         center_pixels = int((center > 127).sum())
         center_unexplained = int(((center > 127) & (supported[y:b, x:a] <= 127)).sum())
         checks.append(

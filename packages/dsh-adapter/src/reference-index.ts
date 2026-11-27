@@ -90,6 +90,7 @@ export async function compareSourceNative(root: string, workspace: string, runDi
     document: unknown;
     entities: Record<string, any>[];
     verified_text_entity_ids: number[];
+    annotation_bounds?:PixelBox[];
 }, signal: AbortSignal) {
     const value = await localSourceCheck(root, workspace, runDirectory, path, input, signal, 'native'), report = value.report;
     if (report.snapshot_sha256 !== input.snapshot_sha256 || JSON.stringify(report.document) !== JSON.stringify(input.document) || typeof report.geometry_residual_clear !== 'boolean' || !Array.isArray(report.missing) || !Array.isArray(report.extra))
@@ -112,6 +113,7 @@ export function parseReferenceIndex(value: unknown, source: {
         throw new Error('SOURCE_INDEX_INVALID');
     let area = 0;
     const box = (b: number[]) => Array.isArray(b) && b.length === 4 && b.every(Number.isFinite) && b[0]! >= 0 && b[1]! >= 0 && b[2]! <= source.width && b[3]! <= source.height && b[0]! < b[2]! && b[1]! < b[3]!;
+    if(v.engine.annotation_blocks!==undefined&&(!Array.isArray(v.engine.annotation_blocks)||v.engine.annotation_blocks.some((b:any)=>!box(b?.bounds))))throw new Error('SOURCE_INDEX_ANNOTATION_BOUNDS_INVALID');
     for (const [i, t] of v.tiles.entries()) {
         if (!box(t.owner) || !box(t.view) || t.view[0] > t.owner[0] || t.view[1] > t.owner[1] || t.view[2] < t.owner[2] || t.view[3] < t.owner[3] || v.tiles.slice(0, i).some(p => Math.min(p.owner[2], t.owner[2]) > Math.max(p.owner[0], t.owner[0]) && Math.min(p.owner[3], t.owner[3]) > Math.max(p.owner[1], t.owner[1])))
             throw new Error('SOURCE_INDEX_TILE_OWNERSHIP_INVALID');
@@ -150,7 +152,7 @@ export async function indexReferenceSource(root: string, workspace: string, path
     const python = resolve(root, 'cader-mcp/.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
     if (!await stat(python).catch(() => null))
         return { available: false as const, reason: 'SOURCE_INDEX_ENVIRONMENT_UNAVAILABLE' };
-    const directory = resolve(root, '.cader/cache/source-index/v5', fingerprint.sha256), cached = join(directory, 'index.json');
+    const directory = resolve(root, '.cader/cache/source-index/v8', fingerprint.sha256), cached = join(directory, 'index.json');
     try {
         const value = parseReferenceIndex(JSON.parse(await readFile(cached, 'utf8')), fingerprint);
         emit({ type: 'source.index_loaded', cached: true, source_sha256: fingerprint.sha256, items: value.items.length });

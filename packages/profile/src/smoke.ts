@@ -86,4 +86,6 @@ export { runExecutionEvidenceSmoke } from './execution-evidence-smoke.js';
 
 export { acceptQualityByUser,userReviewStatus } from './quality-acceptance.js';
 export {atomicPrivateState} from './session-store.js';
-export {createSourceWorklist,assertSourceWorklist,sourceSelection,sourceItemOperation,reconcileSourceBatch,verifySourceItem,sourceWorklistPage,sourceDigest,cadRequestDigest,sourceBatchReviewAccepted,bindSourceReview,verifySourceGraph} from './source-worklist.js';
+export {createSourceWorklist,assertSourceWorklist,sourceSelection,sourceItemOperation,reconcileSourceBatch,verifySourceItem,sourceWorklistPage,sourceDigest,cadRequestDigest,sourceBatchReviewAccepted,bindSourceReview,verifySourceGraph,sourceGroupReviewScope,sourceBatchSelection,sourceWindowReviewScope} from './source-worklist.js';
+
+export {runIndexedRegions} from './indexed-regions.js';

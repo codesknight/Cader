@@ -60,6 +60,8 @@ def native_text_candidate(label):
     or a semantic acceptance. Single-line multi-character text stays literal.
     """
     text = label["text"]
+    if label.get("score", 1) < 0.9 or "\ufffd" in text:
+        return False
     if sum(character.isalnum() for character in text) < 2:
         return False
     x, y, a, b = label["bounds"]
@@ -152,6 +154,70 @@ def coherent_paths(paths):
     return result
 
 
+def annotation_blocks(labels, long_lines):
+    """Group adjacent aligned text rows without crossing an observed rule.
+
+    A fraction's numerator, denominator and adjacent units form one visual
+    unit even when OCR emitted several rows. No circuit/domain templates.
+    """
+    parents = list(range(len(labels)))
+
+    def find(i):
+        while parents[i] != i:
+            parents[i] = parents[parents[i]]
+            i = parents[i]
+        return i
+
+    def ruled_between(a, b):
+        if a[1] > b[1]:
+            a, b = b, a
+        lo, hi = a[3], b[1]
+        if hi <= lo:
+            return False
+        left, right = max(a[0], b[0]), min(a[2], b[2])
+        for x, y, u, v in long_lines:
+            if (
+                abs(v - y) <= 2
+                and lo <= 0.5 * (y + v) <= hi
+                and min(max(x, u), right) - max(min(x, u), left) >= min(40, (right - left) * 0.7)
+            ):
+                return True
+        return False
+
+    for i, label in enumerate(labels):
+        a = label["bounds"]
+        height = a[3] - a[1]
+        for j in range(i):
+            b = labels[j]["bounds"]
+            other = b[3] - b[1]
+            overlap = min(a[2], b[2]) - max(a[0], b[0])
+            gap = max(a[1], b[1]) - min(a[3], b[3])
+            center = abs((a[1] + a[3] - b[1] - b[3]) / 2)
+            if (
+                overlap >= 0.35 * min(a[2] - a[0], b[2] - b[0])
+                and gap <= 1.25 * max(height, other)
+                and center >= 0.35 * min(height, other)
+                and not ruled_between(a, b)
+            ):
+                parents[find(i)] = find(j)
+    groups = {}
+    for i, label in enumerate(labels):
+        groups.setdefault(find(i), []).append(label)
+    return [
+        {
+            "id": stable_id("unit", sorted(p["id"] for p in group)),
+            "label_ids": [p["id"] for p in group],
+            "bounds": [
+                min(p["bounds"][0] for p in group),
+                min(p["bounds"][1] for p in group),
+                max(p["bounds"][2] for p in group),
+                max(p["bounds"][3] for p in group),
+            ],
+        }
+        for group in groups.values()
+    ]
+
+
 def skeleton_paths(mask):
     """Trace every graph edge once, including loops. Junctions are geometric only."""
     import cv2
@@ -173,6 +239,41 @@ def skeleton_paths(mask):
     adjacency = {p: neighbors(p) for p in sorted(pixels)}
     visited, paths = set(), []
     distance = cv2.distanceTransform(mask, cv2.DIST_L2, 3)
+    starts = [p for p in adjacency if len(adjacency[p]) != 2]
+
+    for y, x in starts:
+        y, x = int(y), int(x)
+        if adjacency[(y, x)]:
+            continue
+        # Isolated source marks (decimal points, punctuation, junction dots)
+        # are meaningful, never disposable noise. A tiny closed widened ring
+        # represents the visible blob as one nonzero native polyline.
+        radius = max(0.5, float(distance[y, x]) - 0.5)
+        points = [
+            [
+                min(mask.shape[1] - 1e-6, max(0, x + radius * 0.5 * math.cos(t))),
+                min(mask.shape[0] - 1e-6, max(0, y + radius * 0.5 * math.sin(t))),
+            ]
+            for t in [i * math.pi / 4 for i in range(8)]
+        ]
+        paths.append(
+            {
+                "id": stable_id("mark", [x, y, radius]),
+                "kind": "path",
+                "points": points,
+                "closed": True,
+                "bounds": [
+                    min(p[0] for p in points),
+                    min(p[1] for p in points),
+                    max(p[0] for p in points),
+                    max(p[1] for p in points),
+                ],
+                "pixel_length": math.pi * radius,
+                "stroke_width": radius,
+                "status": "proposal",
+                "representation": "isolated-visible-source-mark",
+            }
+        )
 
     def emit_path(points):
         widths = [max(0.5, 2 * float(distance[y, x]) - 1) for y, x in points]
@@ -192,7 +293,7 @@ def skeleton_paths(mask):
             if len(approx) < (3 if closed else 2):
                 continue
             length = sum(math.dist(x, y) for x, y in zip(approx, approx[1:], strict=False))
-            if length < 2:
+            if length <= 0:
                 continue
             stroke = round(float(np.median(smooth[a : b + 1])), 3)
             paths.append(
@@ -213,7 +314,6 @@ def skeleton_paths(mask):
                 }
             )
 
-    starts = [p for p in adjacency if len(adjacency[p]) != 2]
     for start in starts + list(adjacency):
         for first in adjacency[start]:
             edge = tuple(sorted((start, first)))
@@ -230,10 +330,36 @@ def skeleton_paths(mask):
                 visited.add(edge)
                 points.append(following)
                 previous, current = current, following
-            if len(points) < 3:
+            if len(points) < 2:
                 continue
             emit_path(points)
     return paths, skeleton
+
+
+def refine_source_paths(paths, ink, labels):
+    """Retain actual source ink lost at simplification/width transitions.
+
+    This is a candidate refinement, never a CAD or semantic acceptance. Only
+    uncovered ORIGINAL ink becomes new native path proposals; no dilation is
+    emitted as invented content. Native readback/rendering are still required.
+    """
+    import cv2
+    import numpy as np
+
+    from .source_residual import raster_path
+
+    rendered = np.zeros_like(ink)
+    for path in paths:
+        raster_path(rendered, path["points"], path["closed"], max(1, round(path["stroke_width"])))
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    missing = ((ink > 127) & (cv2.dilate(rendered, kernel) <= 127)).astype(np.uint8) * 255
+    for label in labels:
+        x, y, a, b = label["bounds"]
+        cv2.rectangle(missing, (x, y), (a, b), 0, -1)
+    additions, _ = skeleton_paths(missing)
+    for path in additions:
+        path["representation"] = "source-residual-refinement"
+    return paths + additions
 
 
 def build_index(path, *, use_ocr=True, edge=800):
@@ -312,12 +438,15 @@ def build_index(path, *, use_ocr=True, edge=800):
         geometry = np.maximum(geometry, cv2.bitwise_and(ink, preserved))
     paths, skeleton = skeleton_paths(geometry)
     paths = coherent_paths(paths)
-    outlined = [label for label in ocr_proposals if not native_text_candidate(label)]
-    for item in paths:
+    paths = refine_source_paths(paths, ink, labels)
+    blocks = annotation_blocks(
+        ocr_proposals, [] if long_lines is None else long_lines.reshape(-1, 4).tolist()
+    )
+    for item in paths + labels:
         x, y, a, b = item["bounds"]
         candidates = [
             label
-            for label in outlined
+            for label in blocks
             if label["bounds"][0] - 1 <= x
             and label["bounds"][1] - 1 <= y
             and a <= label["bounds"][2] + 1
@@ -342,7 +471,8 @@ def build_index(path, *, use_ocr=True, edge=800):
         "engine": {
             "method": "local-ocr-skeleton-graph",
             "coordinate_system": "original-pixels-top-left-y-down",
-            "engine_version": 5,
+            "engine_version": 8,
+            "annotation_blocks": blocks,
             "outlined_ocr_ids": [
                 label["id"] for label in ocr_proposals if not native_text_candidate(label)
             ],

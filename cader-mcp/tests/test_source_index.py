@@ -1,8 +1,15 @@
 import hashlib
+import math
 
 import pytest
 
-from cader_mcp.source_index import coherent_paths, merge_labels, native_text_candidate, tiles
+from cader_mcp.source_index import (
+    annotation_blocks,
+    coherent_paths,
+    merge_labels,
+    native_text_candidate,
+    tiles,
+)
 
 
 def test_overlapping_perception_has_disjoint_complete_ownership():
@@ -37,6 +44,7 @@ def test_single_glyph_and_stacked_layout_stay_source_geometry_not_guessed_text()
     assert not native_text_candidate({"text": "一", "bounds": [0, 0, 10, 10]})
     assert not native_text_candidate({"text": "12/34", "bounds": [0, 0, 20, 40]})
     assert native_text_candidate({"text": "10kΩ", "bounds": [0, 0, 40, 12]})
+    assert not native_text_candidate({"text": "10K", "bounds": [0, 0, 40, 12], "score": 0.63})
 
 
 def test_connected_walk_preserves_every_source_edge_and_never_bridges_pen_up():
@@ -100,6 +108,82 @@ def test_source_support_rejects_a_shifted_path_without_certifying_semantics(tmp_
     assert result["semantics"] == "not_verified"
 
 
+def test_decimal_marks_and_one_pixel_edges_are_not_discarded():
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("cv2")
+    from cader_mcp.source_index import skeleton_paths
+
+    mask = np.zeros((60, 80), np.uint8)
+    mask[20, 20] = 255
+    mask[20, 40:42] = 255
+    paths, _ = skeleton_paths(mask)
+    assert any(p.get("representation") == "isolated-visible-source-mark" for p in paths)
+    assert any(
+        p["points"] == [[40.0, 20.0], [41.0, 20.0]] or p["points"] == [[41.0, 20.0], [40.0, 20.0]]
+        for p in paths
+    )
+
+
+def test_fraction_rows_share_a_visual_unit_but_a_real_rule_separates_blocks():
+    labels = [
+        {"id": str(i), "bounds": bounds}
+        for i, bounds in enumerate(
+            [[10, 10, 60, 25], [10, 28, 60, 40], [10, 44, 70, 58], [10, 65, 70, 80]]
+        )
+    ]
+    blocks = annotation_blocks(labels, [[0, 61, 200, 61]])
+    assert sorted(len(b["label_ids"]) for b in blocks) == [1, 3]
+    assert next(b for b in blocks if len(b["label_ids"]) == 3)["bounds"] == [10, 10, 70, 58]
+
+
+def test_one_missing_decimal_inside_annotations_cannot_pass_a_noise_threshold(tmp_path):
+    np = pytest.importorskip("numpy")
+    cv2 = pytest.importorskip("cv2")
+    from cader_mcp.source_residual import compare
+
+    image = np.full((100, 100), 255, np.uint8)
+    cv2.line(image, (10, 50), (90, 50), 0, 1)
+    image[40, 40] = 0
+    path = tmp_path / "decimal.png"
+    cv2.imwrite(str(path), image)
+    source = {"width": 100, "height": 100, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+    base = {
+        "type": "AcDb2dPolyline",
+        "coordinate_dimension": 3,
+        "closed": False,
+        "normal": [0, 0, 1],
+        "elevation": 0,
+        "constant_width": 10,
+    }
+    native = {
+        "source": source,
+        "snapshot_sha256": "fixture",
+        "document": "fixture",
+        "verified_text_entity_ids": [],
+        "annotation_bounds": [[35, 35, 45, 45]],
+        "entities": [{**base, "object_id": 1, "coordinates": [100, 500, 0, 900, 500, 0]}],
+    }
+    result = compare(path, native)
+    assert result["annotation_missing_pixels"] == 1
+    assert not result["geometry_residual_clear"]
+    points = [
+        [400 + 2.5 * math.cos(i * math.pi / 4), 600 - 2.5 * math.sin(i * math.pi / 4), 0]
+        for i in range(8)
+    ]
+    native["entities"].append(
+        {
+            **base,
+            "object_id": 2,
+            "closed": True,
+            "constant_width": 5,
+            "coordinates": [v for p in points for v in p],
+        }
+    )
+    result = compare(path, native)
+    assert result["annotation_missing_pixels"] == 0
+    assert result["geometry_residual_clear"]
+
+
 def test_native_residual_catches_a_missing_branch_without_claiming_acceptance(tmp_path):
     np = pytest.importorskip("numpy")
     cv2 = pytest.importorskip("cv2")
@@ -137,3 +221,18 @@ def test_native_residual_catches_a_missing_branch_without_claiming_acceptance(tm
     native["source"]["sha256"] = "wrong"
     with pytest.raises(ValueError, match="REFERENCE_CHANGED"):
         compare(path, native)
+
+
+def test_source_refinement_retains_uncovered_decimal_without_inventing_blank_ink():
+    import numpy as np
+
+    from cader_mcp.source_index import refine_source_paths
+
+    ink = np.zeros((20, 30), dtype=np.uint8)
+    ink[10, 10] = 255
+    paths = refine_source_paths([], ink, [])
+    assert len(paths) == 1
+    assert paths[0]["representation"] == "source-residual-refinement"
+    assert all(abs(x - 10) < 1 and abs(y - 10) < 1 for x, y in paths[0]["points"])
+    assert refine_source_paths([], ink, [{"bounds": [9, 9, 11, 11]}]) == []
+    assert refine_source_paths([], np.zeros_like(ink), []) == []

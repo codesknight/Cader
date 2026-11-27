@@ -415,3 +415,7 @@ BUG101追加真实密度反例：attempt03有273×526像素区包含33项文字�
 2026-11-28 REQ-053阶段验证：pnpm typecheck、pnpm test（361/361，含源ID账本及实际DSH预算交接）、pnpm smoke（组件，不是真实CAD/full app）通过；uv run --project cader-mcp ruff check cader-mcp、ruff format --check cader-mcp、pytest -q cader-mcp/tests（14通过）通过。MCP全量315通过/34跳过，真实native原始源图4实体组件检查0差异；完整原始图回归和最终CI待追加，见source-worklist-research。
 
 2026-11-28连续轮廓补修：pnpm typecheck、pnpm test（365/365）、pnpm smoke通过；uv Ruff check/format及pytest（16）通过，MCP全量316通过/34未启用CAD跳过。真实source-only1817中心线全部支持，提案残差无显著分量，均不代表CAD验收。真实151实体native读回对照17.430/3.496/1.689秒且全部字段一致。attempt04原始源/视觉/154确认操作/停止与151实体保存证据保留；后续整图另记。
+
+BUG107分层验收：实际pnpm typecheck、pnpm test（368/368，后续Scheduler专例另记）、pnpm smoke通过；uv Ruff check/format及pytest（20通过）。新增源标记/短边、标注完整组高清、错窗拒绝、primitive不能冒充full-region、部分确认前缀不重放；Scheduler夹具11项源清单测试中验证全源primitive完成后仍逐窗调用完整评审，uncertain区域保持blocked，不冒充真实模型/CAD。原图v7只读2169中心线全部源支持，但独立提案预检仍有116缺像素、其中57处于标注，严格保留失败；已增加基于实际源残差的局部细化候选，v8整图回归待记。原81份证据hash不变，扩展85份基线。
+
+最终分层Scheduler基线：pnpm typecheck、pnpm test（369/369）、pnpm smoke均通过；Python20项通过、Ruff check/format通过。此前tsx不存在及新增测试snapshot字段不完整的开发命令失败均保留，已改用仓库build后node --test及补齐fixture字段；不能把那些失败命令报告通过。

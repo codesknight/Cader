@@ -3,8 +3,7 @@ import type { ReferenceIndex, SourceItem } from '@cader/dsh-adapter';
 import type { CadOperationRecord } from './execution.js';
 import type { CheckResult } from './quality.js';
 import { cadRequestDigest } from './cad-arguments.js';
-import { scopedNativeWindowContainsTargets } from './cad-review-scope.js';
-import type {progressiveReviewScope} from './cad-review-scope.js';
+import { scopedNativeWindowContainsTargets, progressiveReviewScope } from './cad-review-scope.js';
 export { cadRequestDigest } from './cad-arguments.js';
 type Entity = Record<string, any>;
 export type SourceState = {
@@ -34,15 +33,50 @@ export interface SourceWorklist {
     residual_reviews: unknown[];
 }
 export const sourceDigest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-export function bindSourceReview(scope:ReturnType<typeof progressiveReviewScope>,items:SourceItem[],work:SourceWorklist){
-    const crop=scope.view.sourceView?.crop;
-    if(!crop)throw new Error('SOURCE_REVIEW_CROP_BINDING_REQUIRED');
-    const local=([x,y]:number[])=>[Number(((x!-crop.left)/crop.width).toFixed(7)),Number(((y!-crop.top)/crop.height).toFixed(7))];
-    const source_bindings=items.map(item=>({source_id:item.id,group_id:item.group_id??null,entity_ids:work.items[item.id]!.entity_ids,geometry:item.kind==='path'?{kind:'path',points:item.points.map(local),closed:item.closed}:{kind:'text',text:work.items[item.id]!.text??item.text,bounds:[local(item.bounds.slice(0,2)),local(item.bounds.slice(2))]}}));
-    const targets=scope.binding.targets.map(target=>{const members=source_bindings.filter(b=>b.entity_ids.includes(target.entity_id));if(members.length!==1)throw new Error('SOURCE_REVIEW_ENTITY_BINDING_INVALID');return {...target,source_trace_ids:[members[0]!.source_id]};});
-    const {id:_id,...previous}=scope.binding;
-    const binding={...previous,targets,source_coordinate_system:'normalized-attached-reference-crop-top-left-y-down',source_bindings};
-    return {...scope,binding:{...binding,id:sourceDigest(binding)}};
+/** Full source coverage is reviewed only after all primitives exist. The crop
+ * is an exact pixel-edge window shared by source and native plotting; crossing
+ * entities are intentionally cropped on BOTH sides, never silently omitted. */
+export function sourceWindowReviewScope(index: ReferenceIndex, tile: number, entities: Entity[], document: unknown, snapshot: string) {
+    const [x, y, a, b] = index.tiles[tile]!.view, s = 1000 / index.source.width, h = index.source.height;
+    const window: [
+        number,
+        number,
+        number,
+        number
+    ] = [x * s, (h - b) * s, a * s, (h - y) * s];
+    const targets = entities.filter(e => e.bounding_box && e.bounding_box.max[0] >= window[0] && e.bounding_box.min[0] <= window[2] && e.bounding_box.max[1] >= window[1] && e.bounding_box.min[1] <= window[3]).map(e => ({ object_id: e.object_id, type: e.type, bounding_box: e.bounding_box, ...typeof e.text_string === 'string' ? { text_string: e.text_string } : {} }));
+    const base = progressiveReviewScope({ region: 'source_tile_' + tile, mode: 'source-window', document, snapshot_hash: snapshot, source_sha256: index.source.sha256, entities: targets, bounds: [[window[0], window[1]], [window[2], window[3]]], image: index.source, source_bounds: [[0, 0], [1, 1]], toSource: p => [p[0]! / 1000, 1 - p[1]! / s / h] });
+    const view = { world_window: window, min_long_edge: 2048, sourceView: { crop: { left: x, top: y, width: a - x, height: b - y } } };
+    const { id: _old, ...binding } = base.binding;
+    const bound = { ...binding, view, source_window: { image: { width: index.source.width, height: h }, scope: 'All source content within paired pixel-edge window; crossing entities intentionally cropped. Global boundaries remain separately mandatory.' } };
+    return { view, binding: { ...bound, id: sourceDigest(bound) }, entities: targets };
+}
+export function sourceGroupReviewScope(input: Parameters<typeof progressiveReviewScope>[0], items: SourceItem[], work: SourceWorklist) {
+    const scope = progressiveReviewScope(input), groups = new Map<string, SourceItem[]>();
+    for (const item of items) {
+        const key = item.group_id ?? item.id;
+        groups.set(key, [...groups.get(key) ?? [], item]);
+    }
+    const meaningful = [...groups.values()].filter(group => group.length > 1 || group[0]!.kind === 'text');
+    if (meaningful.length)
+        scope.view.details = meaningful.slice(0, 3).map(group => {
+            const ids = group.flatMap(i => work.items[i.id]!.entity_ids), entities = input.entities.filter(e => ids.includes(e.object_id));
+            const detail = progressiveReviewScope({ ...input, entities }).view;
+            return { request: { world_window: detail.world_window!, min_long_edge: 2048 }, entity_ids: ids, sourceView: detail.sourceView };
+        });
+    return bindSourceReview(scope, items, work);
+}
+export function bindSourceReview(scope: ReturnType<typeof progressiveReviewScope>, items: SourceItem[], work: SourceWorklist) {
+    const crop = scope.view.sourceView?.crop;
+    if (!crop)
+        throw new Error('SOURCE_REVIEW_CROP_BINDING_REQUIRED');
+    const local = ([x, y]: number[]) => [Number(((x! - crop.left) / crop.width).toFixed(7)), Number(((y! - crop.top) / crop.height).toFixed(7))];
+    const source_bindings = items.map(item => ({ source_id: item.id, group_id: item.group_id ?? null, entity_ids: work.items[item.id]!.entity_ids, geometry: item.kind === 'path' ? { kind: 'path', points: item.points.map(local), closed: item.closed } : { kind: 'text', text: work.items[item.id]!.text ?? item.text, bounds: [local(item.bounds.slice(0, 2)), local(item.bounds.slice(2))] } }));
+    const targets = scope.binding.targets.map(target => { const members = source_bindings.filter(b => b.entity_ids.includes(target.entity_id)); if (members.length !== 1)
+        throw new Error('SOURCE_REVIEW_ENTITY_BINDING_INVALID'); return { ...target, source_trace_ids: [members[0]!.source_id] }; });
+    const { id: _id, ...previous } = scope.binding;
+    const binding = { ...previous, targets, source_coordinate_system: 'normalized-attached-reference-crop-top-left-y-down', source_bindings };
+    return { ...scope, binding: { ...binding, id: sourceDigest(binding) } };
 }
 export function sourceBatchReviewAccepted(review: {
     review_valid?: boolean;
@@ -54,9 +88,18 @@ export function sourceBatchReviewAccepted(review: {
             status: string;
         }[];
     } | null;
-}, source: string, document: string, before: string, after: string) {
+}, source: string, document: string, before: string, after: string, requirement = 'indexed_batch_fidelity') {
     const evidence = review.evidence as any;
-    return review.review_valid === true && evidence?.reference?.sha256 === source && evidence.document === document && before === after && review.structured?.verdict === 'pass' && review.structured.checklist.some(c => c.requirement_id === 'indexed_batch_fidelity' && c.status === 'pass') && (!evidence.image_bounds?.possible_clipping || scopedNativeWindowContainsTargets(evidence));
+    if (requirement === 'indexed_region_fidelity' && (evidence?.review_scope?.mode !== 'source-window' || evidence.review_scope.geometry_only || evidence.review_scope.snapshot_hash !== before || evidence.review_scope.source_sha256 !== source || evidence.review_scope.document !== document))
+        return false;
+    return review.review_valid === true && evidence?.reference?.sha256 === source && evidence.document === document && before === after && review.structured?.verdict === 'pass' && review.structured.checklist.some(c => c.requirement_id === requirement && c.status === 'pass') && (!evidence.image_bounds?.possible_clipping || scopedNativeWindowContainsTargets(evidence));
+}
+export function sourceBatchSelection(items: SourceItem[], work: SourceWorklist, active?: string[]) {
+    const chosen = new Set(active ?? items.filter(i => work.items[i.id]!.status === 'committed').map(i => i.id));
+    const groups = new Set(items.filter(i => chosen.has(i.id) && i.group_id).map(i => i.group_id!));
+    const selected = items.filter(i => (chosen.has(i.id) || i.group_id && groups.has(i.group_id)) && work.items[i.id]!.entity_ids.length && ['committed', 'verified'].includes(work.items[i.id]!.status));
+    const pending = items.filter(i => i.group_id && groups.has(i.group_id) && !['committed', 'verified'].includes(work.items[i.id]!.status));
+    return { items: selected, pending_ids: pending.map(i => i.id) };
 }
 export function createSourceWorklist(index: ReferenceIndex, path: string): SourceWorklist {
     return { version: 1, index_path: path, index_sha256: sourceDigest(index), source_sha256: index.source.sha256, items: Object.fromEntries(index.items.map(i => [i.id, { status: 'pending' as const, entity_ids: [], operation_ids: [] }])), rounds: 0, residual_reviews: [] };
@@ -74,11 +117,17 @@ export function sourceItemOwner(index: ReferenceIndex, item: SourceItem) {
 }
 export function sourceSelection(index: ReferenceIndex, work: SourceWorklist, ids: string[]) {
     assertSourceWorklist(index, work);
-    if (!ids.length || ids.length > 32 || new Set(ids).size !== ids.length)
+    if (!ids.length || ids.length > 64 || new Set(ids).size !== ids.length)
         throw new Error('SOURCE_BATCH_IDS_INVALID');
-    const selected = ids.map(id => { const item = index.items.find(i => i.id === id); if (!item)
-        throw new Error('SOURCE_ITEM_UNKNOWN'); const state = work.items[id]!; if (['committed', 'verified', 'unknown'].includes(state.status))
-        throw new Error('SOURCE_ITEM_NOT_REPLAYABLE: ' + id); return item; });
+    const selected = ids.map(id => {
+        const item = index.items.find(i => i.id === id);
+        if (!item)
+            throw new Error('SOURCE_ITEM_UNKNOWN');
+        const state = work.items[id]!;
+        if (['committed', 'verified', 'unknown'].includes(state.status))
+            throw new Error('SOURCE_ITEM_NOT_REPLAYABLE: ' + id);
+        return item;
+    });
     for (const item of selected)
         if (item.group_id) {
             const missing = index.items.filter(i => i.group_id === item.group_id && !ids.includes(i.id) && ['pending', 'accepted', 'uncertain', 'unknown'].includes(work.items[i.id]!.status));
@@ -136,27 +185,60 @@ export function verifySourceItem(index: ReferenceIndex, item: SourceItem, state:
     }
     return [{ id: 'source_' + item.id, status: pass ? 'pass' : 'fail', evidence: JSON.stringify({ source_sha256: index.source.sha256, item_id: item.id, expected: operation, actual, scope: 'native coordinates/literal text only; image and complete coverage remain separate' }) }];
 }
-
 /** Graphical connectivity, not an inferred functional netlist. Shared source
  * vertices and all actual native segments must agree, including cross-region
  * joins. Retracing an existing edge does not invent another connection. */
-export function verifySourceGraph(index:ReferenceIndex,work:SourceWorklist,entities:Entity[]):CheckResult{
-    const graph=(paths:{points:number[][];closed:boolean}[])=>{
-        const adjacency=new Map<string,Set<string>>(),edges=new Set<string>();
-        const point=(p:number[])=>p.slice(0,2).map(n=>Number(n.toFixed(6))).join(',');
-        for(const path of paths){const points=path.closed?[...path.points,path.points[0]!]:path.points;for(let i=1;i<points.length;i++){const a=point(points[i-1]!),b=point(points[i]!);if(a===b)continue;edges.add([a,b].sort().join('|'));if(!adjacency.has(a))adjacency.set(a,new Set());if(!adjacency.has(b))adjacency.set(b,new Set());adjacency.get(a)!.add(b);adjacency.get(b)!.add(a);}}
-        const seen=new Set<string>();let components=0;
-        for(const node of adjacency.keys()){if(seen.has(node))continue;components++;const queue=[node];while(queue.length){const key=queue.pop()!;if(seen.has(key))continue;seen.add(key);queue.push(...adjacency.get(key)!);}}
-        return {nodes:adjacency.size,components,edges};
+export function verifySourceGraph(index: ReferenceIndex, work: SourceWorklist, entities: Entity[]): CheckResult {
+    const graph = (paths: {
+        points: number[][];
+        closed: boolean;
+    }[]) => {
+        const adjacency = new Map<string, Set<string>>(), edges = new Set<string>();
+        const point = (p: number[]) => p.slice(0, 2).map(n => Number(n.toFixed(6))).join(',');
+        for (const path of paths) {
+            const points = path.closed ? [...path.points, path.points[0]!] : path.points;
+            for (let i = 1; i < points.length; i++) {
+                const a = point(points[i - 1]!), b = point(points[i]!);
+                if (a === b)
+                    continue;
+                edges.add([a, b].sort().join('|'));
+                if (!adjacency.has(a))
+                    adjacency.set(a, new Set());
+                if (!adjacency.has(b))
+                    adjacency.set(b, new Set());
+                adjacency.get(a)!.add(b);
+                adjacency.get(b)!.add(a);
+            }
+        }
+        const seen = new Set<string>();
+        let components = 0;
+        for (const node of adjacency.keys()) {
+            if (seen.has(node))
+                continue;
+            components++;
+            const queue = [node];
+            while (queue.length) {
+                const key = queue.pop()!;
+                if (seen.has(key))
+                    continue;
+                seen.add(key);
+                queue.push(...adjacency.get(key)!);
+            }
+        }
+        return { nodes: adjacency.size, components, edges };
     };
-    const expected=graph(index.items.filter(i=>i.kind==='path').map(item=>sourceItemOperation(index,item,work.items[item.id]!).arguments as {points:number[][];closed:boolean}));
-    const native=entities.filter(e=>['AcDbPolyline','AcDb2dPolyline'].includes(e.type));
-    const unsupported=native.filter(e=>![2,3].includes(e.coordinate_dimension)||!Array.isArray(e.coordinates)||e.coordinates.length<e.coordinate_dimension*2||e.coordinates.length%e.coordinate_dimension!==0||!e.coordinates.every(Number.isFinite)||!Array.isArray(e.bulges)||e.bulges.some((n:number)=>!Number.isFinite(n)||Math.abs(n)>1e-10)||JSON.stringify(e.normal)!=='[0,0,1]'||e.elevation!==0);
-    if(unsupported.length)return {id:'source_graph_connectivity',status:'fail',evidence:JSON.stringify({unsupported_native_entity_ids:unsupported.map(e=>e.object_id),reason:'Straight native WCS XY coordinates and explicit zero bulges required; no bbox substitute'})};
-    const actual=graph(native.map(e=>({closed:e.closed,points:Array.from({length:e.coordinates.length/e.coordinate_dimension},(_,i)=>e.coordinates.slice(i*e.coordinate_dimension,(i+1)*e.coordinate_dimension))})));
-    const unexpected=entities.filter(e=>!index.items.some(i=>work.items[i.id]!.entity_ids.includes(e.object_id))).map(e=>e.object_id);
-    const missing=[...expected.edges].filter(e=>!actual.edges.has(e)),extra=[...actual.edges].filter(e=>!expected.edges.has(e));
-    return {id:'source_graph_connectivity',status:!missing.length&&!extra.length&&!unexpected.length&&expected.components===actual.components?'pass':'fail',evidence:JSON.stringify({source_nodes:expected.nodes,source_edges:expected.edges.size,source_components:expected.components,native_nodes:actual.nodes,native_edges:actual.edges.size,native_components:actual.components,missing:missing.slice(0,32),extra:extra.slice(0,32),unexpected_entity_ids:unexpected,scope:'Observed source-path graphical connectivity, NOT certified functional engineering semantics'})};
+    const expected = graph(index.items.filter(i => i.kind === 'path').map(item => sourceItemOperation(index, item, work.items[item.id]!).arguments as {
+        points: number[][];
+        closed: boolean;
+    }));
+    const native = entities.filter(e => ['AcDbPolyline', 'AcDb2dPolyline'].includes(e.type));
+    const unsupported = native.filter(e => ![2, 3].includes(e.coordinate_dimension) || !Array.isArray(e.coordinates) || e.coordinates.length < e.coordinate_dimension * 2 || e.coordinates.length % e.coordinate_dimension !== 0 || !e.coordinates.every(Number.isFinite) || !Array.isArray(e.bulges) || e.bulges.some((n: number) => !Number.isFinite(n) || Math.abs(n) > 1e-10) || JSON.stringify(e.normal) !== '[0,0,1]' || e.elevation !== 0);
+    if (unsupported.length)
+        return { id: 'source_graph_connectivity', status: 'fail', evidence: JSON.stringify({ unsupported_native_entity_ids: unsupported.map(e => e.object_id), reason: 'Straight native WCS XY coordinates and explicit zero bulges required; no bbox substitute' }) };
+    const actual = graph(native.map(e => ({ closed: e.closed, points: Array.from({ length: e.coordinates.length / e.coordinate_dimension }, (_, i) => e.coordinates.slice(i * e.coordinate_dimension, (i + 1) * e.coordinate_dimension)) })));
+    const unexpected = entities.filter(e => !index.items.some(i => work.items[i.id]!.entity_ids.includes(e.object_id))).map(e => e.object_id);
+    const missing = [...expected.edges].filter(e => !actual.edges.has(e)), extra = [...actual.edges].filter(e => !expected.edges.has(e));
+    return { id: 'source_graph_connectivity', status: !missing.length && !extra.length && !unexpected.length && expected.components === actual.components ? 'pass' : 'fail', evidence: JSON.stringify({ source_nodes: expected.nodes, source_edges: expected.edges.size, source_components: expected.components, native_nodes: actual.nodes, native_edges: actual.edges.size, native_components: actual.components, missing: missing.slice(0, 32), extra: extra.slice(0, 32), unexpected_entity_ids: unexpected, scope: 'Observed source-path graphical connectivity, NOT certified functional engineering semantics' }) };
 }
 export function sourceWorklistSummary(index: ReferenceIndex, work: SourceWorklist) {
     const counts: Record<string, number> = {}, tiles = index.tiles.map((t, id) => ({ id: 'source_tile_' + id, bounds: t.owner, total: 0, pending: 0 }));
@@ -180,7 +262,7 @@ export function sourceWorklistPage(index: ReferenceIndex, work: SourceWorklist, 
         if (recommended.some(i => i.id === item.id))
             continue;
         const group = item.group_id ? items.filter(i => i.group_id === item.group_id && ['accepted', 'pending'].includes(work.items[i.id]!.status)) : [item];
-        if (recommended.length + group.length > 32)
+        if (recommended.length + group.length > 64)
             continue;
         if (!recommended.length) {
             recommended.push(...group);
