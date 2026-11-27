@@ -2,6 +2,19 @@ import type { AgentResult, PublicEvent } from '@cader/dsh-adapter';
 
 export type FailureSource = 'provider' | 'agent' | 'mcp' | 'configuration' | 'runtime' | 'verification' | 'usage';
 const hints: Record<string, string> = {
+  PROGRESSIVE_PLAN_MISSING:'模型在有限重试后仍未提交有效分区计划；尚未允许绘图。查看本任务受控诊断，不重复整图清点。',
+  PROGRESSIVE_AGENT_FAILED:'当前渐进阶段未形成有效模型结果，进度已保留；工具ACK不等于区域验收通过。',
+  PROGRESSIVE_CHECKPOINT_CHANGED:'图纸读回与已保存检查点不同，已拒绝续写；核对变化来源，不重放确认操作。',
+  PROGRESSIVE_LEDGER_CHANGED:'当前连接操作账本与检查点不一致，已拒绝续跑。',
+  TASK_AUTHORIZATION_DENIED:'本任务没有获得CAD写入授权，未绕过审批。',
+  REGION_REFERENCE_FAILED:'局部源证据未通过验证；会在范围和预算内细分未执行区域，其他独立区域可以继续。',
+  REGION_SOURCE_UNCERTAIN:'局部必要符号或连接仍不确定，不猜测绘图；保留源证据及已完成区域。',
+  REGION_BOUNDARY_UNCERTAIN:'跨区边界连接未获得一致独立证据；不拼接猜测的网络。',
+  REGION_ACCEPTANCE_PENDING:'当前区域的结构或视觉验收仍未通过；已交回Scheduler做局部修正。',
+  REGION_REPAIR_LIMIT:'该区域已达到三轮局部修正上限，保留现有图和缺陷，不宣称整图完成。',
+  REGION_NO_PROGRESS:'本轮没有可核实进展，已停止重复请求并保留检查点。',
+  BATCH_VERIFICATION_PENDING:'当前批次的实际结构或视觉检查未通过，停止继续派发，由Scheduler处理。',
+
   QUOTA: '模型服务拒绝请求（QUOTA）；请核对该API Key对应账户的余额、配额和模型访问权限。尚不能仅凭此码断言余额不足；MCP连接状态另行报告。',
   ACCEPTANCE_PLAN_MISSING: '模型未提交有效验收计划，尚未允许绘图。检查规划工具错误和模型运行记录；不会将此状态称为已绘图待验证。',
   TASK_EXECUTION_REQUIRED:'本任务没有新建图纸或实际绘图证据，已阻止使用旧图验收。请查看执行轨迹；未重放旧操作。',

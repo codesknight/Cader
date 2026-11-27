@@ -41,3 +41,6 @@ dev.9：[原生新图与质量恢复 / native creation and quality recovery](val
 2026-11-25：[前四项 P0 修复与真实两案例回归](validation/2026-11-25-p0-quality-fixes.md)。
 
 2026-11-26：[普通COM文件交付P1客户端接入与联合验证](validation/2026-11-26-com-artifact-p1-integration.md)。
+
+
+2026-11-27：[渐进式绘图、局部门禁与技能集成](development/2026-11-27-progressive-drawing.md) · [实际回归与未完成条件](validation/2026-11-27-progressive-drawing.md)。

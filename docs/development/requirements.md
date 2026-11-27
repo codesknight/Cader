@@ -205,3 +205,6 @@ REQ-049本批交付：258测试、组件smoke，冷态新建和最终两原始�
 REQ-050（#20，Milestone3，2026-11-26）：用户要求依据独立MCP报告2026-11-25-com-artifact-p1接入联合回归。MCP3745af8/7086673提供普通COM受控文件保存、独立只读重开和指定验收文档查询；Cader按能力发现适配、核对实例/源/验收/请求/产物与指纹，实际返回路径为准，工作图身份不被验收图替换；SaveAs与Open失败分级留证，不重放未知文件操作、不用几何对账清除文件屏障。复用Scheduler和原始房子/复杂手稿实际模型与AutoCAD，完整几何独立verifier另验，legacy_summary_partial不冒充完整语义。保持旧服务兼容、权限与17旧屏障/原图/既有用户文件；不修改独立MCP仓库。
 
 REQ-050交付结果：原始房子与原始复杂手稿两项Cader真实模型/AutoCAD新P1闭环及独立Native/源语义验证通过；未将上游导入旧DWG脚本当本轮自主绘图。实际路径、只读身份、客户端请求关联、失败/保留和范围见[最终联合报告](../validation/2026-11-26-com-artifact-p1-integration.md)，提交及CI随当前HEAD在#20记录。广泛REQ-046/Milestone3继续开放。
+
+
+REQ-051（#20，Milestone3，2026-11-27）：用户提供大图阻塞日志、Bug Triage 和 Progressive Drawing Skill，要求直接实施自动技能选择、合法局部 Reference Gate、渐进任务调度、每批结构/视觉验证、局部修复、同连接检查点恢复及真实大图 AutoCAD 回归。保留原始图纸、执行/屏障证据与独立MCP，不能以 Prompt/Skill 注册或简单圆测试代替。实施和职责边界见[工程记录](2026-11-27-progressive-drawing.md)，实际结果见[验证记录](../validation/2026-11-27-progressive-drawing.md)。

@@ -1,6 +1,6 @@
-import { mkdir, readFile, writeFile, rename, lstat, readdir, appendFile } from 'node:fs/promises';
+import { mkdir, readFile, open, rename, lstat, readdir, appendFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { resolve, join } from 'node:path';
+import { resolve, join,dirname } from 'node:path';
 import { z } from 'zod';
 import { workspacePath } from '@cader/config';
 
@@ -41,9 +41,7 @@ export class SessionStore {
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     const text = this.clean(JSON.stringify(session, null, 2) + '\n');
     if (Buffer.byteLength(text) > 2_000_000) throw new Error('SESSION_SIZE_LIMIT');
-    const temp = join(directory, `.write-${randomUUID()}.json`);
-    await writeFile(temp, text, { flag: 'wx', mode: 0o600 });
-    await rename(temp, path);
+    await atomicPrivateState(path,text);
   }
   async load(id: string) {
     if (!/^session-[a-f0-9-]{36}$/.test(id)) throw new Error('INVALID_SESSION_ID');
@@ -68,6 +66,13 @@ export class SessionStore {
     }
     return rows.sort((a, b) => b.updated.localeCompare(a.updated));
   }
+}
+/** Caller has resolved a private workspace directory. A failed rename leaves
+ * the old checkpoint intact and retains the new temporary evidence. */
+export async function atomicPrivateState(path:string,text:string){
+  const temp=join(dirname(path),`.write-${randomUUID()}.json`),file=await open(temp,'wx',0o600);
+  try{await file.writeFile(text);await file.sync();}finally{await file.close();}
+  await rename(temp,path);
 }
 
 /** Strip terminal controls from untrusted content without losing normal newlines. */

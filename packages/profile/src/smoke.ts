@@ -72,6 +72,9 @@ export { runVisualSmoke } from './visual-smoke.js';
 export { runFaultSmoke } from './fault-smoke.js';
 export { runQualitySmoke } from './quality-smoke.js';
 export { verifyQuality, requiresQuality, runQualityTask, qualityTaskContext } from './quality.js';
+export {runProgressiveTask,verifyProgressiveBatch,progressiveFrame} from './progressive.js';
+export {verifyNetlist} from './netlist.js';
+export {validateDraftOperation,verifyDraftGeometry,draftCadTrace} from './progressive-draft.js';
 export { taskIntent } from './task-intent.js';
 export { ExecutionSession, PERMISSION_MODES } from './execution.js';
 export { validateCadArguments } from './cad-arguments.js';
@@ -81,3 +84,4 @@ export { referencedPaths, importReferenceImage, referenceOutput,referenceLayoutH
 export { runExecutionEvidenceSmoke } from './execution-evidence-smoke.js';
 
 export { acceptQualityByUser,userReviewStatus } from './quality-acceptance.js';
+export {atomicPrivateState} from './session-store.js';

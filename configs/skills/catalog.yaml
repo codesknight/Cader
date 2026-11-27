@@ -1,5 +1,14 @@
 version: 1
 skills:
+  - name: progressive-drawing
+    description: Decompose complex CAD tasks into bounded regions, draw incrementally, verify, repair and resume; grants no execution authority.
+    when_to_use: Complex or dense reference redraws, multi-part drawings, explicit staged drawing, or repeated whole-image analysis failure; not simple primitives.
+    roles: [main, vision]
+    mode: read-only
+    resources:
+      task-decomposition: references/task-decomposition.md
+      verification-and-repair: references/verification-and-repair.md
+      checkpoint-and-recovery: references/checkpoint-and-recovery.md
   - name: cad-execution
     description: CAD execution workflow, dependencies, reference-image use and recovery evidence.
     when_to_use: Before planning CAD writes, image redraw, patches, layer dependencies or recovery.

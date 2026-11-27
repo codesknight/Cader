@@ -158,7 +158,7 @@ export class InteractiveSession {
         case '/quality':{
           if(!this.state.qualityRun)return {text:'当前没有质量任务。复杂绘图会自动建立质量清单。'};
           const path=await workspacePath(this.state.workspace,this.state.qualityRun);
-          if((await stat(path)).size>2_000_000)throw new Error('QUALITY_MANIFEST_TOO_LARGE');
+          if((await stat(path)).size>16_000_000)throw new Error('QUALITY_MANIFEST_TOO_LARGE');
           const saved=JSON.parse(await readFile(path,'utf8'));
           const userReview=await userReviewStatus(this.state.workspace,path,this.state.qualityReview);
           if(!arg)return {text:this.clean(JSON.stringify({...qualityTaskContext(saved),acceptance:userReview.accepted?'accepted_by_user':qualityTaskContext(saved).acceptance,user_review:userReview,path},null,2))};
@@ -282,7 +282,7 @@ export class InteractiveSession {
     let priorQuality: Parameters<typeof qualityTaskContext>[0] & QualityResume | undefined;
     if(this.state.qualityRun){
       const path=await workspacePath(this.state.workspace,this.state.qualityRun);
-      if((await stat(path)).size>2_000_000)throw new Error('QUALITY_MANIFEST_TOO_LARGE');
+      if((await stat(path)).size>16_000_000)throw new Error('QUALITY_MANIFEST_TOO_LARGE');
       priorQuality=JSON.parse(await readFile(path,'utf8'));
       if(!priorQuality?.task_id||!Array.isArray(priorQuality.checks))throw new Error('QUALITY_MANIFEST_INVALID');
     }

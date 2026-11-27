@@ -13,6 +13,11 @@ export class ExecutionBudget {
   private roundCad = 0;
   private tokens = 0;
   constructor(private readonly config: RuntimeConfig) {}
+  restore(saved:{execution_round:number;tool_reservations:number;cad_reservations:number;reported_tokens:number}){
+    if(this.round||this.tools||this.cad||this.tokens)throw new Error('BUDGET_ALREADY_STARTED');
+    if(Object.values(saved).some(v=>!Number.isSafeInteger(v)||v<0))throw new Error('BUDGET_CHECKPOINT_INVALID');
+    this.round=saved.execution_round;this.tools=saved.tool_reservations;this.cad=saved.cad_reservations;this.tokens=saved.reported_tokens;
+  }
   beginRound(): BudgetStop | undefined {
     if (this.round >= (this.config.max_execution_rounds ?? 12)) return 'EXECUTION_ROUND_LIMIT';
     this.round++; this.roundTools = 0; this.roundCad = 0;

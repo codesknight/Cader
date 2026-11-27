@@ -252,7 +252,7 @@ for(const scenario of ['task-cad-limit','model-step-limit'] as const){
   test(`actual DSH keeps pending CAD untouched at total task stop: ${scenario}`,async()=>{
     const c=await config();c.runtime.max_cad_operations_per_round=4;
     if(scenario==='task-cad-limit')c.runtime.max_cad_operations=4;
-    else c.runtime.max_model_steps=2;
+    else c.runtime.max_task_model_steps=2;
     const writes:number[]=[];let step=0;
     const runtime=await createLiveRuntime({...c,root:process.cwd(),runDirectory:resolve(`.cader/tests/${scenario}`),executionTools:[
       defineTool({name:'mcp__autocad__draw_circle',description:'Fixture',parameters:{radius:{type:'number',required:true}},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:v}]},async execute(a){writes.push(a.radius);return 'fixture';}})]});

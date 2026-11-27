@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {parseAcceptancePlan,parseReferenceObservation} from '@cader/config';
-import {verifyQuality} from '@cader/profile';
+import {verifyQuality,verifyNetlist} from '@cader/profile';
 const plan=parseAcceptancePlan({version:1,domain:'electrical-schematic',wire_layer:'WIRE',visual_required:true,
   components:[{id:'Q',kind:'three-pin',ports:[[0,5],[10,10],[10,0]],pin_names:['B','C','E'],bounds:[[0,0],[10,10]]},
     {id:'A',kind:'two-pin',ports:[[-20,5],[-10,5]],pin_names:['1','2'],bounds:[[-20,0],[-10,10]]},
@@ -28,6 +28,14 @@ test('external net partitions support a three-pin component and T branches witho
   assert.throws(()=>parseAcceptancePlan({...plan,requirements:[...plan.requirements,{id:'invalid-series',check:'series_cycle',source_quote:'fixture',description:'Wrong verifier'}]}),/two-terminal/);
   assert.throws(()=>parseAcceptancePlan({...plan,nets:plan.nets!.slice(1)}),/partition/);
 });
+test('regional boundary pins require actual conductor continuity to the declared local net',()=>{
+  const boundary=[{name:'boundary:edge',position:[20,20],net:'branch'}];
+  assert.equal(verifyNetlist(plan,[...symbols,...wires],boundary).pass,false);
+  const connected=[...symbols,...wires,wire([20,15],[20,20],999)];
+  assert.equal(verifyNetlist(plan,connected,boundary).pass,true);
+  assert.equal(verifyNetlist(plan,connected,[{...boundary[0]!,net:'open0'}]).pass,false);
+});
+
 test('interior crossings remain disconnected unless a junction is explicitly declared',()=>{
   const p=parseAcceptancePlan({version:1,domain:'electrical-schematic',wire_layer:'WIRE',visual_required:true,
     components:[[-10,0],[10,0],[0,-10],[0,10]].map(([x,y],i)=>({id:String(i),kind:'terminal',ports:[[x,y]],pin_names:['p'],bounds:[[x!-1,y!-1],[x!,y!]]})),

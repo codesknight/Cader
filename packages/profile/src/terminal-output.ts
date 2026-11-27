@@ -20,7 +20,7 @@ export function toolResultLine(event: PublicEvent) {
     reason?: string;
   }|undefined;
   const refused=business?.status==='refused';
-  const visual=event.tool==='cader_review_cad_view';
+  const visual=event.tool==='cader_review_cad_view'||event.tool==='cader_submit_visual_report';
   const failed=business?.status==='failed';
   const pending=business?.status==='pending'||(visual&&!failed&&business?.status!=='succeeded');
   return `\n  ${event.isError||failed? '×':refused||pending? '!':'✓'} ${String(event.tool)}`+

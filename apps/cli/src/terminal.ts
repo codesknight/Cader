@@ -4,6 +4,8 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { InteractiveSession, SafeTextStream, terminalText, failureFromError, replyTextAfterStreaming, toolResultLine } from '@cader/profile';
 
+const regionStatus=(value:unknown)=>({pending:'待处理',observing:'局部分析',ready:'待绘制',drawing:'绘制',repairing:'局部修正',verified:'区域通过',partial_verified:'片段通过，覆盖待验',blocked:'区域待解决'} as Record<string,string>)[String(value)]??String(value);
+
 export function findConfigRoot(workspace: string) {
   let path = resolve(workspace);
   while (true) {
@@ -35,7 +37,7 @@ export async function runTerminal(options: { workspace?: string; stdio?: boolean
     '  ╚██████╗██║  ██║██████╔╝███████╗██║  ██║',
     '   ╚═════╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝',
   ].map((line, index) => paint(index < 3 ? '1;36' : '1;34', line)).join('\n') + '\n');
-  output.write(paint('1', '  Cader 0.4.0-dev.12') + '  ·  DeepSeek Harness  ·  CAD terminal\n'
+  output.write(paint('1', '  Cader 0.4.0-dev.13') + '  ·  DeepSeek Harness  ·  CAD terminal\n'
     + paint('2;36', '─'.repeat(Math.max(20, Math.min((output.columns ?? 80) - 2, 90)))) + '\n');
   write(`  ${session.model.model} · ${session.state.permission} · ${basename(workspace)}\n  ${session.startupStatus}\n  /help 命令  ·  @图片/图纸  ·  !Shell  ·  Tab 补全  ·  Esc 中断\n\n`);
   if (tty && process.env.TERM === 'dumb') write('当前终端声明TERM=dumb，使用简化输入。支持VT的终端可设置TERM=xterm-256color以启用完整编辑/补全。\n');
@@ -93,6 +95,9 @@ export async function runTerminal(options: { workspace?: string; stdio?: boolean
           else if(event.type==='task.planning_retry')write('\n  规划输出被截断，正在进行一次紧凑重试（尚未绘图）。\n');
           else if(event.type==='task.output_retry')write(`\n  模型响应中断（${String(event.reason)}） · 已核对账本及图纸 · 短批续跑 ${event.scope_attempt??event.attempt}/2${event.recovery_scope&&event.recovery_scope!=='task'?` · 单元 ${String(event.recovery_scope)}`:''}（累计${event.attempt}次，不重放已确认操作）。\n`);
           else if(event.type==='task.drawing_unit')write(`\n  绘图进度：${String(event.unit_id)} 已读回登记，整图尚待验收。\n`);
+          else if(event.type==='task.region')write(`\n  区域 ${String(event.region)} · ${regionStatus(event.status)} · ${String(event.entities)} 实体${event.failure?` · ${String(event.failure)}`:''}（整图尚待验收）\n`);
+          else if(event.type==='task.region_split')write(`\n  区域细分：${String(event.parent)} → ${(event.children as string[]).join('、')}，保留原失败证据。\n`);
+          else if(event.type==='task.batch_verified')write(`\n  批次 ${String(event.batch)} · ${event.status==='pass'?'结构与视觉通过':'待修正或复核'}（整图尚待验收）\n`);
           else if(event.type==='task.checkpoint')write(`\n  预算检查点 · 第${event.execution_round}回合 · ${event.continuing?'已读回并保存进度，自动续轮':'已保存进度，任务总限额暂停'} · ${String(event.document??'尚未新建图纸')}\n`);
           else if(event.type==='task.review_handoff')write('\n  视觉或读回异常，已交回调度器；当前图纸尚未通过验收。\n');
           else if (event.type === 'tool.result') {

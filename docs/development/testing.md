@@ -384,3 +384,8 @@ REQ-033手稿日志审计：读取用户原始附件及实际verification/events
 
 
 REQ-050封存检查：`pnpm typecheck`、`pnpm test` **280/280**、`pnpm smoke`通过；新增文件/状态/权限专项20例、源内容视图及人工验收边界两例。Cader Python兼容Ruff检查/格式、10/10 pytest和offline protocol smoke通过。原始房子6/6、57确认/0未知、37只读实体；原始手稿13/13、88确认/0未知、83只读实体及独立8网/9标注/三角地符号通过。房子Open1/Query2，电路Open1/Query1，独立Native verifier没有另行Open/SaveAs。前四轮源识别零写入阻断、两次Native verifier出参错误保留。详见本轮报告与机器摘要，CI随最终HEAD在Issue20记录。
+
+
+2026-11-27 REQ-051：执行pnpm typecheck和pnpm test，阶段全量296/296通过；继续增补坐标、双份独立待验稿、断点与失败原子性测试，最终变更后重跑。显式pnpm live-smoke --quality --task使用原始4967×3509大图及真实独立AutoCAD实例，早期规划/源观察失败保留，不以圆形或固定计划替代。完整DSH夹具、真实模型、真实CAD、DWG交付状态见[最终验证记录](../validation/2026-11-27-progressive-drawing.md)。未完成项目不能标通过。
+
+REQ-051最终代码离线检查：`pnpm typecheck`、`pnpm test` **309/309**、`pnpm smoke`全部通过。另验证真实回执新文档阶段结束、部分成功Patch交接、裁片坐标/候选独立复核、累计预算/scope恢复、失效缓存更新、同任务防重放、区域图层大小写保护和跨区原生导线连接。真实原图恢复回归25确认/0未知、1次新建，预算/任务/原连接/文档不变量通过；完整图纸仍待验，保存后独立Open被保留空图保护在原生前拒绝。公开结论与私有轨迹位置见验证报告，不能将本轮文件保存等同于整图通过。

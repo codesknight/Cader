@@ -25,7 +25,7 @@ test('catalog registers role-scoped data and resources without discovering arbit
     await mkdir(resolve(f.root, 'configs/skills/unregistered'));
     await writeFile(resolve(f.root, 'configs/skills/unregistered/SKILL.md'), 'not registered');
     const skills = await loadSkills(f.root);
-    assert.equal(skills.list('main').length, 4);
+    assert.equal(skills.list('main').length, 5);
     assert.deepEqual(skills.list('subagent').map(skill => skill.name), ['cad-inspection']);
     await assert.rejects(skills.read('cad-redraw-review', 'subagent'));
     await assert.rejects(skills.read('unregistered', 'main'));

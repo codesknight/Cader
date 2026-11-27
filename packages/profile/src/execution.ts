@@ -23,6 +23,7 @@ export type Approval = (description: string, cwd: string) => Promise<boolean>;
 type Client = Awaited<ReturnType<typeof createMcpClient>>;
 type Outcome = 'committed' | 'committed_observation_failed' | 'unknown' | 'blocked_not_dispatched' | 'failed_before_dispatch' | 'read_failed';
 export interface CadOperationRecord { operation_id: string; tool_call_id?: string; agent_id?: string; tool: string;
+  arguments_sha256?:string;created_entity_ids?:number[];subject_entity_id?:number;
   stage: string; outcome: Outcome; dispatched: boolean; evidence_route?:string; execution_receipt?:ExecutionReceipt; transport_dispatched?:boolean; native_dispatched?:boolean; error?: unknown; target: string | null; duration_ms: number }
 
 /** One owner and one persistent MCP process per interactive workspace. COM retains its
@@ -50,21 +51,27 @@ export class ExecutionSession {
   private fileOperations:CadOperationRecord[]=[];
   private verificationDocuments=new Map<string,VerificationDocument>();
   mode: PermissionMode = 'ask';
-  private taskGrant?: { id: string; target: string | null; newAllowed: boolean; created: Set<number>; requireNew:boolean; outputPath?:string;plan:QualityPlan };
+  private taskGrant?: { id: string; target: string | null; newAllowed: boolean; created: Set<number>; requireNew:boolean; outputPath?:string;plan:QualityPlan;preventDuplicateCreates?:boolean };
   private artifactOwner?:{task:string;connection:string|null;target:string|null};
   private localConnectionId: string | null = null;
   private taskEntities = new Map<string,{connection:string|null;target:string|null;created:Set<number>;startMark:number;newOperation?:string;freshRequired:boolean}>();
   async authorizeTask(id: string, plan: QualityPlan, confirm?: Approval, controls?:{freshDrawing:boolean;outputPath:string}) {
     if(this.mode==='read-only'||this.frozen)return false;
-    if(this.mode==='ask'&&!await confirm?.(this.clean(`CAD 任务级授权\n目标：${controls?'本任务必须新建工作图':this.scratch??'本连接新建工作图'}\n${JSON.stringify(plan)}\n允许：本任务创建图层、绘图、本任务新建实体的局部移动/缩放/删除和视图检查，含最多3轮修正；保存后可只读重开本任务已登记DWG验收，不接管验收图。${controls?`按请求生成DWG：${controls.outputPath}（覆盖他人/已改动文件另行审批）。`:'保存仍按原策略审批。'}删除其他实体、覆盖及Shell仍按原策略审批。`),this.workspace))return false;
     const prior=this.taskEntities.get(id);
     if(prior&&(prior.connection!==this.localConnectionId||prior.target!==this.scratch))return false;
+    if(this.mode==='ask'&&!await confirm?.(this.clean(`CAD 任务级授权\n目标：${prior?.newOperation?'继续本任务已确认工作图 '+this.scratch:controls?'本任务必须新建工作图':this.scratch??'本连接新建工作图'}\n${JSON.stringify(plan)}\n允许：本任务创建图层、绘图、本任务新建实体的局部移动/缩放/删除和视图检查，含最多3轮修正；保存后可只读重开本任务已登记DWG验收，不接管验收图。${controls?`按请求生成DWG：${controls.outputPath}（覆盖他人/已改动文件另行审批）。`:'保存仍按原策略审批。'}删除其他实体、覆盖及Shell仍按原策略审批。`),this.workspace))return false;
     const created=prior?.created??new Set<number>();
     this.taskGrant={id,target:this.scratch,newAllowed:!prior,created,requireNew:Boolean(controls&&!prior?.newOperation),outputPath:controls?.outputPath?resolve(controls.outputPath):undefined,plan:structuredClone(plan)};
     this.taskEntities.set(id,prior??{connection:this.localConnectionId,target:this.scratch,created,startMark:this.operations.length,freshRequired:Boolean(controls)});
     await this.audit({phase:'task_authorized',task_id:id,target:this.scratch,plan});return true;
   }
   endTask(){this.taskGrant=undefined;}
+  /** Scheduler refinement never grants new document or entity authority. */
+  async refineTaskPlan(id:string,plan:QualityPlan){
+    const scope=this.taskScope(id);
+    if(this.frozen||this.taskGrant?.id!==id||!scope.owned)throw new Error('TASK_PLAN_REFINEMENT_DENIED');
+    this.taskGrant.plan=structuredClone(plan);this.taskGrant.preventDuplicateCreates=true;await this.audit({phase:'task_plan_refined',task_id:id,target:scope.target,plan});
+  }
   taskScope(id:string){
     const task=this.taskEntities.get(id),owned=Boolean(task&&task.connection===this.localConnectionId&&task.target===this.scratch);
     const operations=task?this.operations.slice(task.startMark).filter(op=>op.target===task.target):[];
@@ -521,6 +528,7 @@ export class ExecutionSession {
             } catch (error) { await this.audit({ ...correlation, phase: 'read_failed', tool: name, error: this.diagnostic(error) }); throw error; }
           }
           const record: CadOperationRecord = { ...correlation, tool: name, target: this.scratch, stage: 'preflight', outcome: 'failed_before_dispatch', dispatched: false, duration_ms: 0 };
+          if(Number.isSafeInteger(payload.object_id))record.subject_entity_id=Number(payload.object_id);
           let acknowledged = false;
           try {
             exec.signal.throwIfAborted();
@@ -533,6 +541,20 @@ export class ExecutionSession {
             if (name !== 'new_drawing' && !this.scratch) throw new Error('NEW_SCRATCH_DRAWING_REQUIRED');
             if(name!=='new_drawing')await this.checkIdentity(true);
             await this.validateDependencies(name,payload,operationId);
+            if(name.startsWith('draw_')&&this.taskGrant?.preventDuplicateCreates){
+              const properties=(tool.parameters as {properties?:Record<string,{default?:unknown}>}).properties??{},normalized={...Object.fromEntries(Object.entries(properties).filter(([,p])=>Object.hasOwn(p,'default')).map(([key,p])=>[key,p.default])),...payload};
+              if('layer' in normalized)normalized.layer=normalized.layer||'0';
+              const ordered=(value:any):any=>Array.isArray(value)?value.map(ordered):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,ordered(value[key])])):value;
+              record.arguments_sha256=createHash('sha256').update(JSON.stringify([name,ordered(normalized)])).digest('hex');
+              const start=this.taskEntities.get(this.taskGrant.id)!.startMark;
+              const prior=this.operations.slice(start).filter(op=>op.outcome==='committed'&&op.tool===name&&op.arguments_sha256===record.arguments_sha256&&op.created_entity_ids?.length);
+              for(const op of prior){
+                const later=this.operations.slice(this.operations.indexOf(op)+1).filter(l=>l.outcome==='committed'&&/^(?:move_|rotate_|scale_|delete_|mirror_)/.test(l.tool));
+                if(op.created_entity_ids!.some(id=>later.some(l=>l.subject_entity_id===id)))continue;
+                const actual=await this.readBack('query_entities',{});if(!Array.isArray(actual))throw new Error('CAD_CREATION_RECHECK_FAILED');const present=op.created_entity_ids!.filter(id=>actual.some((e:{object_id:number})=>e.object_id===id));
+                if(present.length)throw new Error('CAD_CREATION_ALREADY_COMMITTED: '+JSON.stringify({operation_id:op.operation_id,entity_ids:present,action:'Read back these entities and continue only missing work. Confirmed creation is not replayed.'}));
+              }
+            }
             let destructive = name === 'delete_entity' || payload.erase_source === true;
             let output: string | undefined;
             if (name === 'save_drawing') {
@@ -570,7 +592,9 @@ export class ExecutionSession {
             if(this.taskGrant){const task=this.taskEntities.get(this.taskGrant.id)!;task.target=this.scratch;
               if(name==='new_drawing'){task.newOperation=operationId;this.taskGrant.requireNew=false;}}
             const createdId=Number(String(result).match(/object_id=(\d+)/)?.[1]);
+            record.created_entity_ids=[...new Set([...(Number.isSafeInteger(createdId)&&createdId>0?[createdId]:[]),...dispatched.receipt?.affected_entities.created.map(Number).filter(id=>Number.isSafeInteger(id)&&id>0)??[]])];
             if(this.taskGrant&&/^draw_|^add_dimension$|^copy_entity$|^mirror_entity$/.test(name)&&Number.isSafeInteger(createdId))this.taskGrant.created.add(createdId);
+            if(this.taskGrant&&dispatched.receipt&&/^draw_|^add_dimension$|^copy_entity$|^mirror_entity$/.test(name))for(const id of dispatched.receipt.affected_entities.created){const value=Number(id);if(Number.isSafeInteger(value)&&value>0)this.taskGrant.created.add(value);}
             record.target = this.scratch;
             await this.audit({ ...record, phase: 'mutation_acknowledged', result });
             record.stage = 'postflight';

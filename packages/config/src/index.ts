@@ -2,6 +2,12 @@ import { readFile, realpath, stat } from 'node:fs/promises';
 import { dirname, resolve, relative, isAbsolute } from 'node:path';
 import { parseDocument } from 'yaml';
 import { z } from 'zod';
+export {progressiveDrawingSelection,parseProgressivePlan,progressivePlanSchema} from './progressive.js';
+export type {ProgressivePlanData} from './progressive.js';
+export {rasterizeProgressivePlan} from './progressive.js';
+export {isAnalysisOnlyRequest} from './progressive.js';
+export {progressiveDraftSchema,parseProgressiveDraft} from './progressive.js';
+export type {ProgressiveDraftData,ProgressiveTrace} from './progressive.js';
 export { parseVisualReport, visualReportSchema, parseAcceptancePlan, acceptancePlanSchema,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema,parseReferenceLabelInventory,referenceLabelInventorySchema,parseReferenceNets,referenceNetsSchema,reconcileSourceNets,referenceMembershipSchema,parseReferenceMembership,sourceConnectionReviewSchema,parseSourceConnectionReview,mergeConfirmedSourceConnections } from './quality.js';
 export type {ConfirmedSourceConnection} from './quality.js';
 export {reconcileSourceLabels,assertSourceBodyLayout,sourceBodyMarginOverlapMax} from './quality.js';
@@ -37,6 +43,8 @@ const Runtime = z.object({
   subagent_profiles: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/)).min(1),
   max_parallel_subagents: z.int().min(1).max(5), max_delegation_depth: z.literal(1),
   max_model_steps: z.int().min(1).max(100), max_tool_calls: z.int().min(1).max(100),
+  max_task_model_steps:z.int().min(1).max(2000).optional(),
+  max_task_duration_ms:z.int().min(1000).max(14400000).optional(),
   max_task_tool_calls: z.int().min(1).max(5000).optional(),
   max_cad_operations_per_round: z.int().min(1).max(256).optional(),
   max_cad_operations: z.int().min(1).max(5000).optional(),

@@ -4,6 +4,7 @@ subagent_profiles: [SubAgent, VisionAgent]
 max_parallel_subagents: 5
 max_delegation_depth: 1
 max_model_steps: 100
+max_task_model_steps: 400
 max_tool_calls: 100
 max_task_tool_calls: 600
 max_cad_operations_per_round: 64

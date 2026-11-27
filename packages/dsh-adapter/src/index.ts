@@ -42,3 +42,4 @@ export type { ComEvidence, NativeBinding, ObservedRequest, ExecutionReceipt } fr
 
 export {parseFileResult} from './file-evidence.js';
 export type {ComFileArtifact,VerificationDocument,VerificationQuery} from './file-evidence.js';
+export {sourceCoordinates} from './source-coordinates.js';

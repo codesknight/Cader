@@ -17,6 +17,11 @@ export interface CheckResult {
   details?:unknown;
 }
 export interface QualityResume {
+  progressive?: import('./progressive.js').ProgressiveState | null;
+  budget?: {execution_round:number;tool_reservations:number;cad_reservations:number;reported_tokens:number;model_steps?:number;started_at?:string};
+  checkpoints?:unknown[];
+  transitions?:{phase:QualityPhase;at:string}[];
+  model_runs?:{phase:QualityPhase;status:string;text:string;tools:string[];error_code?:string;handoff?:unknown}[];
   task_id: string;
   original_request: string;
   request_sha256: string;
@@ -44,7 +49,7 @@ type VisualCall = { source: 'agent' | 'harness'; observed_state_hash: string; re
 /** Compact evidence for model steps and status queries. Saved evidence is
  * historical, never a fresh native revision or authority to resume writes. */
 export function qualityTaskContext(saved: { task_id: string; phase: string; original_request: string; round: number;
-  checks: CheckResult[]; visual_calls?: VisualCall[]; reviews?: unknown[]; plan?: QualityPlan; visual_attempt_count?: number;visual_model_call_count?:number;visual_error?: string | null;artifact?:Partial<LocalArtifact>|null;execution?:{artifact?:Partial<LocalArtifact>|null} }) {
+  checks: CheckResult[]; failure?:{code:string;stage:string}|null;progressive?:import('./progressive.js').ProgressiveState|null; visual_calls?: VisualCall[]; reviews?: unknown[]; plan?: QualityPlan; visual_attempt_count?: number;visual_model_call_count?:number;visual_error?: string | null;artifact?:Partial<LocalArtifact>|null;execution?:{artifact?:Partial<LocalArtifact>|null} }) {
   const legacy = saved.reviews?.at(-1) as { image_evidence?: unknown; visual_report?: unknown } | undefined;
   const last = saved.visual_calls?.at(-1)?.review;
   const file=saved.artifact??saved.execution?.artifact;
@@ -54,10 +59,12 @@ export function qualityTaskContext(saved: { task_id: string; phase: string; orig
     capture_attempt_count:saved.visual_attempt_count??Math.max(saved.visual_calls?.length??0,saved.reviews?.filter(r=>Boolean((r as {image_evidence?:unknown}).image_evidence)).length??0),
     visual_error: saved.visual_error ?? null,
     pending_reasons: [...new Set([...saved.checks.filter(c=>c.status!=='pass').map(c=>c.id),
-      ...(clipped?['capture_bounds']:[]),...(saved.visual_error?[saved.visual_error]:[]),...(last&&!last.review_valid?['visual_report_invalid']:[])])],
+      ...(saved.failure?[saved.failure.code]:[]),...(clipped?['capture_bounds']:[]),...(saved.visual_error?[saved.visual_error]:[]),...(last&&!last.review_valid?['visual_report_invalid']:[])])],
+    failure:saved.failure??null,
+    progressive:saved.progressive?{active_region:saved.progressive.active_region,last_tool_error:saved.progressive.last_tool_error??null,regions:saved.progressive.regions.map(r=>({id:r.id,status:r.status,failure:r.failure,entity_count:r.entity_ids.length,batches:r.batches.length})),resume:'Same original connection, document, source and observed checkpoint only; never replay committed operations.'}:null,
     last_visual: last ? { review_valid: last.review_valid, result: last.structured, image_evidence: last.evidence, image_ref: last.image_ref } : legacy ? { result: legacy.visual_report, image_evidence: legacy.image_evidence } : null,
     file_delivery:file?{path:file.path,requested_path:file.requested_path??file.path,sha256:file.sha256,bytes:file.bytes,contract:file.file_contract?.contract??'legacy',status:file.file_verification?.status??'saved_without_readonly_reopen',geometry_scope:file.file_verification?.geometry_scope??null,verification_document_id:file.file_verification?.document.document_id??null,verification:file.file_verification?.verification??'File reopen not evaluated'}:null,
-    checks: saved.checks, unmet_conditions: saved.checks.filter(c => c.status !== 'pass'),
+    checks: saved.checks, unmet_conditions: [...saved.checks.filter(c => c.status !== 'pass'),...(saved.failure?[{id:saved.failure.code,status:'not_run' as const,evidence:`Stage: ${saved.failure.stage}`}]:[])],
     verification: {
       geometry: saved.checks.filter(c => !['visual','series_cycle','netlist'].includes(saved.plan?.requirements?.find(r=>r.id===c.id)?.check??'')),
       topology: saved.checks.filter(c => ['series_cycle','netlist'].includes(saved.plan?.requirements?.find(r=>r.id===c.id)?.check??'')),
@@ -259,7 +266,7 @@ export async function runQualityTask(options: {
   }[] = [];
   const hash = createHash('sha256').update(task).digest('hex');
   const taskId = options.resume?.task_id ?? randomUUID();
-  const state = () => ({ version: 1, task_id: taskId, phase, original_request: task, request_sha256: hash, plan, round, checks, visual, reviews, visual_calls: visualCalls, visual_attempt_count:visualAttempts,
+  const state = () => ({ version: 1, progressive:null as import('./progressive.js').ProgressiveState|null,task_id: taskId, phase, original_request: task, request_sha256: hash, plan, round, checks, visual, reviews, visual_calls: visualCalls, visual_attempt_count:visualAttempts,
     visual_model_call_count:runtime?.reviewStats?priorModelCalls+runtime.reviewStats().model_calls:visualCalls.reduce((sum,call)=>sum+(call.review.attempts?.length??1),0),
     visual_error:visualError,transitions, failure,reference_task:referenceTask??null,reference_observation:referenceObservation,label_confirmations:labelConfirmations,unconfirmed_label_reviews:unconfirmedLabelReviews,connection_confirmations:connectionConfirmations,unconfirmed_connection_reviews:unconfirmedConnectionReviews,artifact,quality_accepted:accepted&&phase==='complete', model_runs: modelRuns, checkpoints,drawing_units:drawingUnits,active_drawing_unit:activeUnit,active_planning_unit:activePlanningUnit,planning_units:planningUnits,source_layout:sourceLayoutEvidence,source_frame:sourceFrameEvidence, budget:runtime?.budgetState?.(),execution: owner.facts() });
   const publish = () => { const facts=owner.facts();const context = {...qualityTaskContext(state()),

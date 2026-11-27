@@ -18,10 +18,10 @@ export function missingSymbolPorts(component:QualityPlan['components'][number],e
 }
 /** External conductor connectivity only. A transistor is not an internal short.
  * Crossings join only at an endpoint, a pin or an explicitly declared junction. */
-export function verifyNetlist(plan:QualityPlan,entities:Record<string,any>[]){
+export function verifyNetlist(plan:QualityPlan,entities:Record<string,any>[],boundaryPins:{name:string;position:number[];net:string}[]=[]){
   const all=entities.filter(e=>e.layer===plan.wire_layer);
   const wires=all.filter(e=>e.type==='AcDbLine'&&Array.isArray(e.start_point)&&Array.isArray(e.end_point));
-  const pins=plan.components.flatMap(c=>c.ports.map((position,i)=>({component:c.id,name:`${c.id}:${c.pin_names?.[i]??i}`,position})));
+  const pins=[...plan.components.flatMap(c=>c.ports.map((position,i)=>({component:c.id,name:`${c.id}:${c.pin_names?.[i]??i}`,position}))),...boundaryPins.map(p=>({component:'__boundary__',name:p.name,position:p.position}))];
   const missingContacts=plan.components.flatMap(c=>missingSymbolPorts(c,entities,plan.wire_layer).map(position=>({component:c.id,position})));
   const parents=Array.from({length:wires.length+pins.length},(_,i)=>i);
   const root=(i:number):number=>parents[i]===i?i:(parents[i]=root(parents[i]!));
@@ -50,7 +50,7 @@ export function verifyNetlist(plan:QualityPlan,entities:Record<string,any>[]){
   pins.forEach((pin,i)=>wires.forEach((w,j)=>{if(on(pin.position,w.start_point,w.end_point))join(wires.length+i,j);}));
   const contact=(pin:typeof pins[number])=>!missingContacts.some(m=>m.component===pin.component&&gap(m.position,pin.position)<1e-5);
   for(let i=0;i<pins.length;i++)for(let j=i+1;j<pins.length;j++)if(gap(pins[i]!.position,pins[j]!.position)<1e-5&&contact(pins[i]!)&&contact(pins[j]!))join(wires.length+i,wires.length+j);
-  const expected=new Map<string,string>(plan.nets?.flatMap(n=>n.pins.map(p=>[`${p.component}:${p.pin}`,n.id] as const))??[]);
+  const expected=new Map<string,string>([...plan.nets?.flatMap(n=>n.pins.map(p=>[`${p.component}:${p.pin}`,n.id] as const))??[],...boundaryPins.map(p=>[p.name,p.net] as const)]);
   const mismatches:unknown[]=[];
   for(let i=0;i<pins.length;i++)for(let j=i+1;j<pins.length;j++){
     const connected=root(wires.length+i)===root(wires.length+j),wanted=expected.get(pins[i]!.name)===expected.get(pins[j]!.name);

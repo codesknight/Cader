@@ -1,7 +1,7 @@
 import { mkdir, writeFile, realpath } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { resolve, join } from 'node:path';
-import { loadConfig, loadMcp, loadSkills, redactSecrets, ConfigError, workspacePath } from '@cader/config';
+import { loadConfig, loadMcp, loadSkills, redactSecrets, ConfigError, workspacePath,progressiveDrawingSelection } from '@cader/config';
 import { createLiveRuntime } from '@cader/dsh-adapter';
 import type { AgentResult, PublicEvent } from '@cader/dsh-adapter';
 import type { ToolDefinition } from '@cader/dsh-adapter';
@@ -11,8 +11,9 @@ import { prepareImageView } from '@cader/dsh-adapter';
 import type { ImageView } from '@cader/dsh-adapter';
 import { ExecutionSession } from './execution.js';
 import type { PermissionMode } from './execution.js';
-import { environmentRedactor } from './session-store.js';
+import { environmentRedactor,atomicPrivateState } from './session-store.js';
 import { requiresQuality, runQualityTask, qualityTaskContext } from './quality.js';
+import {runProgressiveTask} from './progressive.js';
 import { taskIntent } from './task-intent.js';
 import type { QualityResume } from './quality.js';
 import type { Approval } from './execution.js';
@@ -59,9 +60,9 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
   let qualityPhase = 'planning';
   let currentTaskState: unknown;
   const routedIntent=taskIntent(input.originalTask??input.task);
-  const shouldCheck=()=>Boolean(input.referenceTask||input.qualityResume||requiresQuality(input.originalTask??input.task)||
+  const shouldCheck=()=>routedIntent!=='analysis'&&Boolean(input.referenceTask||input.qualityResume||requiresQuality(input.originalTask??input.task)||
     (input.alwaysVisual&&/^(?:请)?(?:移动|平移|旋转|修改|move|rotate)/i.test(input.originalTask??input.task)));
-  const intentAllowsTool=(name:string)=>!['status','preference'].includes(routedIntent)||
+  const intentAllowsTool=(name:string)=>!['status','preference','analysis'].includes(routedIntent)||
     /^(?:cader_(?:read_file|list_files|glob|cad_health|load_skill|open_image|view_image)|mcp__.+__(?:get_\w+|query_entities|list_\w+))$/.test(name);
   let qualityEnabled = Boolean(input.executionOwner && !input.disableTools && (input.referenceTask||requiresQuality(input.originalTask ?? input.task)));
   let cleanupError: string | undefined;
@@ -85,7 +86,7 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
       const image=await importReferenceImage(workspace,input.referenceTask?.image.path??input.image);
       if(input.referenceTask&&image.sha256!==input.referenceTask.image.sha256)throw new Error('REFERENCE_CHANGED_RESELECT_REQUIRED');
       input.image=image.path;
-      if(!input.referenceTask&&(input.intent==='redraw'||wantsRedraw(input.originalTask??input.task)))
+      if(routedIntent!=='analysis'&&!input.referenceTask&&(input.intent==='redraw'||wantsRedraw(input.originalTask??input.task)))
         input.referenceTask={request:input.originalTask??input.task,image:{path:image.path,sha256:image.sha256,width:image.width,height:image.height},
           outputPath:referenceOutput(workspace,input.originalTask??input.task,originalImage),freshDrawing:true};
       if (input.imageView) await prepareImageView(workspace, input.image, input.imageView);
@@ -108,11 +109,15 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
       stage = mcp ? 'mcp' : 'runtime';
       input.signal?.throwIfAborted();
       if(input.referenceTask&&input.executionOwner?.facts().transport!=='connected')throw new Error('REFERENCE_MCP_REQUIRED');
-      const executeQuality=(activeRuntime?:Awaited<ReturnType<typeof createLiveRuntime>>)=>runQualityTask({runtime:activeRuntime,root,profile:config.runtime.main_profile,task:input.originalTask??input.task,
+      const selection=progressiveDrawingSelection(input.originalTask??input.task,input.referenceTask?.image);
+      const progressive=qualityEnabled&&Boolean(input.qualityResume?.progressive||selection.selected);
+      if(progressive&&!input.skill)input.skill='progressive-drawing';
+      if(progressive)events.push({type:'skill.selected',name:'progressive-drawing',mode:'automatic',reason:selection.reason});
+      const executeQuality=(activeRuntime?:Awaited<ReturnType<typeof createLiveRuntime>>)=>(progressive?runProgressiveTask:runQualityTask)({runtime:activeRuntime,root,profile:config.runtime.main_profile,task:input.originalTask??input.task,
         owner:input.executionOwner!,signal:input.signal,confirm:input.confirmTask,resume:input.qualityResume,referenceTask:input.referenceTask,alwaysVisual:input.alwaysVisual,
         onState:state=>{currentTaskState=state;},
         emit:event=>{if(event.type==='task.phase')qualityPhase=String(event.phase);events.push(event);input.onEvent?.(event);},
-        persist:state=>writeFile(join(directory,'quality.json'),cleanEnvironment(redactSecrets(JSON.stringify(state,null,2),config.profiles))),
+        persist:state=>atomicPrivateState(join(directory,'quality.json'),cleanEnvironment(redactSecrets(JSON.stringify(state,null,2),config.profiles))),
         request:{skill:input.skill,image:input.image,history:input.history,summary:input.summary,domain:input.domain}});
       if(qualityEnabled&&input.executionOwner?.facts().frozen){
         quality=await executeQuality();
@@ -133,7 +138,10 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
         result=runtime.completed().filter(agent=>agent.profile===config.runtime.main_profile).at(-1);
       } else result = await runtime.run(config.runtime.main_profile, input.task, { skill: input.skill, image: input.image, imageView: input.imageView,
           signal: input.signal, history: input.history, summary: input.summary, domain: input.domain });
-      failure = agentFailure(runtime.completed(), events, result?.id);
+      // Successful independent acceptance supersedes intermediate model-stage
+      // failures; keep those original failures in the trace, not as a false
+      // terminal failure after every required quality condition has passed.
+      failure = quality?.quality_accepted&&quality.phase==='complete'?undefined:agentFailure(runtime.completed(), events, result?.id);
       if((!failure||failure.errorCode==='AGENT_FAILED')&&quality?.failure)failure=describeFailure(quality.failure.code,quality.failure.source==='model'?'agent':'verification');
       }
     }
