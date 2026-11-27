@@ -443,3 +443,5 @@ BUG113：真实Vision在同一留存真实AutoCAD截图上，原source-compariso
 
 
 2026-11-28 BUG117联合补修：Cader373e2bb（398 TS/typecheck/DSH component smoke、两组CI通过）＋MCP619696d（317 Python/34 CAD未启用跳过；Ruff isolated E4/E7/E9/F及触及文件format通过）。独立真实COM新文档2层后10次fresh读取全准确，0模型、0几何实体，组件DWG新路径；旧路该次未复现间歇错误。原始attempt12首次依赖预检缺层保留，未冒称新代码曾跑在旧Python进程；安全保全221确认/0未知/1派发前失败，218实体71609字节，旧115项不变，新基线123。新Cader＋MCP完整原图结果另记。
+
+BUG118 / #20：typecheck、400/400 TS测试、DSH组件smoke通过；原始Native极小笔画同实体宽窗真实Vision通过仅作诊断，不是整图结果。959实体待验稿和132份保护基线留存。详见 [取景与实际验证](2026-11-28-tiny-source-framing.md)。

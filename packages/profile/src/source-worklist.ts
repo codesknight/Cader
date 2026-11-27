@@ -100,8 +100,13 @@ export function sourceWindowReviewScope(index: ReferenceIndex, tile: number, ent
     return { view, binding: { ...bound, id: sourceDigest(bound) }, entities: targets };
 }
 export function sourceGroupReviewScope(input: Parameters<typeof progressiveReviewScope>[0], items: SourceItem[], work: SourceWorklist) {
-    const summaries = input.entities.map(e => ({ object_id: e.object_id, type: e.type, bounding_box: e.bounding_box, layer: e.layer, height: e.height, ...typeof e.text_string === 'string' ? { text_string: e.text_string } : {}, native_geometry_sha256: sourceDigest(e) }));
-    const scope = progressiveReviewScope({ ...input, entities: summaries }), groups = new Map<string, SourceItem[]>();
+    const pixelScale=Math.max(Math.abs(input.bounds[1][0]-input.bounds[0][0])/(input.image.width*(input.source_bounds[1][0]-input.source_bounds[0][0])),Math.abs(input.bounds[1][1]-input.bounds[0][1])/(input.image.height*(input.source_bounds[1][1]-input.source_bounds[0][1])));
+    // Tiny residual strokes need context, not a viewport filled entirely by
+    // stroke ink. Preserve ten original pixels on each side; never edit CAD
+    // geometry to compensate for an over-magnified observation.
+    const scopedInput={...input,minimum_context_margin:Math.max(input.minimum_context_margin??0.1,Number.isFinite(pixelScale)&&pixelScale>0?pixelScale*10:0.1)};
+    const summaries = input.entities.map(e => ({ object_id: e.object_id, type: e.type, bounding_box: e.bounding_box, layer: e.layer, height: e.height, constant_width:e.constant_width, ...typeof e.text_string === 'string' ? { text_string: e.text_string } : {}, native_geometry_sha256: sourceDigest(e) }));
+    const scope = progressiveReviewScope({ ...scopedInput, entities: summaries }), groups = new Map<string, SourceItem[]>();
     for (const item of items) {
         const key = item.group_id ?? item.id;
         groups.set(key, [...groups.get(key) ?? [], item]);
@@ -110,7 +115,7 @@ export function sourceGroupReviewScope(input: Parameters<typeof progressiveRevie
     if (meaningful.length)
         scope.view.details = meaningful.slice(0, 3).map(group => {
             const ids = group.flatMap(i => work.items[i.id]!.entity_ids), entities = input.entities.filter(e => ids.includes(e.object_id));
-            const detail = progressiveReviewScope({ ...input, entities }).view;
+            const detail = progressiveReviewScope({ ...scopedInput, entities }).view;
             return { request: { world_window: detail.world_window!, min_long_edge: 2048 }, entity_ids: ids, sourceView: detail.sourceView };
         });
     return bindSourceReview(scope, items, work);

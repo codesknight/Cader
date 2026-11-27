@@ -17,6 +17,8 @@ Read-only closeups share a fresh native snapshot before and after the bounded ob
 
 Batch native observations query the exact submitted IDs; they cannot replace the full-document count/cache. Full checkpoints still query and verify all known committed/verified source entities, including earlier batches, and reject unexpected entities. Region primitive completion and immediate round handoff may reuse the exact guarded full snapshot for at most five seconds, preserving its original timestamp; expiry or changed identity/operation count requires a new full read. Full-source windows and final acceptance retain fresh full reads. A name-only layer request reuses a fresh `list_layers` match without native creation (`native_creation_dispatched: false`); explicit color changes still dispatch and verify.
 
+Indexed primitive closeups retain at least ten original source pixels of context on each side, and at least twice the native stroke width. This prevents a one-pixel residual stroke from filling the entire viewport. Entity IDs, exact native geometry checks and final paired full-source windows remain mandatory; framing changes do not modify geometry or constitute acceptance.
+
 ## dev.16: named source views
 
 Scoped source workers submit positions in BASE, DETAIL_n or a returned LOOKUP_n image, using that image own normalized 0..1 coordinates. Harness owns the transforms; original dimensions and crop origins are withheld from these workers. Their crop tool also uses BASE normalized coordinates; global image viewing keeps its original-pixel interface. Crop slots cannot be rebound or expand the source scope. Dense unexecuted regions can refine within bounded depth, area and region-count limits; verified batches and whole-drawing acceptance remain distinct.

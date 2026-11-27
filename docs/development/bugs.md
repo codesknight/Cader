@@ -459,3 +459,5 @@ BUG116（confirmed，修复复验中）：真实写后路径计时随图增大�
 
 
 BUG117（confirmed symptom，根因待完整复验）：attempt12 Source新建两层均ACK，首个draw_polyline的依赖列表却不含几何层，派发前拒绝1次、0未知。原生实体实际位于CADER_SOURCE_GEOMETRY/TEXT，故不能猜成画到了另一张图；后续同任务已恢复。协同MCP619696d：list_layers使用新鲜Count/Item/每对象Name DISPID，替代动态枚举器。离线拒用旧迭代器/属性缓存反例通过；真实新空文档创建2层后新路10/10准确，同组件旧路也读对，未重现间歇错误，不冒称单一根因已证实。MCP317通过/34 CAD未启用跳过；Cader398/typecheck/组件smoke及373e2bb两组CI通过。旧attempt12安全保全221确认/0未知/1派发前失败，218实体71609字节待验稿；旧115项hash未变，含组件文件新基线123。下一原始整图联合回归必须确认首轮缺层不再出现并完成全部门禁。
+
+BUG118（confirmed，修复复验中）：极小源笔画Native几何正确，0.401×0.2 WCS取景被粗线填满，三次无法目视判清。相同实体4×4真实Native图及独立Vision可见，未修改几何。程序按源像素/线宽留上下文，完整配对源图窗口不变。400 tests/typecheck/smoke通过，保全原失败，原始新版整图仍待实测。见 [修复证据](2026-11-28-tiny-source-framing.md)。

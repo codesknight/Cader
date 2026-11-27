@@ -1,4 +1,5 @@
 # Verification and repair
+For very small residual strokes, a viewport filled with ink is an observation failure, not proof of absent geometry. Use the registered context-aware native closeup; preserve source-pixel scale, stroke width and entity binding. Never move correct geometry or omit a source mark to obtain a cleaner image. A wider view still needs an actual valid review and unchanged native readback; it does not waive final paired source-window acceptance.
 Before writes: target identity, units/scale status, permissions, frozen state, operation schema, region ownership and dependencies.
 After each meaningful batch: independently query geometry and entity properties, capture relevant CAD view, compare against source crop or user specifications. Verify expected entities, location, orientation, labels and local connectivity where applicable. Use domain skills for symbols or standards; do not invent missing facts. Do not use visual similarity alone as proof of topology or dimensions.
 

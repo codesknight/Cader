@@ -53,6 +53,14 @@ test('local border pixels cannot reject native-contained targets, but unverified
   assert.equal(scopedNativeWindowContainsTargets({image_bounds:{possible_clipping:true}}),false);
 });
 
+test('native line width supplies context for a tiny closeup while large views retain normal framing',()=>{
+ const args={region:'fixture',mode:'affected-batch' as const,document:'owned',snapshot_hash:'s',source_sha256:null,bounds:[[0,0],[100,100]] as [[number,number],[number,number]],image:{width:1000,height:1000},source_bounds:[[0,0],[1,1]] as [[number,number],[number,number]],toSource:(p:number[])=>p};
+ const tiny={object_id:1,type:'AcDb2dPolyline',constant_width:2,bounding_box:{min:[50,50,0],max:[50.1,50,0]}},large={object_id:2,type:'AcDbLine',bounding_box:{min:[0,0,0],max:[100,100,0]}};
+ const one=progressiveReviewScope({...args,entities:[tiny]});assert.deepEqual(one.view.world_window,[46,46,54.1,54]);
+ const both=progressiveReviewScope({...args,entities:[tiny,large]});assert.deepEqual(both.view.world_window,[-8,-8,108,108]);assert.deepEqual(both.view.details![0]!.entity_ids,[1]);assert.deepEqual(both.view.details![0]!.request.world_window,[46,46,54.1,54]);
+ assert.deepEqual(tiny.bounding_box,{min:[50,50,0],max:[50.1,50,0]});
+});
+
 test('execution ledger prevents replay of a confirmed progressive creation before native dispatch, but permits missing geometry after a recorded move/delete',async()=>{
   const parent=resolve('.cader/tests');await mkdir(parent,{recursive:true});const root=await mkdtemp(join(parent,'progressive-replay-'));let next=41,writes=0;
   const entities:any[]=[];

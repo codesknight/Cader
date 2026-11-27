@@ -37,6 +37,19 @@ test('trusted source groups larger than 32 stay whole within 64-leaf round capac
  assert.deepEqual(scoped.view.details![0]!.entity_ids,[1,2]);assert.ok(scoped.view.details![0]!.sourceView);assert.ok(scoped.view.details![0]!.request.world_window![1]<200);
 });
 function index(): ReferenceIndex { return { version: 1, source: { sha256: 'a'.repeat(64), width: 100, height: 100 }, engine: { coordinate_system: 'original-pixels-top-left-y-down' }, tiles: [{ owner: [0, 0, 50, 100], view: [0, 0, 60, 100] }, { owner: [50, 0, 100, 100], view: [40, 0, 100, 100] }], items: [structuredClone(path), structuredClone(text)], coverage: { status: 'not_verified' }, semantics: 'not_verified', quality_accepted: false }; }
+
+test('tiny source strokes retain original-pixel context in both batch and group detail without changing native geometry',()=>{
+ const v=index();v.source={...v.source,width:5000,height:3500};
+ const item:SourceItem={...path,id:'tiny',group_id:'mark',bounds:[3000,1200,3001,1200],points:[[3000,1200],[3001,1200]],pixel_length:1,stroke_width:1};
+ v.items=[item,{...item,id:'sibling',points:[[3001,1200],[3002,1200]],bounds:[3001,1200,3002,1200]}];
+ const w=createSourceWorklist(v,'fixture'),entities=v.items.map((i,n)=>{assert.equal(i.kind,'path');if(i.kind!=='path')throw new Error('fixture');return {object_id:n+1,type:'AcDb2dPolyline',constant_width:.2,coordinates:i.points.flatMap(([x,y])=>[x/5,(3500-y)/5,0]),bounding_box:{min:[i.bounds[0]/5,(3500-i.bounds[3])/5,0],max:[i.bounds[2]/5,(3500-i.bounds[1])/5,0]}};});
+ for(const [n,i]of v.items.entries())w.items[i.id]!.entity_ids=[n+1];
+ const original=structuredClone(entities),scope=sourceGroupReviewScope({region:'fixture',mode:'affected-batch',primitiveOnly:true,document:'owned',snapshot_hash:'state',source_sha256:v.source.sha256,entities,bounds:[[500,400],[700,500]],image:v.source,source_bounds:[[.5,2/7],[.7,3/7]],toSource:p=>[p[0]!/1000,1-p[1]!/700]},v.items,w);
+ // Ten original pixels = two CAD units; the old 0.1-unit crop was all ink.
+ for(const window of [scope.view.world_window!,scope.view.details![0]!.request.world_window!]){assert.ok(window[0]<=598);assert.ok(window[2]>=602.4);assert.ok(window[1]<=458);assert.ok(window[3]>=462);}
+ assert.deepEqual(entities,original);assert.deepEqual(scope.binding.entity_ids,[1,2]);assert.deepEqual(scope.view.details![0]!.entity_ids,[1,2]);
+ assert.equal(scope.binding.snapshot_hash,'state');assert.equal(scope.binding.source_sha256,v.source.sha256);assert.equal(scope.binding.geometry_only,true);
+});
 test('source ownership covers the original once while perception can overlap; corrupt source/tiles/width fail closed', () => {
     const v = index();
     assert.equal(parseReferenceIndex(v, v.source).items.length, 2);
