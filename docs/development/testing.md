@@ -440,3 +440,6 @@ BUG113：真实Vision在同一留存真实AutoCAD截图上，原source-compariso
 
 
 2026-11-28 BUG116 / #20：pnpm typecheck、pnpm test（398/398）、pnpm smoke（DSH组件）通过。新增ExecutionSession确定性MCP夹具验证局部快照只get_entity、不全扫、不覆盖全图计数，空/重复/过量/负ID与返回ID不符拒绝；同一局部对象不能复用成全图快照。补全检查点的历史源项变化/缺失/额外实体反例、局部观察成功但全图checkpoint失败不能释放、受控全图缓存5秒过期/未来时间反例、原生图层fresh查询复用与显式改色必须执行，以及primitive结束复用不省略完整源窗口新读。真实attempt11为应用新修复而安全保全：397确认/0未知、390实体104692字节，旧109份不变，115份新保护清单；quality原记录不修改。
+
+
+2026-11-28 BUG117联合补修：Cader373e2bb（398 TS/typecheck/DSH component smoke、两组CI通过）＋MCP619696d（317 Python/34 CAD未启用跳过；Ruff isolated E4/E7/E9/F及触及文件format通过）。独立真实COM新文档2层后10次fresh读取全准确，0模型、0几何实体，组件DWG新路径；旧路该次未复现间歇错误。原始attempt12首次依赖预检缺层保留，未冒称新代码曾跑在旧Python进程；安全保全221确认/0未知/1派发前失败，218实体71609字节，旧115项不变，新基线123。新Cader＋MCP完整原图结果另记。
