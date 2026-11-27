@@ -4,7 +4,7 @@ import type {QualityPlan,ProgressivePlanData,ReferenceObservationData} from '@ca
 import type {ToolDefinition,createLiveRuntime,ImageView} from '@cader/dsh-adapter';
 import {sourceCoordinates} from '@cader/dsh-adapter';
 import type {ReferenceIndex} from '@cader/dsh-adapter';
-import {createSourceWorklist,assertSourceWorklist,sourceWorklistSummary} from './source-worklist.js';
+import {createSourceWorklist,assertSourceWorklist,sourceWorklistSummary,verifySourceGraph} from './source-worklist.js';
 import type {SourceWorklist} from './source-worklist.js';
 import {runIndexedRegions} from './indexed-regions.js';
 import {verifyQuality,qualityTaskContext} from './quality.js';
@@ -98,7 +98,7 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
     quality_accepted:accepted&&phase==='complete',model_runs:modelRuns,checkpoints,drawing_units:[],active_drawing_unit:null,active_planning_unit:null,planning_units:[],source_layout:null,source_frame:null,budget:runtime?.budgetState(),execution:owner.facts(),progressive});
   const persist=async()=>{try{options.onState?.(qualityTaskContext(state()));await options.persist(state());}catch{persistFailed=true;throw new Error('CHECKPOINT_PERSIST_FAILED');}};
   const enter=async(next:QualityPhase)=>{phase=next;transitions.push({phase,at:new Date().toISOString()});options.emit({type:'task.phase',phase,region:progressive.active_region,round});await persist();};
-  const assertSource=async()=>{signal?.throwIfAborted();if(persistFailed)throw new Error('CHECKPOINT_PERSIST_FAILED');if(owner.facts().frozen)throw new Error('CAD_WRITE_FROZEN');
+  const assertSource=async()=>{signal?.throwIfAborted();if(persistFailed)throw new Error('CHECKPOINT_PERSIST_FAILED');if(evidenceFailure)throw new Error(evidenceFailure);if(owner.facts().frozen)throw new Error('CAD_WRITE_FROZEN');
     if(reference){const actual=await readReferenceImage(owner.workspace,reference.image.path);if(createHash('sha256').update(actual.data).digest('hex')!==reference.image.sha256)throw new Error('REFERENCE_CHANGED_RESELECT_REQUIRED');}};
   const observe=async()=>{
     await assertSource();const facts=owner.facts(),scope=owner.taskScope(taskId);
@@ -217,7 +217,7 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
         await model('立即调用new_drawing，仅新建一次本任务工作图，不绘制、不保存。'+task,{onlyTools:tools,maxModelSteps:2,completeNewDrawing:async()=>{if(!owner.taskScope(taskId).new_drawing_confirmed)throw new Error('TASK_EXECUTION_REQUIRED');progressive.document=owner.facts().scratch;await checkpoint('new_document_confirmed');},resultText:()=>owner.taskScope(taskId).new_drawing_confirmed?'新工作图已确认，交回Scheduler。':undefined});
         if(!owner.taskScope(taskId).new_drawing_confirmed)throw new Error('TASK_EXECUTION_REQUIRED');progressive.document=owner.facts().scratch;await checkpoint('new_document');
       }
-      await runIndexedRegions({runtime,owner,progressive,index:sourceIndex,sourcePath:reference!.image.path,task,signal,model,enter,persist,checkpoint,observe,emit:options.emit,confirm:options.confirm,onEvidenceError:error=>{const code=(error as Error).message;if(taskStops.has(code))evidenceFailure=code;},onVisual:(review,hash)=>{visual=review;visualCalls.push({source:'harness',observed_state_hash:hash,review});assertEvidenceOutcome(review);}});
+      await runIndexedRegions({runtime,owner,progressive,index:sourceIndex,sourcePath:reference!.image.path,task,signal,model,enter,persist,checkpoint,assertSource,observe,emit:options.emit,confirm:options.confirm,onEvidenceError:error=>{const code=(error as Error).message;if(taskStops.has(code))evidenceFailure=code;},onVisual:(review,hash)=>{visual=review;visualCalls.push({source:'harness',observed_state_hash:hash,review});assertEvidenceOutcome(review);}});
     }else for(let regionIndex=0;regionIndex<progressive.plan.regions.length;regionIndex++){
       const stopped=runtime.executionStop?.();if(stopped)throw new Error(stopped);
       const descriptor=progressive.plan.regions[regionIndex]!;
@@ -454,6 +454,7 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
       if(sourceIndex&&progressive.source_worklist){
         const work=progressive.source_worklist,summary=sourceWorklistSummary(sourceIndex,work);
         if(!summary.all_verified)throw new Error('SOURCE_WORKLIST_INCOMPLETE');
+        checks.push(verifySourceGraph(sourceIndex,work,snapshot.entities));
         const residual=await runtime.compareSourceNative(reference!.image.path,{source:sourceIndex.source,snapshot_sha256:digest(snapshot.entities),document:owner.facts().native_target,entities:snapshot.entities,verified_text_entity_ids:sourceIndex.items.filter(i=>i.kind==='text').flatMap(i=>work.items[i.id]!.entity_ids)},signal);
         work.residual_reviews.push(residual);checks.push({id:'native_source_residual',status:residual.report.geometry_residual_clear?'pass':'fail',evidence:JSON.stringify(residual)});await persist();
       }

@@ -758,3 +758,6 @@ A tool-approval y/N is not factual confirmation of a source label or connection.
 Internal semantic-unit/recovery/round invocations use new DSH model sessions with structured task state and readback. This is distinct from automatically summarizing or rolling over the user ChatSession; the native CAD binding and total task budgets are preserved.
 
 For explicit large-reference runs, configuration ceilings are 30,000 task tool reservations, 20,000 CAD operations and 500 counted execution rounds. Defaults remain 600/400/12; per-round limits, validation reserves, total time/tokens and approvals still apply. The index reports candidate volume before drawing; limits are not an acceptance criterion.
+
+For indexed line art, independent raster checks release only source-supported centerlines; literal TEXT uses vision reading. Connected source edges may form a native path, with original-edge provenance and no invented bridge. Glyph groups are admitted together. Batch visual evidence binds source IDs to native entities and the attached crop, and must match the source/document/current native state. Compact Agent receipts reference full retained audit data. Final graphical connectivity, residual and visual checks remain mandatory; none certifies a functional netlist.
+

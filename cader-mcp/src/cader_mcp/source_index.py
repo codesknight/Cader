@@ -72,6 +72,86 @@ def native_text_candidate(label):
     return "\n" not in text and b - y <= 1.8 * expected_height
 
 
+def coherent_paths(paths):
+    """Join actual connected strokes, never bridge a gap or invent an edge.
+
+    For a branching component a depth-first closed walk may retrace an existing
+    edge. This is graphical reproduction, not a claim of recovered CAD topology.
+    Every emitted segment comes from a source path in either direction. Width
+    buckets differ by at most .25 original pixels; pixel verification is separate.
+    """
+    from collections import defaultdict
+
+    buckets = defaultdict(list)
+    result = []
+    for path in paths:
+        if path["closed"]:
+            result.append(path)
+        else:
+            buckets[round(path["stroke_width"] * 4)].append(path)
+    for group in buckets.values():
+        adjacency = defaultdict(list)
+        for i, path in enumerate(group):
+            adjacency[tuple(path["points"][0])].append(i)
+            adjacency[tuple(path["points"][-1])].append(i)
+        visited = set()
+        for seed in range(len(group)):
+            if seed in visited:
+                continue
+            collected, walk = [], [group[seed]["points"][0]]
+            stack = [(tuple(walk[0]), None)]
+            while stack:
+                node, back = stack[-1]
+                edge = next((i for i in adjacency[node] if i not in visited), None)
+                if edge is None:
+                    stack.pop()
+                    if back is not None:
+                        walk.extend(back)
+                    continue
+                visited.add(edge)
+                path = group[edge]
+                collected.append(path)
+                points = path["points"]
+                if tuple(points[0]) != node:
+                    points = list(reversed(points))
+                walk.extend(points[1:])
+                stack.append((tuple(points[-1]), list(reversed(points[:-1]))))
+            if len(collected) == 1:
+                result.append(collected[0])
+                continue
+            width = sum(p["stroke_width"] for p in collected) / len(collected)
+            # Split only at an existing vertex; no segment may cross a pen-up.
+            for start in range(0, len(walk) - 1, 2047):
+                points = walk[start : start + 2048]
+                closed = len(points) > 3 and points[0] == points[-1]
+                if closed:
+                    points = points[:-1]
+                if len(points) < 2:
+                    continue
+                result.append(
+                    {
+                        "id": stable_id("path", [points, closed, width]),
+                        "kind": "path",
+                        "points": points,
+                        "closed": closed,
+                        "bounds": [
+                            min(p[0] for p in points),
+                            min(p[1] for p in points),
+                            max(p[0] for p in points),
+                            max(p[1] for p in points),
+                        ],
+                        "pixel_length": sum(
+                            math.dist(a, b) for a, b in zip(points, points[1:], strict=False)
+                        ),
+                        "stroke_width": round(width, 3),
+                        "status": "proposal",
+                        "source_path_ids": [p["id"] for p in collected],
+                        "representation": "connected-source-walk-no-invented-edges",
+                    }
+                )
+    return result
+
+
 def skeleton_paths(mask):
     """Trace every graph edge once, including loops. Junctions are geometric only."""
     import cv2
@@ -231,6 +311,28 @@ def build_index(path, *, use_ocr=True, edge=800):
             cv2.line(preserved, (int(x), int(y)), (int(a), int(b)), 255, 3)
         geometry = np.maximum(geometry, cv2.bitwise_and(ink, preserved))
     paths, skeleton = skeleton_paths(geometry)
+    paths = coherent_paths(paths)
+    outlined = [label for label in ocr_proposals if not native_text_candidate(label)]
+    for item in paths:
+        x, y, a, b = item["bounds"]
+        candidates = [
+            label
+            for label in outlined
+            if label["bounds"][0] - 1 <= x
+            and label["bounds"][1] - 1 <= y
+            and a <= label["bounds"][2] + 1
+            and b <= label["bounds"][3] + 1
+        ]
+        if candidates:
+            label = min(
+                candidates,
+                key=lambda t: (t["bounds"][2] - t["bounds"][0]) * (t["bounds"][3] - t["bounds"][1]),
+            )
+            item["group_id"] = label["id"]
+            item["owner_point"] = [
+                (label["bounds"][0] + label["bounds"][2]) / 2,
+                (label["bounds"][1] + label["bounds"][3]) / 2,
+            ]
 
     # Proposals never certify their own completeness. Unexplained pixels remain
     # explicit residuals, to be checked against independently rendered native CAD.
@@ -240,7 +342,7 @@ def build_index(path, *, use_ocr=True, edge=800):
         "engine": {
             "method": "local-ocr-skeleton-graph",
             "coordinate_system": "original-pixels-top-left-y-down",
-            "engine_version": 4,
+            "engine_version": 5,
             "outlined_ocr_ids": [
                 label["id"] for label in ocr_proposals if not native_text_candidate(label)
             ],

@@ -125,13 +125,93 @@ def compare(image_path, native):
     }
 
 
+def path_support(image_path, request):
+    """Independent source-pixel support, not a semantic or completeness claim."""
+    import cv2
+    import numpy as np
+
+    data = Path(image_path).read_bytes()
+    source = request["source"]
+    if hashlib.sha256(data).hexdigest() != source["sha256"]:
+        raise ValueError("REFERENCE_CHANGED_RESELECT_REQUIRED")
+    image = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_GRAYSCALE)
+    if image is None or image.shape != (source["height"], source["width"]):
+        raise ValueError("SOURCE_SUPPORT_DIMENSIONS_INVALID")
+    if np.median([image[0, 0], image[0, -1], image[-1, 0], image[-1, -1]]) < 128:
+        image = 255 - image
+    _, ink = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
+    supported = cv2.dilate(ink, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+    items = request["items"]
+    if not items or len(items) > 32 or len({i["id"] for i in items}) != len(items):
+        raise ValueError("SOURCE_SUPPORT_IDS_INVALID")
+    checks = []
+    for item in items:
+        if item["kind"] != "path":
+            raise ValueError("SOURCE_SUPPORT_PATHS_ONLY")
+        width = max(1, round(item["stroke_width"]))
+        points = np.asarray(item["points"])
+        if points.ndim != 2 or points.shape[1] != 2 or not np.isfinite(points).all():
+            raise ValueError("SOURCE_SUPPORT_COORDINATES_INVALID")
+        margin = width // 2 + 3
+        x = max(0, int(np.floor(points[:, 0].min())) - margin)
+        y = max(0, int(np.floor(points[:, 1].min())) - margin)
+        a = min(source["width"], int(np.ceil(points[:, 0].max())) + margin + 1)
+        b = min(source["height"], int(np.ceil(points[:, 1].max())) + margin + 1)
+        rendered = np.zeros((b - y, a - x), np.uint8)
+        cv2.polylines(
+            rendered,
+            [np.rint(points - [x, y]).astype(np.int32)],
+            item["closed"],
+            255,
+            width,
+            cv2.LINE_AA,
+        )
+        count = int((rendered > 127).sum())
+        unexplained = int(((rendered > 127) & (supported[y:b, x:a] <= 127)).sum())
+        center = np.zeros_like(rendered)
+        cv2.polylines(
+            center, [np.rint(points - [x, y]).astype(np.int32)], item["closed"], 255, 1, cv2.LINE_AA
+        )
+        center_pixels = int((center > 127).sum())
+        center_unexplained = int(((center > 127) & (supported[y:b, x:a] <= 127)).sum())
+        checks.append(
+            {
+                "id": item["id"],
+                "source_supported": center_pixels > 0 and center_unexplained == 0,
+                "rendered_pixels": center_pixels,
+                "unexplained_pixels": center_unexplained,
+                "width_envelope_pixels": count,
+                "width_envelope_unexplained_pixels": unexplained,
+            }
+        )
+    return {
+        "version": 1,
+        "method": "independent-source-raster-support/1",
+        "source_sha256": source["sha256"],
+        "tolerance_pixels": 2,
+        "checks": checks,
+        "semantics": "not_verified",
+        "quality_accepted": False,
+        "scope": (
+            "Only these proposed centerlines; width/rendered appearance require CAD visual "
+            "and full residual checks. No literal, symbol meaning or complete coverage certified."
+        ),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image", type=Path)
     parser.add_argument("native", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--path-support", action="store_true")
     args = parser.parse_args()
-    result = compare(args.image, json.loads(args.native.read_text(encoding="utf-8")))
+    raw = args.native.read_bytes()
+    request = json.loads(raw)
+    result = (
+        path_support(args.image, request) if args.path_support else compare(args.image, request)
+    )
+    result["input_sha256"] = hashlib.sha256(raw).hexdigest()
     with args.output.open("x", encoding="utf-8") as output:
         json.dump(result, output, ensure_ascii=False, separators=(",", ":"))
 

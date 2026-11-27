@@ -20,6 +20,14 @@ test('source-ID alias uses original Patch admission and queues IDs for fresh com
   const next=await runtime.run('MainAgent','Continue fixture',{...request,continuePending:true});assert.equal(next.status,'succeeded');assert.deepEqual(writes,[1,2,3,4,5,6]);assert.equal(compilations.length,3);assert.equal(settled,3);assert.equal(events.filter(e=>e.type==='budget.continue_dispatch').length,1);
  }finally{await runtime.dispose();}
 });
+
+test('source alias retains compact authoritative progress instead of recirculating native receipts into model history',async()=>{
+ const config=await loadConfig(process.cwd());process.env.CADER_COMPACT_SOURCE='offline-fixture';config.profiles=config.profiles.map(p=>({...p,api_key_env:'CADER_COMPACT_SOURCE'}));let steps=0;
+ const marker='PRIVATE_NATIVE_RECEIPT_'.repeat(2000),tool=defineTool({name:'mcp__autocad__draw_circle',description:'Fixture only',parameters:{radius:{type:'number',required:true}},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(){return marker;}});
+ const runtime=await createLiveRuntime({...config,root:process.cwd(),runDirectory:resolve('.cader/tests/source-compact-history'),executionTools:[tool]});
+ runtime.ctx.on('llm/stream',async function*(request):AsyncGenerator<StreamChunk>{if(++steps===1){yield* call('cader_apply_source_batch',{ids:['source_a']});return;}const messages=JSON.stringify(request.messages);assert.ok(!messages.includes('PRIVATE_NATIVE_RECEIPT_'));assert.match(messages,/source_a/);assert.match(messages,/committed/);yield {type:'block-start',index:0,blockType:'text'};yield {type:'text-delta',index:0,text:'Fixture only'};yield {type:'block-end',index:0,block:{type:'text',text:'Fixture only'}};yield {type:'finish',reason:{kind:'stop'}};});
+ try{const result=await runtime.run('MainAgent','Fixture only',{harnessTask:true,onlyTools:[tool.name,'cader_apply_cad_patch'],sourceBatch:{async compile(){return {operations:[{tool:tool.name,arguments:{radius:1}}]};},async settled(){},summary:ids=>({items:ids.map(id=>({id,status:'committed',operation_ids:['fixture-op']}))})}});assert.equal(result.status,'succeeded');assert.equal(steps,2);}finally{await runtime.dispose();}
+});
 async function* call(name:string,args:unknown,index?:number):AsyncGenerator<StreamChunk>{
   const id=('progressive-fixture-call'+(index??'')) as Extract<StreamChunk,{type:'tool-call-delta'}>['id'],argumentsText=JSON.stringify(args);
   yield {type:'block-start',index:0,blockType:'tool-call'};
