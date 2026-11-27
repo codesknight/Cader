@@ -36,7 +36,7 @@ export const sourceDigest = (value: unknown) => createHash('sha256').update(JSON
 /** Aggregate actual per-target observations, never synthesize a model verdict.
  * A closer view can supersede only the targets it really inspected. All raw
  * conflicting reports stay in the batch history and full fidelity stays pending. */
-export function sourcePrimitiveCoverage(reviews: any[], entities: Entity[], source: string, document: string, before: string, after: string) {
+export function sourcePrimitiveCoverage(reviews: any[], entities: Entity[], source: string, document: string, before: string, after: string, indexSha?: string) {
     const expected = new Map(entities.flatMap(e => [[`${e.object_id}:primitive_visibility`, e.object_id], ...typeof e.text_string === 'string' ? [[`${e.object_id}:text_readability`, e.object_id]] : []] as [
         string,
         number
@@ -45,7 +45,9 @@ export function sourcePrimitiveCoverage(reviews: any[], entities: Entity[], sour
     let admitted = 0;
     for (const report of reviews) {
         const evidence = report?.evidence, scope = evidence?.review_scope, result = report?.scope_report, rows = result?.geometry_checks;
-        if (before !== after || !report.review_valid || !report.structured?.checklist?.some((c: any) => c.requirement_id === 'indexed_batch_fidelity') || evidence.reference?.sha256 !== source || evidence.document !== document || !scope?.geometry_only || scope.source_sha256 !== source || scope.snapshot_hash !== before || result?.scope_id !== scope.id || !Array.isArray(scope.entity_ids) || !scope.entity_ids.length || new Set(scope.entity_ids).size !== scope.entity_ids.length || scope.entity_ids.some((id: number) => !ids.has(id)) || !Array.isArray(result.checked_entity_ids) || sourceDigest([...result.checked_entity_ids].sort()) !== sourceDigest([...scope.entity_ids].sort()) || !Array.isArray(rows) || evidence.image_bounds?.possible_clipping && !scopedNativeWindowContainsTargets(evidence))
+        const proof = scope?.source_verification;
+        const sourceBound = evidence?.reference?.sha256 === source || Boolean(indexSha && scope?.evidence_mode === 'cad-render-only' && evidence?.reference === null && proof?.source_sha256 === source && proof.index_sha256 === indexSha && proof.snapshot_sha256 === before && /^[a-f0-9]{64}$/.test(proof.native_checks_sha256 ?? '') && Array.isArray(scope.targets) && scope.targets.every((t:any)=>{const actual=entities.find(e=>e.object_id===t.entity_id);return Boolean(actual&&t.native_geometry?.native_geometry_sha256===sourceDigest(actual));}));
+        if (before !== after || !report.review_valid || !report.structured?.checklist?.some((c: any) => c.requirement_id === 'indexed_batch_fidelity') || !sourceBound || evidence.document !== document || !scope?.geometry_only || scope.source_sha256 !== source || scope.snapshot_hash !== before || result?.scope_id !== scope.id || !Array.isArray(scope.entity_ids) || !scope.entity_ids.length || new Set(scope.entity_ids).size !== scope.entity_ids.length || scope.entity_ids.some((id: number) => !ids.has(id)) || !Array.isArray(result.checked_entity_ids) || sourceDigest([...result.checked_entity_ids].sort()) !== sourceDigest([...scope.entity_ids].sort()) || !Array.isArray(rows) || evidence.image_bounds?.possible_clipping && !scopedNativeWindowContainsTargets(evidence))
             continue;
         const keys = [...expected].filter(([, id]) => scope.entity_ids.includes(id)).map(([key]) => key), actual = rows.map((r: any) => `${r.entity_id}:${r.check}`);
         if (actual.length !== keys.length || new Set(actual).size !== keys.length || actual.some((key: string) => !keys.includes(key)) || rows.some((r: any) => !['pass', 'fail', 'uncertain'].includes(r.status)))
@@ -56,6 +58,18 @@ export function sourcePrimitiveCoverage(reviews: any[], entities: Entity[], sour
     }
     const unresolved = [...new Set([...expected].filter(([key]) => statuses.get(key) !== 'pass').map(([, id]) => id))];
     return { complete: entities.length > 0 && !unresolved.length && before === after, unresolved_entity_ids: unresolved, admitted_reports: admitted, checks: [...expected].map(([key, id]) => ({ entity_id: id, check: key.split(':')[1], status: statuses.get(key) ?? 'not_run' })) };
+}
+/** Source/CAD coordinates were independently verified before this call. Do not
+ * show unsubmitted source content to a primitive rendering worker. Full source
+ * comparison remains mandatory in source-window and global verification. */
+export function sourceRenderScope(scoped: ReturnType<typeof sourceGroupReviewScope>, indexSha: string, checks: CheckResult[]) {
+    if (!checks.length || checks.some(c => c.status !== 'pass'))
+        throw new Error('SOURCE_NATIVE_PROOF_REQUIRED_FOR_RENDER_SCOPE');
+    const { sourceView: _sourceView, ...base } = scoped.view;
+    const view = { ...base, details: base.details?.map(({ sourceView: _source, ...detail }) => detail) };
+    const { id: _id, source_bindings: _bindings, source_coordinate_system: _coordinates, ...prior } = scoped.binding;
+    const binding = { ...prior, view, evidence_mode: 'cad-render-only', source_verification: { source_sha256: prior.source_sha256, index_sha256: indexSha, snapshot_sha256: prior.snapshot_hash, native_checks_sha256: sourceDigest(checks), scope: 'Actual source pixel support and exact native geometry checked independently. Render visibility/Native TEXT readability only; full source fidelity still pending.' } };
+    return { view, binding: { ...binding, id: sourceDigest(binding) } };
 }
 /** Full source coverage is reviewed only after all primitives exist. The crop
  * is an exact pixel-edge window shared by source and native plotting; crossing

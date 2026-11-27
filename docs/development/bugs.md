@@ -445,3 +445,5 @@ BUG110（confirmed，修复复验中）：attempt07固定标注框在紧裁片�
 BUG111（confirmed，修复复验中）：attempt07当时21次source批次中16次失败，主要为跨页字形组手工拼ID；任务动态上下文重复完整native/视觉scope，诊断还回灌全部通过的坐标。编译入口按实际Patch容量自动填充同组pending/accepted ID，超大组保持剩余待办，不重放已确认/unknown；Primitive批次与完整区域门禁分开。上下文只投影图像/文档/状态hash与必要缺陷，详细几何仍在私有日志；同一停止manifest上下文76750→8038字节（-89.53%）。实际scope中的路径映射保留bbox、顶点数和精确hash，坐标/闭合/宽度/OCS仍由独立原生Verifier逐项核查。
 
 BUG112（confirmed，修复复验中）：原始源图二维排版的分隔笔画被OCR矩形截断，线性TEXT会改变原始字形结构。新增原始ink连通分量跨框检查，切断实际笔画的高分OCR也保留为原生路径，非按行业或文字值硬编码。新原图只读提案3502路径/118 TEXT、最大组197，源支持3502/3502、缺像素0；这不是CAD验收。
+
+BUG113（confirmed，修复复验中）：attempt08已进入真实绘图，但将完整原图附到primitive渲染阶段，视觉仍把尚未提交的字符/组件当作已提交图元缺失。保留原source/CAD双图失败；同一组实际AutoCAD留存图像、同一原生快照的新独立真实Vision复核，在正确的CAD-render-only合同下64/64可见性pass，0新CAD调用，不修改运行中任务的状态。程序只在源像素支持及Native精确检查通过后才能建立该scope，绑定index/source/native快照及几何hash；没有原图比较的primitive报告不能通过完整source-window条件。全部图元后的高清原图逐窗对比、原生残差/连接、整图和文件门禁保持必需。

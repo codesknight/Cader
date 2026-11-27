@@ -60,3 +60,7 @@ attempt07保留175确认/0未知、171原生实体及待验DWG。真实单标注
 紧接实际读回的检查点可复用同一个内部snapshot引用，但必须未frozen、写入mark/连接/原生目标未变，且文档匹配；复制对象或状态变化触发新读回。日志保留原observed_at和reused标记，不把缓存称为原生revision保证。完整区域评审后，全图拿到这些真实局部报告的hash和当前原生检查结果，整合可用证据，不依赖低清全图重新猜每个小字。
 
 379项离线测试、Python21及Ruff、DSH组件smoke通过；下一轮实际生产InteractiveSession＋真实模型＋AutoCAD完整原图结果另记，尚未声明整体验收。
+
+BUG113实证补修：attempt08原始Native正常推进，安全停于591确认/0未知，582实体与账本一致、143718字节待验稿另存，旧93项hash不变，扩展97项保护基线；没有重放或清除旧屏障。批次原图比较仍导致未绘内容误判。对同一组实际AutoCAD留存PNG及其匹配原生快照，新的独立真实Vision按CAD-render-only合同64/64可见性pass，0新CAD调用、quality=false；不把留存图重评审当新CAD执行或当前任务完成。
+
+源CV支持/文字字面读取、Native精确坐标和批次实际CAD渲染分工明确；仅在前两者真实通过后，程序构建带source/index/native hash的只渲染scope。批次worker不装配整图规划Skill、不看尚未绘制的完整原图；所有源图元完成后，必须对原始完整参考逐窗高清比较，再做整图/文件验收。无原图的primitive报告不能满足完整保真条件。380项TS/typecheck/组件smoke通过，下一轮原图真实完整回归另记。

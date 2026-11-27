@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseReferenceIndex, sourceItemView, observedArguments } from '@cader/dsh-adapter';
 import type { ReferenceIndex, SourceItem } from '@cader/dsh-adapter';
-import { createSourceWorklist, assertSourceWorklist, sourceSelection, sourceItemOperation, reconcileSourceBatch, verifySourceItem, sourceWorklistPage, sourceDigest, cadRequestDigest, sourceBatchReviewAccepted,bindSourceReview,verifySourceGraph,sourceGroupReviewScope,sourceBatchSelection,sourceWindowReviewScope,scopedNativeWindowContainsTargets,runIndexedRegions,sourcePrimitiveCoverage,expandSourceIds,visualEvidenceSummary,qualityTaskContext,canReuseValidatedObservation } from '@cader/profile';
+import { createSourceWorklist, assertSourceWorklist, sourceSelection, sourceItemOperation, reconcileSourceBatch, verifySourceItem, sourceWorklistPage, sourceDigest, cadRequestDigest, sourceBatchReviewAccepted,bindSourceReview,verifySourceGraph,sourceGroupReviewScope,sourceBatchSelection,sourceWindowReviewScope,scopedNativeWindowContainsTargets,runIndexedRegions,sourcePrimitiveCoverage,expandSourceIds,visualEvidenceSummary,qualityTaskContext,canReuseValidatedObservation,sourceRenderScope } from '@cader/profile';
 const path: SourceItem = { id: 'path_a', kind: 'path', status: 'proposal', bounds: [10, 20, 70, 60], points: [[10, 20], [70, 20], [70, 60]], closed: false, pixel_length: 100, stroke_width: 2 };
 const text: SourceItem = { id: 'text_b', kind: 'text', status: 'proposal', bounds: [25, 70, 55, 80], text: '10kΩ', quad: [[25, 70], [55, 70], [55, 80], [25, 80]], score: .9, alternatives: [] };
 test('full source window uses exact paired pixel edges; primitive passes cannot release full fidelity',()=>{
@@ -164,4 +164,17 @@ test('checkpoint observation reuse requires the exact validated object and uncha
  assert.equal(canReuseValidatedObservation(token,snapshot,current),true);
  for(const changed of [{...current,mark:5},{...current,connection:'other'},{...current,target:'other'},{...current,document:'foreign'},{...current,frozen:true}])assert.equal(canReuseValidatedObservation(token,snapshot,changed),false);
  assert.equal(canReuseValidatedObservation(token,{...snapshot},current),false);assert.equal(canReuseValidatedObservation(null,snapshot,current),false);assert.equal(canReuseValidatedObservation(token,undefined,current),false);
+});
+
+test('CAD-only primitive rendering requires native source proof and can never satisfy full source fidelity',()=>{
+ const v=index(),w=createSourceWorklist(v,'fixture');w.items[path.id]!.entity_ids=[1];
+ const native={object_id:1,type:'AcDb2dPolyline',bounding_box:{min:[100,400,0],max:[700,800,0]},coordinates:[100,800,0,700,800,0,700,400,0],coordinate_dimension:3};
+ const base=sourceGroupReviewScope({region:'fixture',mode:'affected-batch',primitiveOnly:true,document:'owned',snapshot_hash:'state',source_sha256:v.source.sha256,entities:[native],bounds:[[0,0],[1000,1000]],image:v.source,source_bounds:[[0,0],[1,1]],toSource:p=>[p[0]!/1000,1-p[1]!/1000]},[path],w);
+ const checks:any=[{id:'source_'+path.id,status:'pass',evidence:'Independent source/native fixture'}];assert.throws(()=>sourceRenderScope(base,w.index_sha256,[{...checks[0],status:'fail'}]),/SOURCE_NATIVE_PROOF/);
+ const scope=sourceRenderScope(base,w.index_sha256,checks);assert.ok(!('sourceView' in scope.view));assert.ok(scope.view.details?.every(d=>!('sourceView' in d))??true);assert.ok(!('source_bindings' in scope.binding));
+ const report={review_valid:true,evidence:{document:'owned',reference:null,review_scope:scope.binding},structured:{verdict:'pass',checklist:[{requirement_id:'indexed_batch_fidelity',status:'pass'}]},scope_report:{scope_id:scope.binding.id,checked_entity_ids:[1],geometry_checks:[{entity_id:1,check:'primitive_visibility',status:'pass'}]}};
+ assert.equal(sourcePrimitiveCoverage([report],[native],v.source.sha256,'owned','state','state',w.index_sha256).complete,true);
+ assert.equal(sourcePrimitiveCoverage([report],[native],v.source.sha256,'owned','state','state','wrong-index').complete,false);
+ assert.equal(sourcePrimitiveCoverage([report],[{...native,coordinates:[1,2,3]}],v.source.sha256,'owned','state','state',w.index_sha256).complete,false);
+ assert.equal(sourceBatchReviewAccepted(report,v.source.sha256,'owned','state','state','indexed_region_fidelity'),false);
 });

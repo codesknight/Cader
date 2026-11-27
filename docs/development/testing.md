@@ -429,3 +429,5 @@ BUG108/109专项17项及typecheck通过（确定性worker/Scheduler，非真实C
 BUG110-112：同一留存真实source两标注新VisionProfile只读探针clear，4次读取、0CAD；两份冲突旧报告继续保留。停止attempt07为175确认/0未知、171实体、62907字节，保护89旧项后建立93项基线。实际R10源提案3502路径/118文字，最大字形组197，源支持3502/3502，预渲染0缺像素/0显著多余分量，均不是CAD验收。新增大组64分批、未知/确认不重放、动态上下文不复制坐标、快照精确身份复用负例。最终离线和真实整图结果随后追加。
 
 本基线最终实际命令：pnpm typecheck通过；pnpm test 379/379通过（4文件并发）；pnpm smoke通过；uv Ruff check/format及pytest 21通过。实际Cader/MCP完整原图仍待attempt08，不把源提案、源码投影节省或独立源读取当作CAD整图通过。
+
+BUG113：真实Vision在同一留存真实AutoCAD截图上，原source-comparison报告fail，分离的CAD-render-only报告64/64 pass、0新CAD操作、quality_accepted=false；这是范围诊断，不是新CAD或当前任务验收。新增负例拒绝错误index、错误Native几何hash、缺少source/native证明，以及用无原图primitive报告替代完整区域。pnpm typecheck、pnpm test（380/380）、pnpm smoke通过。
