@@ -35,6 +35,21 @@ async function* call(name:string,args:unknown,index?:number):AsyncGenerator<Stre
   yield {type:'block-end',index:0,block:{type:'tool-call',id,name,arguments:argumentsText}};
   yield {type:'finish',reason:{kind:'tool-calls'}};
 }
+test('indexed direct layer writes do not inject full-document postflight into DSH history; explicit reads remain available',async()=>{
+ const config=await loadConfig(process.cwd());process.env.CADER_DIRECT_INDEXED='offline-fixture';config.profiles=config.profiles.map(p=>({...p,api_key_env:'CADER_DIRECT_INDEXED'}));
+ const marker='FULL_NATIVE_POSTFLIGHT_'.repeat(20000),full=JSON.stringify({operation:{operation_id:'fixture-layer-operation',tool:'create_layer',stage:'confirmed',outcome:'committed',dispatched:true,native_dispatched:true,created_entity_ids:[]},result:'fixture existing layer',observed:[{object_id:1,coordinates:marker}],observation_scope:'full_document',verification:'queried-after-write'});
+ let steps=0,checks=0,writes=0;
+ const write=defineTool({name:'mcp__autocad__create_layer',description:'Offline full postflight fixture',parameters:{},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(){writes++;return full;}});
+ const read=defineTool({name:'mcp__autocad__get_entity',description:'Offline explicit native read fixture',parameters:{},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(){return 'EXPLICIT_NATIVE_READ';}});
+ const runtime=await createLiveRuntime({...config,root:process.cwd(),runDirectory:resolve('.cader/tests/indexed-direct-mutation-projection'),executionTools:[write,read]});
+ runtime.ctx.on('llm/stream',async function*(request):AsyncGenerator<StreamChunk>{const messages=JSON.stringify(request.messages);steps++;
+  if(steps===1){yield* call(write.name,{});return;}
+  assert.equal(checks,1);assert.equal(writes,1);assert.ok(!messages.includes('FULL_NATIVE_POSTFLIGHT_'));assert.match(messages,/fixture-layer-operation/);assert.match(messages,/full_document/);assert.match(messages,/sha256/);assert.ok(messages.length<100000,'model history must remain bounded despite 440KB native postflight');
+  if(steps===2){yield* call(read.name,{});return;}
+  assert.match(messages,/EXPLICIT_NATIVE_READ/);yield {type:'block-start',index:0,blockType:'text'};yield {type:'text-delta',index:0,text:'Fixture projection checked'};yield {type:'block-end',index:0,block:{type:'text',text:'Fixture projection checked'}};yield {type:'finish',reason:{kind:'stop'}};
+ });
+ try{const result=await runtime.run('MainAgent','Offline indexed projection fixture',{harnessTask:true,onlyTools:[write.name,read.name,'cader_apply_cad_patch'],sourceBatch:{async compile(){throw new Error('No source patch in this fixture');},async settled(){}},afterCadBatch:async()=>{checks++;assert.equal(JSON.parse(full).observed[0].coordinates,marker);}});assert.equal(result.status,'succeeded');assert.equal(steps,3);assert.equal(checks,1);}finally{await runtime.dispose();}
+});
 for(const patch of [false,true])for(const failure of [false,true])test(`actual DSH controlled batch callback serializes readback/vision before more writes: patch=${patch}, failure=${failure}`,async()=>{
   const config=await loadConfig(process.cwd());process.env.CADER_PROGRESSIVE_OFFLINE='offline-fixture';
   config.profiles=config.profiles.map(p=>({...p,api_key_env:'CADER_PROGRESSIVE_OFFLINE',generation:{...p.generation,progressive_reasoning_effort:'off'}}));

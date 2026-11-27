@@ -37,6 +37,23 @@ import {indexReferenceSource,compareSourceNative,checkSourcePaths} from './refer
 import type {ReferenceIndex,SourceItem} from './reference-index.js';
 import {reviewIndexedSource} from './reference-review.js';
 
+/** Model projection only: ExecutionSession has already retained the complete
+ * native postflight and receipt in its audit. Indexed construction must not
+ * feed a full-document readback into history for an idempotent layer write. */
+function indexedMutationResult(value:unknown){
+  if(typeof value!=='string')return value;
+  let parsed:Record<string,any>;try{parsed=JSON.parse(value);}catch{return value;}
+  const op=parsed?.operation;
+  if(!op||typeof op.operation_id!=='string'||op.outcome!=='committed'||!Array.isArray(parsed.observed))return value;
+  const digest=(v:unknown)=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
+  const keys=['operation_id','tool','target','stage','outcome','dispatched','transport_dispatched','native_dispatched','created_entity_ids','subject_entity_id'];
+  return JSON.stringify({operation:Object.fromEntries(keys.filter(key=>Object.hasOwn(op,key)).map(key=>[key,op[key]])),
+    result:typeof parsed.result==='string'&&parsed.result.length<=2000?parsed.result:{sha256:digest(parsed.result??null)},
+    observed:{count:parsed.observed.length,sha256:digest(parsed.observed),scope:parsed.observation_scope},
+    evidence:{operation_id:op.operation_id,source:'Complete immutable ExecutionSession audit; projection is not a new observation.'},
+    verification:parsed.verification,task_complete:false});
+}
+
 export interface PublicEvent { type: string; agentId?: string; role?: string; [key: string]: unknown }
 export interface AgentResult {
   public_text?:string;
@@ -288,14 +305,14 @@ export async function createLiveRuntime(options: LiveOptions) {
             const allowed = options.disableTools ? [] : options.runtime.read_only_tools.filter(name => Boolean(ctx.tools.get(name))&&(!request.onlyTools||request.onlyTools.includes(name)));
             if (profile.role === 'main' && !options.disableTools && options.executionTools) {
               for (const tool of options.executionTools) { if (!request.onlyTools || request.onlyTools.includes(tool.name)) {
-                const controlled:ToolDefinition=cadWrite(tool.name)&&(request.beforeCadOperation||request.afterCadBatch||request.completeNewDrawing&&tool.name.endsWith('__new_drawing'))?{...tool,async execute(args,exec){
+                const controlled:ToolDefinition=cadWrite(tool.name)&&(request.sourceBatch||request.beforeCadOperation||request.afterCadBatch||request.completeNewDrawing&&tool.name.endsWith('__new_drawing'))?{...tool,async execute(args,exec){
                   await request.beforeCadOperation?.(tool.name,args);
                   const result=await tool.execute(args,exec);
                   if(tool.name.endsWith('__new_drawing')&&request.completeNewDrawing){try{await request.completeNewDrawing();exec.concludeTurn();}catch(error){handoff={kind:'verification',code:'NEW_DRAWING_READBACK_FAILED'};exec.concludeTurn();throw error;}}
                   if(!String(exec.callId).includes(':patch:')&&!tool.name.endsWith('__new_drawing')){
                     try{await request.afterCadBatch?.();}catch(error){handoff={kind:'verification',code:'BATCH_VERIFICATION_PENDING'};exec.concludeTurn();throw error;}
                   }
-                  return result;
+                  return request.sourceBatch?indexedMutationResult(result):result;
                 }}:tool;
                 agentCtx.tools.register(controlled, { when: () => options.toolAvailable?.(tool.name) ?? true }); allowed.push(tool.name);
               } }

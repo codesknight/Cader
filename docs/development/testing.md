@@ -431,3 +431,6 @@ BUG110-112：同一留存真实source两标注新VisionProfile只读探针clear�
 本基线最终实际命令：pnpm typecheck通过；pnpm test 379/379通过（4文件并发）；pnpm smoke通过；uv Ruff check/format及pytest 21通过。实际Cader/MCP完整原图仍待attempt08，不把源提案、源码投影节省或独立源读取当作CAD整图通过。
 
 BUG113：真实Vision在同一留存真实AutoCAD截图上，原source-comparison报告fail，分离的CAD-render-only报告64/64 pass、0新CAD操作、quality_accepted=false；这是范围诊断，不是新CAD或当前任务验收。新增负例拒绝错误index、错误Native几何hash、缺少source/native证明，以及用无原图primitive报告替代完整区域。pnpm typecheck、pnpm test（380/380）、pnpm smoke通过。
+
+
+2026-11-28 BUG114 / #20：pnpm typecheck、pnpm test（381/381）、pnpm smoke（真实DSH组件，非API/CAD）通过。新增索引直接图层写回执440KB进入provider消息的反例，确认精简后仍先执行独立回调、保留操作关联，显式查询不受影响。同一748实体真实留存postflight的DSH组件对照473987→47316消息字符，减少90.02%，无新CAD/API调用、quality=false。attempt09原始图新鲜真实执行到885确认/0未知后为应用新修复而安全保全874实体待验稿；不修改原quality或算完整验收。原97份保护hash相同，新基线103份。新版完整模型＋AutoCAD整图回归结果随后补记。
