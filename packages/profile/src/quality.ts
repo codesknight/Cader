@@ -18,14 +18,14 @@ export interface CheckResult {
 }
 export interface QualityResume {
   progressive?: import('./progressive.js').ProgressiveState | null;
-  budget?: {execution_round:number;tool_reservations:number;cad_reservations:number;reported_tokens:number;model_steps?:number;started_at?:string};
+  budget?: {execution_round:number;tool_reservations:number;cad_reservations:number;reported_tokens:number;round_tool_reservations?:number;round_cad_reservations?:number;model_steps?:number;started_at?:string};
   checkpoints?:unknown[];
   transitions?:{phase:QualityPhase;at:string}[];
   model_runs?:{phase:QualityPhase;status:string;text:string;tools:string[];error_code?:string;handoff?:unknown}[];
   task_id: string;
   original_request: string;
   request_sha256: string;
-  plan: QualityPlan;
+  plan?: QualityPlan;
   round: number;
   visual_calls?: VisualCall[];
   reviews?: unknown[];

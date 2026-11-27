@@ -110,11 +110,12 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
       input.signal?.throwIfAborted();
       if(input.referenceTask&&input.executionOwner?.facts().transport!=='connected')throw new Error('REFERENCE_MCP_REQUIRED');
       const selection=progressiveDrawingSelection(input.originalTask??input.task,input.referenceTask?.image);
-      const progressive=qualityEnabled&&Boolean(input.qualityResume?.progressive||selection.selected);
+      let progressive=qualityEnabled&&Boolean(input.qualityResume?.progressive||selection.selected),globalGateFallback=false;
+      let qualityResume=input.qualityResume;
       if(progressive&&!input.skill)input.skill='progressive-drawing';
       if(progressive)events.push({type:'skill.selected',name:'progressive-drawing',mode:'automatic',reason:selection.reason});
       const executeQuality=(activeRuntime?:Awaited<ReturnType<typeof createLiveRuntime>>)=>(progressive?runProgressiveTask:runQualityTask)({runtime:activeRuntime,root,profile:config.runtime.main_profile,task:input.originalTask??input.task,
-        owner:input.executionOwner!,signal:input.signal,confirm:input.confirmTask,resume:input.qualityResume,referenceTask:input.referenceTask,alwaysVisual:input.alwaysVisual,
+        owner:input.executionOwner!,signal:input.signal,confirm:input.confirmTask,resume:qualityResume,referenceTask:input.referenceTask,alwaysVisual:input.alwaysVisual,
         onState:state=>{currentTaskState=state;},
         emit:event=>{if(event.type==='task.phase')qualityPhase=String(event.phase);events.push(event);input.onEvent?.(event);},
         persist:state=>atomicPrivateState(join(directory,'quality.json'),cleanEnvironment(redactSecrets(JSON.stringify(state,null,2),config.profiles))),
@@ -134,7 +135,21 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
         } });
       stage = 'runtime';
       if(qualityEnabled && input.executionOwner) {
+        const operationMark=input.referenceTask?input.executionOwner.facts().operations.length:0;
         quality = await executeQuality(runtime);
+        const sourceGateFailures=new Set(['REFERENCE_INSPECTION_FAILED','SOURCE_COMPONENT_INVENTORY_FAILED','SOURCE_NET_REPORT_INVALID','SOURCE_TOPOLOGY_UNCERTAIN','SOURCE_LABEL_INVENTORY_FAILED']);
+        const providerBlocked=runtime.completed().some(agent=>agent.status!=='succeeded'&&!agent.recovered_by&&/^(?:QUOTA|ACCOUNT_QUOTA|AUTH|AUTHENTICATION_ERROR|NETWORK|RATE_LIMIT|TIMEOUT|HTTP_[1-5][0-9]{2})$/.test(agent.errorCode??''));
+        const noNativeWrites=Boolean(input.referenceTask)&&input.executionOwner.facts().operations.slice(operationMark).every(op=>!['committed','committed_observation_failed','unknown'].includes(op.outcome));
+        if(!progressive&&input.referenceTask&&sourceGateFailures.has(quality.failure?.code??'')&&noNativeWrites&&!input.executionOwner.taskScope(quality.task_id).new_drawing_confirmed&&!input.executionOwner.facts().frozen&&!runtime.executionStop?.()&&!providerBlocked&&!input.signal?.aborted){
+          await atomicPrivateState(join(directory,'quality-global-attempt.json'),cleanEnvironment(redactSecrets(JSON.stringify(quality,null,2),config.profiles)));
+          // Same task, source and LIVE runtime: reservations/time are already
+          // cumulative, so never restore/reset the active budget a second time.
+          qualityResume={...quality,budget:undefined,progressive:null};progressive=true;globalGateFallback=true;input.skill='progressive-drawing';
+          const selected={type:'skill.selected',name:'progressive-drawing',mode:'automatic',reason:'whole-reference-gate-failed'};
+          events.push(selected);input.onEvent?.(selected);
+          const handoff={type:'task.progressive_fallback',reason:quality.failure!.code,native_writes_replayed:false,budget_reset:false};events.push(handoff);input.onEvent?.(handoff);
+          quality=await executeQuality(runtime);
+        }
         result=runtime.completed().filter(agent=>agent.profile===config.runtime.main_profile).at(-1);
       } else result = await runtime.run(config.runtime.main_profile, input.task, { skill: input.skill, image: input.image, imageView: input.imageView,
           signal: input.signal, history: input.history, summary: input.summary, domain: input.domain });
@@ -142,7 +157,7 @@ export async function runTask(root: string, input: { task: string; mcpPath?: str
       // failures; keep those original failures in the trace, not as a false
       // terminal failure after every required quality condition has passed.
       failure = quality?.quality_accepted&&quality.phase==='complete'?undefined:agentFailure(runtime.completed(), events, result?.id);
-      if((!failure||failure.errorCode==='AGENT_FAILED')&&quality?.failure)failure=describeFailure(quality.failure.code,quality.failure.source==='model'?'agent':'verification');
+      if((globalGateFallback||!failure||failure.errorCode==='AGENT_FAILED')&&quality?.failure)failure=describeFailure(quality.failure.code,quality.failure.source==='model'?'agent':'verification');
       }
     }
   } catch (error) { failure = failureFromError(error, stage); }

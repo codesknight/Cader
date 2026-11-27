@@ -1,4 +1,15 @@
 import type {QualityPlan} from '@cader/config';
+import type {ToolDefinition} from '@cader/dsh-adapter';
+
+/** Advertise the same point contract already enforced before native dispatch.
+ * Preserve the server schema and its references; never silently invent Z. */
+export function publishCadInputContract(tool:ToolDefinition):ToolDefinition{
+  const name=tool.name.split('__').at(-1)!;if(!['draw_polyline','draw_hatch'].includes(name))return tool;
+  const parameters=structuredClone(tool.parameters) as Record<string,any>,properties=parameters.properties??parameters,points=properties.points;
+  if(!points||typeof points!=='object')return tool;
+  properties.points={...points,description:String(points.description??'')+' Cader requires every point as [x,y,z]; use explicit z=0 for XY drawings.',allOf:[...points.allOf??[],{type:'array',minItems:name==='draw_hatch'?3:2,maxItems:10000,items:{type:'array',minItems:3,maxItems:3,items:{type:'number'}}}]};
+  return {...tool,parameters};
+}
 
 /** Exact slab clipping against an open rectangle, including very long segments. */
 export function crossesInterior(a:number[],b:number[],box:number[][]){

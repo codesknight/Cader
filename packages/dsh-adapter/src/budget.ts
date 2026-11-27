@@ -13,10 +13,14 @@ export class ExecutionBudget {
   private roundCad = 0;
   private tokens = 0;
   constructor(private readonly config: RuntimeConfig) {}
-  restore(saved:{execution_round:number;tool_reservations:number;cad_reservations:number;reported_tokens:number}){
+  restore(saved:{execution_round:number;tool_reservations:number;cad_reservations:number;reported_tokens:number;round_tool_reservations?:number;round_cad_reservations?:number}){
     if(this.round||this.tools||this.cad||this.tokens)throw new Error('BUDGET_ALREADY_STARTED');
-    if(Object.values(saved).some(v=>!Number.isSafeInteger(v)||v<0))throw new Error('BUDGET_CHECKPOINT_INVALID');
+    if([saved.execution_round,saved.tool_reservations,saved.cad_reservations,saved.reported_tokens].some(v=>!Number.isSafeInteger(v)||v<0)||[saved.round_tool_reservations,saved.round_cad_reservations].some(v=>v!==undefined&&(!Number.isSafeInteger(v)||v<0)))throw new Error('BUDGET_CHECKPOINT_INVALID');
     this.round=saved.execution_round;this.tools=saved.tool_reservations;this.cad=saved.cad_reservations;this.tokens=saved.reported_tokens;
+    // A legacy checkpoint without round reservations must yield to a NEW
+    // counted round; resumption cannot silently refill the current allowance.
+    this.roundTools=saved.round_tool_reservations??this.config.max_tool_calls;
+    this.roundCad=saved.round_cad_reservations??(this.config.max_cad_operations_per_round??64);
   }
   beginRound(): BudgetStop | undefined {
     if (this.round >= (this.config.max_execution_rounds ?? 12)) return 'EXECUTION_ROUND_LIMIT';

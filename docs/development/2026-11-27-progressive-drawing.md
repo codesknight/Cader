@@ -51,3 +51,43 @@ Skill 来源为用户直接提供的 ZIP；只安装 SKILL.md 与三份 referenc
 分区执行次序由 `priority` 与原 DAG 共同决定，缺省50兼容已有检查点；高优先级仍须先完成真实依赖。细分继承优先级。实机证明原网格扫描在图框/索引上花费大量模型调用，新增内容优先调度使主体可先分析和绘制，完整范围仍必须最终通过，不能丢弃低优先级图框。跨区边界由实际导线连接证明；其他区域使用的图层按不区分大小写保护，避免同名别名改动已验外观。
 
 新增真实回归驱动 `benchmark/run-progressive-case.mjs`：显式启用真实服务及CAD授权，必须新空工作区；生产Session/Task执行、首个通过检查点中断恢复、原生身份/单次新建/累计预算不变量及未验非零退出。脚本不含特定图形序列或源真值，CI不调用付费和本机CAD。
+
+## 批次边界与执行阶段补修
+
+真实房子/大树回归发现批次与区域语义混用：仅树干的提交被拿完整树要求判“树冠缺失”，再触发过早区域验收。现不是追加一句prompt，而是程序隔离batch原需求、描述及实体集合，仅提供本批实际提交证据；区域及最终步骤继续使用完整需求。batch handoff与region check-in走不同控制分支，失败保存并受3轮修复上限限制，成功批次返回正常施工。未完成内容绝不能靠batch pass抵扣。
+
+MODEL_SLICE_COMPLETE交接处不再只按实体不变停止：实体和确认操作都无变化才计算空转，连续第三个空转停止。已确认图层操作等准备是有效进度，任务总预算不重置。测试覆盖两次准备后继续、三次空转停止，以及batch已知ID范围不包含别区实体。
+
+MainAgent generation增加可选progressive_reasoning_effort，只有Scheduler进入渐进受限步骤才采用（当前off），普通MainAgent保留low；不增8192输出限额，仍保留截断后的原绑定读回与有限恢复。离线实际DSH装配验证请求分流；实际改善程度以真实后续轨迹为准。
+
+批次首次视觉仍可能错误引入未来内容或用缩放后的像素位置推翻已验证native坐标。确定性检查全部通过时，仅追加一次独立scope复核，复用同一受hash保护截图；原fail和复核报告保留于review_history/visual_calls。复核仍须真实schema pass、原文档/源图绑定及读回不变，失败不强制通过，不能替代完整区域验收。实际改善与局限仍以真实任务记录为准。
+
+恢复限定为同一活连接上已完整落盘且读回/账本一致的检查点；未落盘尾操作、任意崩溃或跨进程写授权不在自动恢复承诺内，仍须原有对账，不自动接管或重放。
+
+## 源门禁回退、工具合同与规划补修
+
+小图复杂度无法仅由像素数判定。原短流程发生源语义Gate失败时，只有零原生写入、无已确认新图、非冻结、非取消且服务商/预算未阻断，才可在同一个任务和活动runtime切换渐进流程一次；原失败保存于quality-global-attempt.json，预算不重置。不会接管已有任务进度。
+
+Agent的多段线/填充schema现在显示与执行前校验一致的XYZ与点数要求，不暗中补Z；MCP原始schema克隆后投影，历史屏障schema指纹仍保持原合同。恢复保留单轮预留额；旧检查点缺少单轮计数则须消耗一次正常续轮，不能隐式补满额度。视觉复用还核对本地截图字节hash，export_current_view自身不会造成虚假缓存失效。
+
+原图最后一轮曾因矩形重叠/缺口在8个模型步骤后零绘图退出。新增cader_submit_progressive_partition作为计划的另一种输入形式：模型选择内部切线、每格内容/优先级/DAG及真实共享锚点，程序计算共享bounds，再进入原覆盖/DAG/锚点校验。不是修补模型错误计划、删除边界或代绘固定序列。旧完整矩形入口保留；无效分区仍在授权前拒绝。阶段步数用尽现在保留INVOCATION_MODEL_STEP_BUDGET_EXCEEDED，终端不再泛化成UNKNOWN。
+
+生产绘制片段上限仍是12个DSH模型步骤；主Agent在同一片段中保留工具结果。只在片段末判断连续空转，确认图层准备也清除计数。测试证实原修正阶段禁止新建图纸规则仍有效；本轮曾有一个非参考图夹具被回退逻辑无条件读取账本导致失败，已限定检查范围并复验，旧失败日志保留。
+
+实机待验稿批次多次收到VERIFIED_DRAFT_TRACE_REQUIRED，主Agent错误地添加trace字段，又被原工具schema拒绝。该错误现在返回本次允许的真实坐标/字面文本/高度上限和明确修复方向，不新增工具参数、不放宽片段一致性。此诊断补修由离线拒绝测试验证；最后一个正在运行的CAD任务在此前已加载模块，不能称已实测使用该新错误文本。
+
+## 主要修改文件
+
+| 文件/目录 | 实际变更 |
+|---|---|
+| configs/skills/catalog.yaml、configs/skills/progressive-drawing/ | 注册main/vision只读技能；正文及三份阶段引用，修正为本仓库真实接口，保留用户ZIP原件。 |
+| packages/config/src/progressive.ts、index.ts | 路由、范围/DAG/锚点/切线分区与部分观察schema；generation和runtime配置的校验仍从统一加载器执行。 |
+| packages/dsh-adapter/src/live.ts、budget.ts、progressive-evidence.ts、source-coordinates.ts | DSH阶段装配、工具批次钩子、实际图像与schema报告、程序坐标转换、独立片段核对、累计预算恢复。 |
+| packages/profile/src/progressive.ts、progressive-draft.ts | 现有任务边界内的渐进Scheduler、每批结构/实际视觉、区域修复/共享边界/检查点/部分待验稿守卫；非新AgentLoop。 |
+| packages/profile/src/task.ts、quality.ts、execution.ts、cad-arguments.ts | 自动选择/一次合法回退、任务状态、授权及同任务防重放、工具schema与执行前校验一致。 |
+| packages/profile/src/session-store.ts、interactive.ts、task-intent.ts、failure.ts、terminal-output.ts、apps/cli/src/terminal.ts | 原子私有状态、同连接恢复、意图与阶段显示、真实业务结果/诊断。 |
+| benchmark/run-progressive-case.mjs | 需显式授权的真实模型/CAD驱动，非固定绘图计划，未验收返回非零。 |
+| tests/unit/progressive*.test.ts、tool-validation.test.ts、task-failures.test.ts及已有相关测试 | 范围、源坐标、DSH装配、批次边界、恢复与安全反例；组件夹具不充当实机。 |
+| docs/cli/README.md、README.zh-CN.md；docs/development/、docs/validation/ | 双语用户行为、需求/Issue/BUG/当日日志与分层实际结果。 |
+
+用户未跟踪的docs/designs/Cader_Bug_Triage_2026-11-25.md不加入本次提交，不覆盖/格式化；独立AutoCAD-MCP原有未提交工作完全保留。

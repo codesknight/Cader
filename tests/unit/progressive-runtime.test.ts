@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import {resolve} from 'node:path';
 import {readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
-import {loadConfig} from '@cader/config';
+import {loadConfig,readReferenceImage} from '@cader/config';
 import {createLiveRuntime,defineTool,ExecutionBudget} from '@cader/dsh-adapter';
 import type {StreamChunk,PublicEvent} from '@cader/dsh-adapter';
-async function* call(name:string,args:unknown):AsyncGenerator<StreamChunk>{
-  const id='progressive-fixture-call' as Extract<StreamChunk,{type:'tool-call-delta'}>['id'],argumentsText=JSON.stringify(args);
+async function* call(name:string,args:unknown,index?:number):AsyncGenerator<StreamChunk>{
+  const id=('progressive-fixture-call'+(index??'')) as Extract<StreamChunk,{type:'tool-call-delta'}>['id'],argumentsText=JSON.stringify(args);
   yield {type:'block-start',index:0,blockType:'tool-call'};
   yield {type:'tool-call-delta',index:0,id,name,argumentsDelta:argumentsText};
   yield {type:'block-end',index:0,block:{type:'tool-call',id,name,arguments:argumentsText}};
@@ -15,7 +15,7 @@ async function* call(name:string,args:unknown):AsyncGenerator<StreamChunk>{
 }
 for(const patch of [false,true])for(const failure of [false,true])test(`actual DSH controlled batch callback serializes readback/vision before more writes: patch=${patch}, failure=${failure}`,async()=>{
   const config=await loadConfig(process.cwd());process.env.CADER_PROGRESSIVE_OFFLINE='offline-fixture';
-  config.profiles=config.profiles.map(p=>({...p,api_key_env:'CADER_PROGRESSIVE_OFFLINE'}));
+  config.profiles=config.profiles.map(p=>({...p,api_key_env:'CADER_PROGRESSIVE_OFFLINE',generation:{...p.generation,progressive_reasoning_effort:'off'}}));
   const events:PublicEvent[]=[];let writes=0,reviews=0,steps=0,checked=0;
   const tool=defineTool({name:'mcp__autocad__draw_circle',description:'Offline fixture only',parameters:{radius:{type:'number',required:true}},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(){writes++;return 'fixture ACK only';}});
   const runtime=await createLiveRuntime({...config,root:process.cwd(),runDirectory:resolve('.cader/tests',`progressive-batch-${patch}-${failure}`),executionTools:[tool],onEvent:e=>events.push(e)});
@@ -24,29 +24,32 @@ for(const patch of [false,true])for(const failure of [false,true])test(`actual D
     if(patch)yield* call('cader_apply_cad_patch',{operations:[{tool:tool.name,arguments:{radius:1}},{tool:tool.name,arguments:{radius:2}}],unit_complete:true});else yield* call(tool.name,{radius:1});
   });
   try{
-    const result=await runtime.run('MainAgent','Offline Harness integration only',{harnessTask:true,skill:'progressive-drawing',skillResource:'verification-and-repair',onlyTools:[tool.name,'cader_apply_cad_patch'],beforeCadOperation:async()=>{},afterCadBatch:async()=>{reviews++;assert.equal(writes,patch?2:1);if(failure)throw new Error('VISUAL_REPORT_INVALID');},completeDrawingUnit:async()=>{checked++;},schedulerStepSlice:1,resultText:()=> 'Returned to Scheduler, not accepted'});
+    const result=await runtime.run('MainAgent','Offline Harness integration only',{harnessTask:true,cadAction:true,progressiveStep:true,skill:'progressive-drawing',skillResource:'verification-and-repair',onlyTools:[tool.name,'cader_apply_cad_patch'],beforeCadOperation:async()=>{},afterCadBatch:async()=>{reviews++;assert.equal(writes,patch?2:1);if(failure)throw new Error('VISUAL_REPORT_INVALID');},completeDrawingUnit:async()=>{checked++;},schedulerStepSlice:1,resultText:()=> 'Returned to Scheduler, not accepted'});
     assert.equal(steps,1);assert.equal(writes,patch?2:1);assert.equal(reviews,1);assert.equal(checked,patch&&!failure?1:0);
     if(failure)assert.equal(result.handoff?.code,'BATCH_VERIFICATION_PENDING');
     assert.ok(events.some(e=>e.type==='skill.loaded'&&e.resource==='verification-and-repair'));
+    assert.ok(events.some(e=>e.type==='model.route'&&e.role==='main'&&e.cad_action===true&&e.reasoning_effort==='off'));
     const body=await readFile('configs/skills/progressive-drawing/SKILL.md','utf8');assert.ok(events.some(e=>e.type==='skill.loaded'&&e.mode==='selected'&&e.sha256===createHash('sha256').update(body).digest('hex')&&e.context_sha256!==e.sha256));
   }finally{await runtime.dispose();}
 });
 test('resumption restores cumulative task reservations, tokens and limits rather than resetting them',async()=>{
   const {runtime:config}=await loadConfig(process.cwd());const prior=new ExecutionBudget(config);prior.beginRound();prior.admit(10,3);prior.recordTokens(1234);
   const resumed=new ExecutionBudget(config);const saved=prior.snapshot();resumed.restore(saved);assert.equal(resumed.snapshot().reported_tokens,1234);assert.equal(resumed.snapshot().cad_reservations,3);assert.equal(resumed.snapshot().tool_reservations,10);
+  assert.equal(resumed.snapshot().round_tool_reservations,10);assert.equal(resumed.snapshot().round_cad_reservations,3);
   assert.throws(()=>resumed.restore(saved),/ALREADY_STARTED/);
   assert.throws(()=>new ExecutionBudget(config).restore({...saved,reported_tokens:NaN}),/INVALID/);
   resumed.beginRound();assert.equal(resumed.snapshot().execution_round,2);assert.equal(resumed.snapshot().cad_reservations,3);
+  const legacy=new ExecutionBudget(config);legacy.restore({execution_round:1,tool_reservations:10,cad_reservations:3,reported_tokens:1234});assert.equal(legacy.admit(1,1),'EXECUTION_ROUND_EXHAUSTED');assert.equal(legacy.beginRound(),undefined);assert.equal(legacy.admit(1,1),undefined);assert.equal(legacy.snapshot().execution_round,2);assert.equal(legacy.snapshot().tool_reservations,11);
 });
 
 test('actual DSH new-document ACK concludes the stage before another model step',async()=>{
   const config=await loadConfig(process.cwd());process.env.CADER_PROGRESSIVE_ACK='offline-fixture';config.profiles=config.profiles.map(p=>({...p,api_key_env:'CADER_PROGRESSIVE_ACK'}));
-  let steps=0,acks=0,readbacks=0;
+  let steps=0,acks=0,readbacks=0;const routes:PublicEvent[]=[];
   const tool=defineTool({name:'mcp__autocad__new_drawing',description:'Offline document ACK fixture',parameters:{},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(){acks++;return 'native ACK fixture';}});
-  const runtime=await createLiveRuntime({...config,root:process.cwd(),runDirectory:resolve('.cader/tests/progressive-new-document-ack'),executionTools:[tool]});
+  const runtime=await createLiveRuntime({...config,root:process.cwd(),runDirectory:resolve('.cader/tests/progressive-new-document-ack'),executionTools:[tool],onEvent:e=>routes.push(e)});
   runtime.ctx.on('llm/stream',async function*():AsyncGenerator<StreamChunk>{steps++;yield* call(tool.name,{});});
   try{const result=await runtime.run('MainAgent','Create offline fixture document',{harnessTask:true,onlyTools:[tool.name],maxModelSteps:1,completeNewDrawing:async()=>{assert.equal(acks,1);readbacks++;},resultText:()=>readbacks?'Document confirmed, not task acceptance':undefined});
-    assert.equal(result.status,'succeeded');assert.equal(steps,1);assert.equal(readbacks,1);
+    assert.equal(result.status,'succeeded');assert.equal(steps,1);assert.equal(readbacks,1);assert.ok(routes.some(e=>e.type==='model.route'&&e.progressive_step===false&&e.reasoning_effort==='low'));
   }finally{await runtime.dispose();}
 });
 
@@ -55,6 +58,31 @@ test('runtime resume retains per-scope vision caps and the original task clock',
   const runtime=await createLiveRuntime({...config,root:process.cwd(),runDirectory:resolve('.cader/tests/progressive-resume-caps'),captureCadView:async()=>{captures++;throw new Error('Must not capture after restored scope exhaustion');}});
   try{runtime.enableTaskBudget();const started_at=new Date(Date.now()-1000).toISOString();runtime.restoreTaskBudget({...runtime.budgetState(),model_steps:12,reported_tokens:4567,started_at,source_review_reservations:4,verification_scopes:{source:[['region:A',4]],visual:[['region:A',config.runtime.max_visual_reviews_per_turn]]}});runtime.setVerificationScope('region:A');
     await assert.rejects(runtime.reviewCadView('Offline cap fixture'),/VISUAL_REVIEW_BUDGET_EXCEEDED/);assert.equal(captures,0);assert.equal(runtime.budgetState().started_at,started_at);assert.equal(runtime.budgetState().model_steps,12);assert.equal(runtime.budgetState().reported_tokens,4567);assert.equal(runtime.reviewStats().source_review_reservations,4);
+  }finally{await runtime.dispose();}
+});
+
+test('one DSH regional turn retains query/write results while independently checking each committed batch',async()=>{
+  const config=await loadConfig(process.cwd());process.env.CADER_PROGRESSIVE_CONTEXT='offline-fixture';config.profiles=config.profiles.map(p=>({...p,api_key_env:'CADER_PROGRESSIVE_CONTEXT'}));
+  let steps=0,writes=0,reviews=0;const events:PublicEvent[]=[];
+  const read=defineTool({name:'mcp__autocad__list_layers',description:'Offline context fixture',parameters:{},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(){return 'fixture-layer-list';}});
+  const write=defineTool({name:'mcp__autocad__draw_circle',description:'Offline ACK fixture',parameters:{radius:{type:'number',required:true}},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(){return 'fixture-ACK-'+(++writes);}});
+  const finish=defineTool({name:'cader_finish_drawing_unit',description:'Offline checked unit only',parameters:{},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(_a,ctx){ctx.concludeTurn();return 'fixture readback completed';}});
+  const runtime=await createLiveRuntime({...config,root:process.cwd(),runDirectory:resolve('.cader/tests/progressive-regional-context'),executionTools:[read,write],onEvent:e=>events.push(e)});
+  runtime.ctx.on('llm/stream',async function*(req):AsyncGenerator<StreamChunk>{steps++;const context=JSON.stringify(req.messages);if(steps>1)assert.match(context,/fixture-layer-list/);if(steps>2)assert.match(context,/fixture-ACK-1/);
+    yield* call(steps===5?finish.name:steps%2?read.name:write.name,steps%2?{}:{radius:steps},steps);
+  });
+  try{const result=await runtime.run('MainAgent','Offline multi-step integration',{harnessTask:true,progressiveStep:true,cadAction:true,onlyTools:[read.name,write.name,finish.name],extraTools:[finish],schedulerStepSlice:8,afterCadBatch:async()=>{reviews++;assert.equal(reviews,writes);},maxModelSteps:16,resultText:()=> 'Offline verified unit fixture'});
+    assert.equal(result.status,'succeeded',JSON.stringify(result));assert.equal(steps,5);assert.equal(writes,2);assert.equal(reviews,2);assert.equal(events.filter(e=>e.type==='agent.started'&&e.role==='main').length,1);
+  }finally{await runtime.dispose();}
+});
+
+test('cached CAD review requires its registered actual image bytes, not a matching report label',async()=>{
+  const config=await loadConfig(process.cwd());process.env.CADER_PROGRESSIVE_CACHE='offline-fixture';config.profiles=config.profiles.map(p=>({...p,api_key_env:'CADER_PROGRESSIVE_CACHE'}));
+  const path='benchmark/fixtures/vision-calibration.png',pixels=await readReferenceImage(process.cwd(),path),sha256=createHash('sha256').update(pixels.data).digest('hex');let captures=0;
+  const runtime=await createLiveRuntime({...config,root:process.cwd(),runDirectory:resolve('.cader/tests/progressive-review-cache'),captureCadView:async()=>{captures++;return {path,evidence:{document:'fixture.dwg',sha256}};}});
+  runtime.ctx.on('llm/stream',async function*():AsyncGenerator<StreamChunk>{yield* call('cader_submit_visual_report',{verdict:'pass',defects:[],uncertainties:[],checklist:[{requirement_id:'current',status:'pass',evidence:'Offline image fixture only'}]});});
+  try{const review=await runtime.reviewCadView(JSON.stringify({original_request:'Offline fixture',requirements:[{id:'current',description:'Current fixture only'}],entity_snapshot:[]}));
+    assert.equal(review.review_valid,true);assert.equal(await runtime.isCadReviewCurrent(review),true);assert.equal(await runtime.isCadReviewCurrent({...review,image_ref:'unregistered'}),false);assert.equal(await runtime.isCadReviewCurrent({...review,evidence:{sha256:'changed'}}),false);assert.equal(captures,1);
   }finally{await runtime.dispose();}
 });
 

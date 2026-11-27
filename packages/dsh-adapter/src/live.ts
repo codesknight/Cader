@@ -90,7 +90,7 @@ export async function createLiveRuntime(options: LiveOptions) {
   const taskDuration=()=>options.runtime.max_task_duration_ms??options.runtime.timeout_ms;
   const enableTaskBudget=()=>{scheduled=true;clearTimeout(deadline);const remaining=taskDuration()-(Date.now()-Date.parse(taskStartedAt));if(remaining<=0)lifetime.abort();else{deadline=setTimeout(()=>lifetime.abort(),remaining);deadline.unref();}};
   const executionStop=()=>lifetime.signal.aborted?'CANCELLED_OR_TIMEOUT':steps>=modelStepLimit()?'MODEL_STEP_BUDGET_EXCEEDED':budget.taskStop();
-  const restoreTaskBudget=(saved:{execution_round:number;tool_reservations:number;cad_reservations:number;reported_tokens:number;model_steps?:number;started_at?:string;agent_delegations?:number;source_review_reservations?:number;verification_scopes?:{source:[string,number][];visual:[string,number][]}})=>{
+  const restoreTaskBudget=(saved:{execution_round:number;tool_reservations:number;cad_reservations:number;reported_tokens:number;round_tool_reservations?:number;round_cad_reservations?:number;model_steps?:number;started_at?:string;agent_delegations?:number;source_review_reservations?:number;verification_scopes?:{source:[string,number][];visual:[string,number][]}})=>{
     if(steps||calls)throw new Error('BUDGET_ALREADY_STARTED');
     const elapsed=Date.now()-Date.parse(saved.started_at??taskStartedAt);
     if(!Number.isFinite(elapsed)||elapsed<0||saved.model_steps!==undefined&&(!Number.isSafeInteger(saved.model_steps)||saved.model_steps<0))throw new Error('BUDGET_CHECKPOINT_INVALID');
@@ -99,7 +99,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       if(!Array.isArray(entries)||entries.length>256||entries.some(row=>!Array.isArray(row)||row.length!==2||typeof row[0]!=='string'||!row[0]||row[0].length>200||!Number.isSafeInteger(row[1])||row[1]<0)||new Set(entries.map(row=>row[0])).size!==entries.length)throw new Error('BUDGET_CHECKPOINT_INVALID');
     }
     if([saved.agent_delegations??0,saved.source_review_reservations??0].some(n=>!Number.isSafeInteger(n)||n<0))throw new Error('BUDGET_CHECKPOINT_INVALID');
-    budget.restore({execution_round:saved.execution_round,tool_reservations:saved.tool_reservations,cad_reservations:saved.cad_reservations,reported_tokens:saved.reported_tokens});steps=saved.model_steps??0;taskStartedAt=saved.started_at??taskStartedAt;
+    budget.restore({execution_round:saved.execution_round,tool_reservations:saved.tool_reservations,cad_reservations:saved.cad_reservations,reported_tokens:saved.reported_tokens,round_tool_reservations:saved.round_tool_reservations,round_cad_reservations:saved.round_cad_reservations});steps=saved.model_steps??0;taskStartedAt=saved.started_at??taskStartedAt;
     for(const [id,n]of scopes.source)scopeSourceCounts.set(id,n);for(const [id,n]of scopes.visual)scopeVisualCounts.set(id,n);
     delegations=saved.agent_delegations??0;sourceReviewReservations=saved.source_review_reservations??0;
     clearTimeout(deadline);const remaining=taskDuration()-elapsed;if(remaining<=0)lifetime.abort();else {deadline=setTimeout(()=>lifetime.abort(),remaining);deadline.unref();}
@@ -193,6 +193,8 @@ export async function createLiveRuntime(options: LiveOptions) {
       keepExecutionRound?:boolean;
       completeDrawingUnit?:()=>Promise<void>;
       completeNewDrawing?:()=>Promise<void>;
+      cadAction?:boolean;
+      progressiveStep?:boolean;
       beforeCadOperation?:(name:string,args:unknown)=>Promise<void>;
       afterCadBatch?:()=>Promise<void>;
       maxImageViews?:number;
@@ -223,6 +225,8 @@ export async function createLiveRuntime(options: LiveOptions) {
         mode: 'selected', sha256: createHash('sha256').update(selectedBody!).digest('hex'),context_sha256:createHash('sha256').update(selectedSkill).digest('hex') });
       if(selectedResource)emit({type:'skill.loaded',name:request.skill,resource:request.skillResource,role:profile.role,mode:'selected-resource',sha256:createHash('sha256').update(selectedResource).digest('hex')});
       const id = brandString<SessionId>(`cader-${profile.role}-${randomUUID()}`);
+      const reasoningEffort=request.progressiveStep&&profile.role==='main'?profile.generation.progressive_reasoning_effort??profile.generation.reasoning_effort:profile.generation.reasoning_effort;
+      emit({type:'model.route',agentId:id,role:profile.role,model:profile.model,reasoning_effort:reasoningEffort,cad_action:Boolean(request.cadAction&&profile.role==='main'),progressive_step:Boolean(request.progressiveStep&&profile.role==='main')});
       // Scheduled CAD work includes native tools and nested vision. Keep the
       // provider request timeout, but use the existing task-wide deadline here.
       const turnTimeout=request.harnessTask&&profile.role==='main'&&!request.parent?options.runtime.timeout_ms:Math.min(profile.timeout_ms,options.runtime.timeout_ms);
@@ -254,7 +258,7 @@ export async function createLiveRuntime(options: LiveOptions) {
             origin: 'subagent' as const, delegationDepth: 1 } : {}) },
           agentOptions: { provider: routeFor(profile), model: profile.model,
             maxTokens: profile.generation.max_output_tokens,
-            reasoningEffort: brandString<ReasoningEffortId>(profile.generation.reasoning_effort) },
+            reasoningEffort: brandString<ReasoningEffortId>(reasoningEffort) },
           async setup(agentCtx, agent) {
             roles.set(agent, profile.role);
             const roleSkills = skills.list(profile.role);
@@ -342,7 +346,7 @@ export async function createLiveRuntime(options: LiveOptions) {
               const vision = options.profiles.find(value => value.role === 'vision' && value.input.includes('image'));
               if (vision) {
                 agentCtx.tools.register(defineTool({ name: 'cader_review_cad_view',
-                  description: 'Capture the actual current scratch CAD view and automatically send image bytes to the configured vision worker. No reference upload or DWG save needed. Returns evidence and defects; never authorizes edits.',
+                  description: 'Capture the actual current scratch CAD view and automatically send image bytes to the configured vision worker. No reference upload or DWG save needed. Returns evidence and defects; never authorizes edits.'+(request.controlledReview?' Harness freezes the current scope and reuses eligible results. Use cader_finish_drawing_unit for regional acceptance when offered; batch review cannot complete a region/task.':''),
                   parameters: { question: { type: 'string', required: true, description: 'State user requirements and ask for structured defects with severity, location, evidence, suggestions and uncertainty.' } },
                   output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
                   isConcurrencySafe: () => false,
@@ -351,10 +355,10 @@ export async function createLiveRuntime(options: LiveOptions) {
                       const result = await (request.controlledReview
                         ? request.controlledReview(args.question, exec.signal)
                         : reviewCadView(args.question, exec.signal, agent));
-                      if(request.controlledReview&&request.reviewEndsTurn){handoff={kind:'verification',code:'VISUAL_REVIEW_SUBMITTED'};exec.concludeTurn();}
+                      if(request.controlledReview&&(request.reviewEndsTurn||!(result as {review_valid?:boolean}).review_valid||(result as {structured?:{verdict?:string}}).structured?.verdict!=='pass')){handoff={kind:'verification',code:'VISUAL_REVIEW_SUBMITTED'};exec.concludeTurn();}
                       return JSON.stringify(result);
                     } catch(error) {
-                      if(!request.controlledReview||!request.reviewEndsTurn)throw error;
+                      if(!request.controlledReview)throw error;
                       // Control handoff succeeded; the visual review has NOT passed.
                       handoff={kind:'verification',code:'VISUAL_REVIEW_FAILED'};
                       emit({type:'task.review_handoff',...handoff,verification_pending:true});
@@ -909,7 +913,7 @@ export async function createLiveRuntime(options: LiveOptions) {
       emit({ type: 'cad.review', ...result }); return result;
     }
 
-    return { ctx, run, executionStop,restoreTaskBudget,visionProfileId:options.profiles.find(p=>p.role==='vision')?.id,setVerificationScope,reviewStats:()=>({capture_attempts:visualReviews,model_calls:visualModelCalls,source_review_reservations:sourceReviewReservations,source_review_limit:sourceReviewLimit,agent_delegations:delegations}),enableTaskBudget,budgetState:()=>({...budget.snapshot(),model_steps:steps,started_at:taskStartedAt,limits:{task_model_steps:modelStepLimit(),task_tokens:options.runtime.max_task_tokens??2000000,task_duration_ms:scheduled?taskDuration():options.runtime.timeout_ms,task_tool_calls:options.runtime.max_task_tool_calls??600,task_cad_operations:options.runtime.max_cad_operations??400},agent_delegations:delegations,source_review_reservations:sourceReviewReservations,source_review_limit:sourceReviewLimit,verification_scopes:{source:[...scopeSourceCounts],visual:[...scopeVisualCounts]},pending:structuredClone(pending)}),inspectReference,inspectProgressiveDraft:(path:string,scope:{id:string;bounds:[[number,number],[number,number]]},task:string,signal?:AbortSignal)=>{const profile=options.profiles.find(p=>p.role==='vision')?.id;if(!profile)throw new Error('VISION_PROFILE_UNAVAILABLE');return inspectProgressiveDraft(run,profile,options.workspaceRoot??options.root,path,scope,task,signal,reserveSourceReview);},reviewCadView:(question:string,signal?:AbortSignal,referenceImage?:string,referenceDetails?:{path:string;view:ImageView;label:string}[])=>reviewCadView(question,signal,undefined,referenceImage,referenceDetails), reassessCadView:(question:string,imageRef:string,signal?:AbortSignal,referenceImage?:string,referenceDetails?:{path:string;view:ImageView;label:string}[])=>reviewCadView(question,signal,undefined,referenceImage,referenceDetails,imageRef),pool, completed: () => completed.slice(), toolNames: () => ctx.tools.schemas().map(tool => tool.name),
+    return { ctx, run, executionStop,restoreTaskBudget,visionProfileId:options.profiles.find(p=>p.role==='vision')?.id,setVerificationScope,isCadReviewCurrent:async(report:{image_ref:string;evidence:unknown})=>{const capture=reviewCaptures.get(report.image_ref);if(!capture)return false;try{const pixels=await readReferenceImage(options.workspaceRoot??options.root,capture.path);return createHash('sha256').update(pixels.data).digest('hex')===(report.evidence as {sha256?:string})?.sha256;}catch{return false;}},reviewStats:()=>({capture_attempts:visualReviews,model_calls:visualModelCalls,source_review_reservations:sourceReviewReservations,source_review_limit:sourceReviewLimit,agent_delegations:delegations}),enableTaskBudget,budgetState:()=>({...budget.snapshot(),model_steps:steps,started_at:taskStartedAt,limits:{task_model_steps:modelStepLimit(),task_tokens:options.runtime.max_task_tokens??2000000,task_duration_ms:scheduled?taskDuration():options.runtime.timeout_ms,task_tool_calls:options.runtime.max_task_tool_calls??600,task_cad_operations:options.runtime.max_cad_operations??400},agent_delegations:delegations,source_review_reservations:sourceReviewReservations,source_review_limit:sourceReviewLimit,verification_scopes:{source:[...scopeSourceCounts],visual:[...scopeVisualCounts]},pending:structuredClone(pending)}),inspectReference,inspectProgressiveDraft:(path:string,scope:{id:string;bounds:[[number,number],[number,number]]},task:string,signal?:AbortSignal)=>{const profile=options.profiles.find(p=>p.role==='vision')?.id;if(!profile)throw new Error('VISION_PROFILE_UNAVAILABLE');return inspectProgressiveDraft(run,profile,options.workspaceRoot??options.root,path,scope,task,signal,reserveSourceReview);},reviewCadView:(question:string,signal?:AbortSignal,referenceImage?:string,referenceDetails?:{path:string;view:ImageView;label:string}[])=>reviewCadView(question,signal,undefined,referenceImage,referenceDetails), reassessCadView:(question:string,imageRef:string,signal?:AbortSignal,referenceImage?:string,referenceDetails?:{path:string;view:ImageView;label:string}[])=>reviewCadView(question,signal,undefined,referenceImage,referenceDetails,imageRef),pool, completed: () => completed.slice(), toolNames: () => ctx.tools.schemas().map(tool => tool.name),
       async dispose() { clearTimeout(deadline); lifetime.abort(); await ctx.fiber.dispose(); } };
   } catch (error) { clearTimeout(deadline); await ctx.fiber.dispose(); throw error; }
 }

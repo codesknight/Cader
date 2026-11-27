@@ -3,6 +3,7 @@ import { dirname, resolve, relative, isAbsolute } from 'node:path';
 import { parseDocument } from 'yaml';
 import { z } from 'zod';
 export {progressiveDrawingSelection,parseProgressivePlan,progressivePlanSchema} from './progressive.js';
+export {parseProgressivePartition,progressivePartitionSchema} from './progressive.js';
 export type {ProgressivePlanData} from './progressive.js';
 export {rasterizeProgressivePlan} from './progressive.js';
 export {isAnalysisOnlyRequest} from './progressive.js';
@@ -26,7 +27,8 @@ const Profile = z.object({
   description: z.string().min(1).max(400).optional(),
   when_to_use: z.string().min(1).max(400).optional(),
   generation: z.object({ max_output_tokens: z.int().min(64).max(32768),
-    reasoning_effort: z.enum(['off', 'low', 'high', 'max']) }).strict(),
+    reasoning_effort: z.enum(['off', 'low', 'high', 'max']),
+    progressive_reasoning_effort:z.enum(['off','low','high','max']).optional() }).strict(),
   timeout_ms: z.int().min(1000).max(300000), can_delegate: z.boolean(),
 }).strict().superRefine((value, context) => {
   const main = value.role === 'main';

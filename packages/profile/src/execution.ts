@@ -7,7 +7,7 @@ import type { ComEvidence, NativeBinding, ObservedRequest, ExecutionReceipt,ComF
 import type { ToolDefinition } from '@cader/dsh-adapter';
 import { loadMcp, workspacePath, readReferenceImage } from '@cader/config';
 import { runUserShell } from './interactive-shell.js';
-import { validateCadArguments,validatePlannedWire } from './cad-arguments.js';
+import { publishCadInputContract,validateCadArguments,validatePlannedWire } from './cad-arguments.js';
 import { environmentRedactor } from './session-store.js';
 import type { QualityPlan } from '@cader/config';
 import { inspectLegacyBarrier, archiveReviewedBarrier } from './legacy-barrier.js';
@@ -510,6 +510,7 @@ export class ExecutionSession {
   }
   definitions(confirm?: Approval): ToolDefinition[] {
     return (this.client?.definitions() ?? []).filter(tool => reads.has(tool.name.split('__').at(-1)!) || writes.has(tool.name.split('__').at(-1)!))
+      .map(publishCadInputContract)
       .map(tool => ({ ...tool, description:tool.name.endsWith('__save_drawing')&&this.evidence?.file_artifacts?tool.description+' Saves to an exclusive artifact subdirectory under the requested parent; use the returned actual path. SaveAs renames this working document without changing identity. Later saves keep the original requested parent directory; do not use an artifact subdirectory as a new output root. The Scheduler requires independent read-only reopen verification before delivery.':tool.description, output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] },
         isConcurrencySafe: () => false,
         execute: async (args, exec) => this.serial(async () => {

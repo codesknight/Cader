@@ -3,6 +3,7 @@ import type { AgentResult, PublicEvent } from '@cader/dsh-adapter';
 export type FailureSource = 'provider' | 'agent' | 'mcp' | 'configuration' | 'runtime' | 'verification' | 'usage';
 const hints: Record<string, string> = {
   PROGRESSIVE_PLAN_MISSING:'模型在有限重试后仍未提交有效分区计划；尚未允许绘图。查看本任务受控诊断，不重复整图清点。',
+  INVOCATION_MODEL_STEP_BUDGET_EXCEEDED:'当前阶段的有限模型步骤已耗尽，仍未提交有效结果；查看本阶段工具校验错误。已保存任务进度，这不是CAD冻结或任务总预算归零。',
   PROGRESSIVE_AGENT_FAILED:'当前渐进阶段未形成有效模型结果，进度已保留；工具ACK不等于区域验收通过。',
   PROGRESSIVE_CHECKPOINT_CHANGED:'图纸读回与已保存检查点不同，已拒绝续写；核对变化来源，不重放确认操作。',
   PROGRESSIVE_LEDGER_CHANGED:'当前连接操作账本与检查点不一致，已拒绝续跑。',

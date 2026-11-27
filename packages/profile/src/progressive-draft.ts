@@ -24,7 +24,7 @@ export function validateDraftOperation(name:string,a:Record<string,any>,traces:D
   if(tool==='draw_line')valid=traces.some(t=>t.kind==='path'&&segments(t).some(([p,q])=>near(p!,[a.start_x,a.start_y])&&near(q!,[a.end_x,a.end_y])||near(q!,[a.start_x,a.start_y])&&near(p!,[a.end_x,a.end_y])));
   if(tool==='draw_circle')valid=traces.some(t=>t.kind==='circle'&&near(t.center,[a.center_x,a.center_y])&&Math.abs(t.radius-a.radius)<=0.015);
   if(tool==='draw_text')valid=traces.some(t=>t.kind==='text'&&literal(t.text)===literal(String(a.text))&&a.height>0&&a.height<=t.max_text_height+0.015&&a.position_x>=t.bounds[0][0]-0.015&&a.position_x<=t.bounds[1][0]+0.015&&a.position_y>=t.bounds[0][1]-0.015&&a.position_y<=t.bounds[1][1]+0.015);
-  if(!valid)throw new Error('VERIFIED_DRAFT_TRACE_REQUIRED');
+  if(!valid)throw new Error('VERIFIED_DRAFT_TRACE_REQUIRED: '+JSON.stringify({tool,action:'Use only the supplied native coordinates/literal text and text height limit. Do not add trace/trace_id fields to tool arguments or guess omitted geometry.',allowed_traces:traces.filter(t=>tool==='draw_line'?t.kind==='path':tool==='draw_circle'?t.kind==='circle':tool==='draw_text'?t.kind==='text':false)}));
 }
 /** COM's summary does not expose polyline vertices, so draft path segments use
  * independently readable AcDbLine endpoints, never a bounding-box substitute. */

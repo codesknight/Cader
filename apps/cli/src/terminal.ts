@@ -97,6 +97,7 @@ export async function runTerminal(options: { workspace?: string; stdio?: boolean
           else if(event.type==='task.drawing_unit')write(`\n  绘图进度：${String(event.unit_id)} 已读回登记，整图尚待验收。\n`);
           else if(event.type==='task.region')write(`\n  区域 ${String(event.region)} · ${regionStatus(event.status)} · ${String(event.entities)} 实体${event.failure?` · ${String(event.failure)}`:''}（整图尚待验收）\n`);
           else if(event.type==='task.region_split')write(`\n  区域细分：${String(event.parent)} → ${(event.children as string[]).join('、')}，保留原失败证据。\n`);
+          else if(event.type==='task.progressive_fallback')write('\n  整图参考检查未通过，转为同一任务的局部分区；保留原失败及累计预算，未重放CAD操作。\n');
           else if(event.type==='task.batch_verified')write(`\n  批次 ${String(event.batch)} · ${event.status==='pass'?'结构与视觉通过':'待修正或复核'}（整图尚待验收）\n`);
           else if(event.type==='task.checkpoint')write(`\n  预算检查点 · 第${event.execution_round}回合 · ${event.continuing?'已读回并保存进度，自动续轮':'已保存进度，任务总限额暂停'} · ${String(event.document??'尚未新建图纸')}\n`);
           else if(event.type==='task.review_handoff')write('\n  视觉或读回异常，已交回调度器；当前图纸尚未通过验收。\n');

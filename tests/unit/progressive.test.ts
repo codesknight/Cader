@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {loadSkills,progressiveDrawingSelection,parseProgressivePlan,readReferenceImage} from '@cader/config';
+import {readFile} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {loadSkills,progressiveDrawingSelection,parseProgressivePlan,parseProgressivePartition,readReferenceImage} from '@cader/config';
 import {runTask,runProgressiveTask,progressiveFrame,verifyProgressiveBatch,taskIntent,qualityTaskContext,validateDraftOperation,verifyDraftGeometry} from '@cader/profile';
 const task='分区绘制多个部件';
 const overview={version:1,content_bounds:[[0,0],[1,1]],units:'relative-layout-units',regions:[{id:'left',bounds:[[0,0],[0.5,1]],description:'Left independent part',depends_on:[]},{id:'right',bounds:[[0.5,0],[1,1]],description:'Right independent part',depends_on:[]}],anchors:[]};
@@ -36,6 +38,17 @@ test('scope contracts reject gaps, duplicate ownership, invalid dependencies and
   assert.deepEqual(parseProgressivePlan({...overview,regions:[{...overview.regions[0],priority:10},{...overview.regions[1],priority:90,depends_on:['left']}]}).regions.map(r=>r.id),['left','right']);
   assert.throws(()=>parseProgressivePlan({...overview,regions:[{...overview.regions[0],depends_on:['right']},{...overview.regions[1],depends_on:['left']}]}),/CYCLE/);
 });
+test('model cut authoring generates complete shared boundaries without accepting omitted or duplicate cells',()=>{
+  const input={version:1,content_bounds:[[0.1,0.2],[0.9,1]],x_cuts:[0.47],y_cuts:[],regions:overview.regions.map((r,column)=>({id:r.id,row:0,column,description:r.description,priority:column?90:10,depends_on:[]})),anchors:[]};
+  const plan=parseProgressivePartition(input);assert.deepEqual(plan.regions.map(r=>r.id),['right','left']);
+  assert.deepEqual(plan.regions[0]!.bounds,[[0.47,0.2],[0.9,1]]);assert.deepEqual(plan.regions[1]!.bounds,[[0.1,0.2],[0.47,1]]);
+  assert.throws(()=>parseProgressivePartition({...input,x_cuts:[0.47,0.3]}),/SORTED/);
+  assert.throws(()=>parseProgressivePartition({...input,x_cuts:[0.1]}),/INTERIOR/);
+  assert.throws(()=>parseProgressivePartition({...input,regions:[input.regions[0],{...input.regions[1],column:0}]}),/DUPLICATE/);
+  assert.throws(()=>parseProgressivePartition({...input,y_cuts:[0.6]}),/EVERY_CELL/);
+  assert.throws(()=>parseProgressivePartition({...input,anchors:[{id:'fake',position:[0.4,0.5],regions:['left','right'],relation:'connected',certainty:'clear',evidence:'not actually shared'}]}),/BOUNDARY/);
+});
+
 test('batch checks reject out-of-region effects and duplicate geometry independently of visual opinion',()=>{
   const e={object_id:1,type:'AcDbCircle',layer:'A',center:[10,10,0],radius:2,bounding_box:{min:[8,8,0],max:[12,12,0]}};
   assert.ok(verifyProgressiveBatch([e],[[0,0],[20,20]]).every(c=>c.status==='pass'));
@@ -45,13 +58,16 @@ test('batch checks reject out-of-region effects and duplicate geometry independe
   assert.deepEqual(context.pending_reasons,['SOURCE_COMPONENT_INVENTORY_FAILED']);
 });
 // Scheduler fixture, not model or native AutoCAD evidence.
-async function fixture(extra:{badBatch?:boolean;pause?:boolean;partial?:boolean;taskReport?:boolean;sharedLayerCase?:boolean}={}){
+async function fixture(extra:{badBatch?:boolean;pause?:boolean;partial?:boolean;taskReport?:boolean;sharedLayerCase?:boolean;readOnlySlices?:number;scopeReconcile?:boolean;alwaysVisualFailure?:boolean;taskText?:string;priorNative?:boolean}={}){
+  const requestTask=extra.taskText??task;let factories=0;
   let scratch:string|null=null,grant=false,draws=0,views=0,inspections=0,saved:any,paused=false,bad=extra.badBatch;
   const entities:Record<string,any>[]=[];const operations:any[]=[];const states:any[]=[];const events:any[]=[];
+  if(extra.priorNative){scratch='prior-fixture.dwg';operations.push({operation_id:'old-new',outcome:'committed'});}
+  const reads=new Map<string,number>();
   const pixels=await readReferenceImage(process.cwd(),'benchmark/fixtures/vision-calibration.png');
   const sourceHash=createHash('sha256').update(pixels.data).digest('hex');
   const scope=()=>({owned:!!scratch||grant,target:scratch,connection:'fixture-connection',new_drawing_confirmed:!!scratch,geometry_confirmed:draws,entity_ids:entities.map(e=>e.object_id)});
-  const facts=()=>({frozen:false,local_connection_id:'fixture-connection',scratch,operations,session_counts:{committed:operations.length,unknown:0}});
+  const facts=()=>({frozen:false,transport:'connected',local_connection_id:'fixture-connection',scratch,operations,session_counts:{committed:operations.length,unknown:0}});
   const owner={workspace:process.cwd(),facts,taskScope:scope,endTask(){grant=false;},async authorizeTask(){grant=true;return true;},async refineTaskPlan(){},async saveTaskArtifact(){return {path:'fixture-only-not-a-real-DWG',bytes:0,sha256:'fixture-only'};},async snapshot(){return {document:scratch,entities:structuredClone(entities)};},definitions(){return ['new_drawing','draw_circle','move_entity','delete_entity'].map(n=>({name:'mcp__autocad__'+n}));}};
   const runtime={visionProfileId:'VisionAgent',setVerificationScope(){},enableTaskBudget(){},dispose:async()=>{},completed:()=>extra.taskReport?[{id:'fixture-old-failed-stage',profile:'MainAgent',status:'failed',text:'',tools:[],errorCode:'OUTPUT_TRUNCATED'},{id:'fixture-final-stage',profile:'MainAgent',status:'succeeded',text:'fixture',tools:[]}]:[],reviewStats:()=>({capture_attempts:views,model_calls:views}),budgetState:()=>({}),
     async inspectReference(){inspections++;return {valid:false,structured:null,evidence:{path:'benchmark/fixtures/vision-calibration.png',sha256:sourceHash,width:pixels.width,height:pixels.height}};},
@@ -60,10 +76,11 @@ async function fixture(extra:{badBatch?:boolean;pause?:boolean;partial?:boolean;
       const tool=req.extraTools?.[0];const exec={concludeTurn(){}};
       if(tool?.name==='cader_submit_progressive_plan')await tool.execute(overview,exec);
       else if(tool?.name==='cader_split_progressive_region'){const r=saved.progressive.plan.regions.find((r:any)=>r.id===saved.progressive.active_region);await tool.execute({axis:0,position:(r.bounds[0][0]+r.bounds[1][0])/2,descriptions:['first fixture subset','second fixture subset'],anchors:[]},exec);}
-      else if(tool?.name==='cader_submit_acceptance_plan')await tool.execute({version:1,domain:'generic',components:[],visual_required:true,requirements:[{id:'visual',source_quote:task,description:'Current part',check:'visual'},{id:'count',source_quote:task,description:'One circle',check:'entity_count',entity_type:'AcDbCircle',min:1}]},exec);
+      else if(tool?.name==='cader_submit_acceptance_plan')await tool.execute({version:1,domain:'generic',components:[],visual_required:true,requirements:[{id:'visual',source_quote:requestTask,description:'Current part',check:'visual'},{id:'count',source_quote:requestTask,description:'One circle',check:'entity_count',entity_type:'AcDbCircle',min:1}]},exec);
       else if(req.onlyTools?.some((n:string)=>n.endsWith('__new_drawing'))){scratch='fixture.dwg';operations.push({operation_id:'new',outcome:'committed'});}
       else{
         const region=req.taskState().progressive.active_region;
+        const count=reads.get(region)??0;if(count<(extra.readOnlySlices??0)){reads.set(region,count+1);return {status:'succeeded',tools:[],text:'Read-only preparation fixture',handoff:{kind:'verification',code:'MODEL_SLICE_COMPLETE'}};}
         if(extra.sharedLayerCase&&region==='right')await assert.rejects(req.beforeCadOperation('mcp__autocad__set_layer_properties',{name:'LEFT',color:1}),/REGION_SHARED_LAYER_PROTECTED/);
         if(extra.pause&&region==='right'&&!paused){paused=true;return {status:'succeeded',tools:[],text:'',handoff:{kind:'budget',code:'TASK_TOKEN_BUDGET_EXCEEDED',renewable:false}};}
         if(!entities.some(e=>e.region===region)){
@@ -74,16 +91,24 @@ async function fixture(extra:{badBatch?:boolean;pause?:boolean;partial?:boolean;
         await tool.execute({unit_id:region},exec);
       }
       return {status:'succeeded',text:'fixture',tools:[],id:'fixture'};
-    },async reviewCadView(question:string){views++;const q=JSON.parse(question);const fail=bad&&q.partial_batch;bad=false;return {image_ref:'fixture-'+views,evidence:{document:scratch,sha256:'fixture',reference:{sha256:sourceHash},image_bounds:{possible_clipping:false}},review_valid:true,structured:{verdict:fail?'fail':'pass',defects:[],uncertainties:[],checklist:q.requirements.map((r:any)=>({requirement_id:r.id,status:fail?'fail':'pass',evidence:'fixture only'}))},attempts:[]};}};
-  const options:any={runtime,owner,task,root:process.cwd(),profile:'MainAgent',persist:async(s:unknown)=>{saved=structuredClone(s);states.push(saved);},emit:(e:unknown)=>events.push(e)};
-  if(extra.partial)options.referenceTask={request:task,image:{path:'benchmark/fixtures/vision-calibration.png',sha256:sourceHash,width:pixels.width,height:pixels.height},outputPath:'.cader/tests/fixture-pending.dwg',freshDrawing:true};
-  const report=extra.taskReport?await runTask(process.cwd(),{task,executionOwner:owner as never,executionTools:owner.definitions() as never,executionState:facts as never,permissionMode:'ask'},async()=>runtime as never):undefined;
+    },async reviewCadView(question:string){views++;const q=JSON.parse(question);if(q.partial_batch){assert.notEqual(q.original_request,requestTask);assert.equal(q.verification_scope,'affected-batch');assert.equal(q.region.description,undefined);assert.deepEqual(q.entity_snapshot.map((e:any)=>e.object_id),q.affected_entity_ids);}else assert.equal(q.original_request,requestTask);const fail=extra.alwaysVisualFailure||bad&&q.partial_batch;bad=false;return {image_ref:'fixture-'+views,evidence:{document:scratch,sha256:'fixture',reference:{sha256:sourceHash},image_bounds:{possible_clipping:false}},review_valid:true,structured:{verdict:fail?'fail':'pass',defects:[],uncertainties:[],checklist:q.requirements.map((r:any)=>({requirement_id:r.id,status:fail?'fail':'pass',evidence:'fixture only'}))},attempts:[]};}};
+  let reconciliations=0;
+  if(extra.scopeReconcile)(runtime as any).reassessCadView=async(question:string,imageRef:string)=>{reconciliations++;const result=await runtime.reviewCadView(question);return {...result,image_ref:imageRef};};
+  const options:any={runtime,owner,task:requestTask,root:process.cwd(),profile:'MainAgent',persist:async(s:unknown)=>{saved=structuredClone(s);states.push(saved);},emit:(e:unknown)=>events.push(e)};
+  if(extra.partial)options.referenceTask={request:requestTask,image:{path:'benchmark/fixtures/vision-calibration.png',sha256:sourceHash,width:pixels.width,height:pixels.height},outputPath:'.cader/tests/fixture-pending.dwg',freshDrawing:true};
+  const report=extra.taskReport?await runTask(process.cwd(),{task:requestTask,referenceTask:options.referenceTask,executionOwner:owner as never,executionTools:owner.definitions() as never,executionState:facts as never,permissionMode:'ask'},async()=>{factories++;return runtime as never;}):undefined;
   const result=report?.quality??await runProgressiveTask(options);
-  return {result:result!,report,states,events,options,owner,entities,draws:()=>draws,views:()=>views,inspections:()=>inspections,saved:()=>saved};
+  return {result:result!,report,states,events,options,owner,entities,draws:()=>draws,views:()=>views,inspections:()=>inspections,reconciliations:()=>reconciliations,factories:()=>factories,saved:()=>saved};
 }
 
 test('independent complete acceptance supersedes an intermediate truncated model stage without erasing its history',async()=>{
   const f=await fixture({taskReport:true});assert.equal(f.report!.ok,true,JSON.stringify(f.report));assert.equal(f.report!.quality!.quality_accepted,true);assert.equal(f.report!.errorCode,undefined);
+});
+
+test('small-image global Gate failure selects progressive workflow once on the same live task and runtime',async()=>{
+  const f=await fixture({taskReport:true,partial:true,taskText:'复现这张图纸并保存DWG。'});assert.ok(f.report!.quality!.progressive);assert.equal(f.factories(),1);assert.equal(f.draws(),0);assert.ok(f.inspections()>1);assert.ok(f.report!.quality!.progressive!.plan);
+  const initial=JSON.parse(await readFile(resolve(f.report!.runDirectory,'quality-global-attempt.json'),'utf8'));assert.equal(initial.task_id,f.report!.quality!.task_id);assert.equal(initial.failure.code,'REFERENCE_INSPECTION_FAILED');assert.equal(initial.execution.operations.length,0);assert.equal(f.report!.quality!.quality_accepted,false);
+  const existing=await fixture({taskReport:true,partial:true,taskText:'复现这张图纸并保存DWG。',priorNative:true});assert.equal(existing.report!.quality!.progressive,null);assert.equal(existing.draws(),0);
 });
 test('Harness creates a shared drawing, verifies every meaningful batch and then independently accepts all regions',async()=>{
   const f=await fixture();assert.equal(f.result.phase,'complete',JSON.stringify(f.result.progressive));assert.equal(f.draws(),2);assert.ok(f.views()>=5);
@@ -97,6 +122,17 @@ test('a failed visual batch returns control to Scheduler and remains in evidence
 
 test('a later region cannot change a prior region layer through a case alias',async()=>{
   const f=await fixture({sharedLayerCase:true});assert.equal(f.result.quality_accepted,true);assert.equal(f.draws(),2);
+});
+
+test('batch scope reconciliation retains the failed original, and a second failure cannot be forced to pass',async()=>{
+  const fixed=await fixture({badBatch:true,scopeReconcile:true});assert.equal(fixed.reconciliations(),1);assert.equal(fixed.result.quality_accepted,true);
+  const history=fixed.result.progressive!.regions[0]!.batches[0]!.review_history!;assert.equal(history[0]!.structured!.verdict,'fail');assert.equal(history[1]!.structured!.verdict,'pass');assert.equal(history[0]!.image_ref,history[1]!.image_ref);
+  const failed=await fixture({scopeReconcile:true,alwaysVisualFailure:true});assert.equal(failed.result.quality_accepted,false);assert.ok(failed.result.progressive!.regions.every(r=>r.repairs<=3));
+});
+
+test('bounded read-only preparation is allowed, but three unchanged model slices cannot drain the task budget',async()=>{
+  const ready=await fixture({readOnlySlices:2});assert.equal(ready.result.quality_accepted,true);assert.equal(ready.draws(),2);
+  const stalled=await fixture({readOnlySlices:3});assert.equal(stalled.result.quality_accepted,false);assert.equal(stalled.draws(),0);assert.ok(stalled.result.progressive!.regions.every(r=>r.failure==='REGION_NO_PROGRESS'));
 });
 test('same-connection checkpoint resumes only unfinished regions, rejects altered evidence and never repeats confirmed geometry',async()=>{
   const f=await fixture({pause:true});assert.equal(f.draws(),1);assert.equal(f.result.phase,'pending_verification');
@@ -125,6 +161,7 @@ test('partial source contracts reject guessed geometry and verify native endpoin
   const traces=[{id:'path',kind:'path' as const,points:[[10,10],[20,10]],closed:false}];
   assert.doesNotThrow(()=>validateDraftOperation('mcp__autocad__draw_line',{start_x:10,start_y:10,end_x:20,end_y:10},traces));
   assert.throws(()=>validateDraftOperation('mcp__autocad__draw_circle',{center_x:10,center_y:10,radius:1},traces),/TRACE_REQUIRED/);
+  assert.throws(()=>validateDraftOperation('mcp__autocad__draw_line',{start_x:10,start_y:10,end_x:30,end_y:10},traces),error=>error instanceof Error&&error.message.includes('allowed_traces')&&error.message.includes('Do not add trace/trace_id'));
   assert.equal(verifyDraftGeometry(traces,[{type:'AcDb2dPolyline',bounding_box:{min:[10,10],max:[20,10]}}])[0]!.status,'fail');
   assert.equal(verifyDraftGeometry(traces,[{type:'AcDbLine',start_point:[10,10,0],end_point:[20,10,0]}])[0]!.status,'pass');
   const a={object_id:1,type:'AcDbLine',layer:'A',start_point:[10,10,0],end_point:[20,10,0],bounding_box:{min:[10,10],max:[20,10]}};

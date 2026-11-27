@@ -54,6 +54,7 @@ test('task and smoke propagate actual DSH QUOTA to terminal and saved verificati
 
 test('setup failures identify MCP/configuration and never forward raw exception data', async () => {
   assert.deepEqual(describeFailure('QUOTA sk-sensitive', 'provider').errorCode, 'UNKNOWN');
+  assert.equal(describeFailure('INVOCATION_MODEL_STEP_BUDGET_EXCEEDED','verification').errorCode,'INVOCATION_MODEL_STEP_BUDGET_EXCEEDED');
   const failed = await runLiveSmoke(process.cwd(), { mcpPath: 'configs/mcp/AutoCAD.example.yaml' },
     async () => { throw new Error('private provider body sk-sensitive'); });
   assert.equal(failed.errorCode, 'MCP_CONNECTION_FAILED');

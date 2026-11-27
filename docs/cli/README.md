@@ -7,9 +7,16 @@
 
 ## Progressive complex drawing (dev.13)
 
+Batch review receives only committed batch requirements/entities; regional and final review retain the full original request. An unbuilt canopy is not a defect in a trunk-only batch. Batch handoff does not request full-region acceptance. Two unchanged read-only preparation slices (up to 12 DSH model steps each) are allowed; the third consecutive slice with no entity or confirmed-operation progress stops safely. Confirmed layer setup counts as progress.
+
+Optional `generation.progressive_reasoning_effort` in `configs/models/MainAgent.yaml` applies to bounded progressive decomposition, local planning and drawing/correction (`off` in this configuration). Ordinary MainAgent requests retain `reasoning_effort: low`, with the same 8192 output limit. Omit it to inherit the ordinary setting. `model.route` records the request; this setting neither replaces verification nor guarantees against truncation.
+
+
 `progressive-drawing` is a registered, read-only workflow skill for MainAgent and VisionAgent. A reference of at least eight million pixels, an explicitly complex request, or staged/region-based drawing selects it automatically. Simple drawings keep the short workflow. Catalog descriptions remain available; skill text and decomposition, verification or recovery references load by stage, with resource hashes in `skill.loaded`. Skills grant no write authority.
 
-Harness obtains a full-scope region plan, authorizes a new owned document under the existing policy, then observes and draws each region. Every effective batch receives native readback, structural checks and actual vision review. Failure returns control to Scheduler; local corrections allow at most three attempts. Unrecognized regions may split. Geometry agreed by two independent source readings can form a **partial pending draft**, never complete coverage. Acceptance still requires all regions, shared boundaries, cross-region conditions and requested DWG delivery proof.
+If an initially short reference workflow fails its semantic source Gate before any native writes, Harness may select the progressive skill once on the same task/runtime without resetting budgets. It never adopts earlier CAD progress or retries provider/budget failures through this route.
+
+Harness obtains a full-scope region plan (explicit rectangles or program-derived cells from model-selected cuts), authorizes a new owned document under the existing policy, then observes and draws each region. Every effective batch receives native readback, structural checks and actual vision review. Failure returns control to Scheduler; local corrections allow at most three attempts. Unrecognized regions may split. Geometry agreed by two independent source readings can form a **partial pending draft**, never complete coverage. Acceptance still requires all regions, shared boundaries, cross-region conditions and requested DWG delivery proof.
 
 On the same live connection, `/quality resume` verifies the original request, source/plan hashes, document, confirmed ledger and fresh native state before continuing unfinished progressive regions. Verified regions are skipped; budgets, visual evidence and correction counts persist. Restart, reconnect, external document changes, unknown writes, readback failure or checkpoint failure cannot automatically resume writing. Checkpoints use a temporary file, fsync and rename; failures retain the old checkpoint and temporary evidence.
 

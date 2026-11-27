@@ -36,6 +36,32 @@ export function parseProgressivePlan(value:unknown){
   const walk=(id:string)=>{if(seen.has(id))return;const region=plan.regions.find(r=>r.id===id)!;for(const dep of region.depends_on)walk(dep);seen.add(id);ordered.push(region);};
   for(const region of [...plan.regions].sort((a,b)=>(b.priority??50)-(a.priority??50)))walk(region.id);plan.regions=ordered;return plan;
 }
+/** Model chooses cuts and contents; the program derives shared bounds. This is
+ * an alternative authoring form, never a repair of an invalid submitted plan. */
+const Partition=z.object({version:z.literal(1),content_bounds:box,
+  x_cuts:z.array(z.number().min(0).max(1)).max(7),y_cuts:z.array(z.number().min(0).max(1)).max(7),
+  regions:z.array(z.object({id,row:z.int().min(0).max(7),column:z.int().min(0).max(7),description:z.string().min(1).max(800),depends_on:z.array(id).max(16),priority:z.int().min(0).max(100)}).strict()).min(2).max(16),
+  anchors:ProgressivePlan.shape.anchors
+}).strict();
+export const progressivePartitionSchema=JSON.parse(JSON.stringify(z.toJSONSchema(Partition)));
+export function parseProgressivePartition(value:unknown){
+  const p=Partition.parse(value);
+  const axes=[p.x_cuts,p.y_cuts].map((cuts,axis)=>{
+    const start=p.content_bounds[0][axis]!,end=p.content_bounds[1][axis]!;
+    if(cuts.some((cut,i)=>cut<=start||cut>=end||i>0&&cut<=cuts[i-1]!))throw new Error('PARTITION_CUTS_REQUIRE_SORTED_INTERIOR_COORDINATES');
+    return [start,...cuts,end];
+  });
+  const columns=axes[0]!.length-1,rows=axes[1]!.length-1;
+  if(columns*rows>16||p.regions.length!==columns*rows)throw new Error('PARTITION_REQUIRES_EVERY_CELL_EXACTLY_ONCE: '+JSON.stringify({rows,columns,expected:rows*columns}));
+  const cells=new Set<string>();
+  const regions=p.regions.map(({row,column,...region})=>{
+    const key=`${row}:${column}`;
+    if(row>=rows||column>=columns||cells.has(key))throw new Error('PARTITION_CELL_INVALID_OR_DUPLICATE: '+key);
+    cells.add(key);
+    return {...region,bounds:[[axes[0]![column]!,axes[1]![row]!],[axes[0]![column+1]!,axes[1]![row+1]!]]};
+  });
+  return parseProgressivePlan({version:1,content_bounds:p.content_bounds,units:'relative-layout-units',regions,anchors:p.anchors});
+}
 /** Pixel-aligned shared edges keep outward-rounded crops from introducing
  * different coordinate origins in adjacent regions. No physical scale inferred. */
 export function rasterizeProgressivePlan(value:ProgressivePlanData,image:{width:number;height:number}){
