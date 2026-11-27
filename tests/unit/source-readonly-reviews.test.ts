@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createSourceWorklist,runIndexedRegions,sourceItemOperation} from '@cader/profile';
+import {createSourceWorklist,runIndexedRegions,sourceItemOperation,verifySourceCheckpoint} from '@cader/profile';
 
 // Deterministic Scheduler fixtures only; no API, actual image or CAD result.
 function fixture(tiles=2){
@@ -48,11 +48,26 @@ test('an empty source hook adds no second whole-document query after the executo
  c.model=async(_instruction?:string,request?:any)=>{await request.afterCadBatch();throw Error('FIXTURE_END');};
  await assert.rejects(runIndexedRegions(c),/FIXTURE_END/);assert.equal(reads,0);assert.equal(f.work.items.path_a!.status,'pending');
 });
-for(const changed of [false,true])test('three target re-observations share one fresh native bracket; changed='+changed,async()=>{
+test('full source checkpoint revalidates earlier verified geometry, committed items, missing IDs and unexpected entities',()=>{
+ const f=fixture(1),s=f.work.items.path_a!,op=sourceItemOperation(f.index,f.index.items[0],s),points=op.arguments.points as number[][];
+ const entity={object_id:1,type:'AcDb2dPolyline',coordinates:points.flat(),coordinate_dimension:3,closed:false,constant_width:op.arguments.width,normal:[0,0,1],elevation:0,bulges:points.map(()=>0)};
+ for(const status of ['committed','verified'] as const){s.status=status;assert.equal(verifySourceCheckpoint(f.index,f.work,[entity]).ok,true);const modified=structuredClone(entity);modified.coordinates[0]!++;assert.equal(verifySourceCheckpoint(f.index,f.work,[modified]).ok,false);assert.equal(verifySourceCheckpoint(f.index,f.work,[]).ok,false);}
+ assert.equal(verifySourceCheckpoint(f.index,f.work,[entity,{...entity,object_id:2}]).ok,false);
+});
+test('primitive region completion may reuse a guarded full observation; full source windows still query fresh before and after',async()=>{
+ const f=fixture(1),op=sourceItemOperation(f.index,f.index.items[0],f.work.items.path_a!),points=op.arguments.points as number[][];f.regions[0]!.status='drawing';
+ f.entities=[{...f.entities[0],coordinates:points.flat(),coordinate_dimension:3,type:'AcDb2dPolyline',closed:false,constant_width:op.arguments.width,normal:[0,0,1],elevation:0,bulges:points.map(()=>0)}];
+ let full=0,recent=0;const snapshot=()=>({entities:structuredClone(f.entities),document:'owned',scope:'full_document'});
+ const c=context(f,async()=>{full++;return snapshot();},async q=>report(q));Object.assign(c,{observeRecentFull:async()=>{recent++;return snapshot();}});
+ await runIndexedRegions(c);assert.equal(recent,1);assert.equal(full,2);assert.equal(f.regions[0]!.status,'verified');
+});
+for(const failure of ['none','target_changed','checkpoint_failed'])test('targeted re-observations still require a full checkpoint: '+failure,async()=>{
  const f=fixture(1);f.index.items=Array.from({length:7},(_,i)=>({...f.index.items[0],id:'path_'+i}));f.work=createSourceWorklist(f.index,'fixture');f.state.source_worklist=f.work;f.regions[0]!.status='pending';
  f.entities=f.index.items.map((item:any,i:number)=>{const s=f.work.items[item.id]!;s.status='committed';s.entity_ids=[i+1];const op=sourceItemOperation(f.index,item,s),points=op.arguments.points as number[][];return {object_id:i+1,type:'AcDb2dPolyline',coordinates:points.flat(),coordinate_dimension:3,closed:false,constant_width:op.arguments.width,normal:[0,0,1],elevation:0,bulges:points.map(()=>0),bounding_box:{min:[100,400,0],max:[700,800,0]}};});
- let reads=0,reviews=0;const c=context(f,async()=>{reads++;const entities=structuredClone(f.entities);if(changed&&reads===2)entities[0]!.coordinates[0]++;return {entities,document:'owned'};},async q=>report(q,++reviews===1?'uncertain':'pass'));
+ let reads=0,reviews=0,fullReads=0;const c=context(f,async()=>{fullReads++;return {entities:structuredClone(f.entities),document:'owned'};},async q=>report(q,++reviews===1?'uncertain':'pass'));
+ Object.assign(c,{observeTargets:async(ids:number[])=>{assert.deepEqual(ids,[1,2,3,4,5,6,7]);reads++;const entities=structuredClone(f.entities);if(failure==='target_changed'&&reads===2)entities[0]!.coordinates[0]++;return {entities,document:'owned',scope:'entity_set'};}});
+ c.checkpoint=async()=>{await c.observe();if(failure==='checkpoint_failed')throw Error('FULL_CHECKPOINT_FAILED');};
  c.model=async(_instruction?:string,request?:any)=>{await request.afterCadBatch();throw Error('FIXTURE_END');};
- await assert.rejects(runIndexedRegions(c),changed?/SOURCE_BATCH_VISUAL_PENDING/:/FIXTURE_END/);
- assert.equal(reviews,4);assert.equal(reads,2);assert.ok(Object.values(f.work.items).every(s=>s.status===(changed?'committed':'verified')));
+ await assert.rejects(runIndexedRegions(c),failure==='target_changed'?/SOURCE_BATCH_VISUAL_PENDING/:failure==='checkpoint_failed'?/FULL_CHECKPOINT_FAILED/:/FIXTURE_END/);
+ assert.equal(reviews,4);assert.equal(reads,2);assert.equal(fullReads,1);assert.ok(Object.values(f.work.items).every(s=>s.status===(failure==='none'?'verified':'committed')));
 });

@@ -21,6 +21,8 @@ interface Context {
     checkpoint: (reason: string, observation?: Snapshot) => Promise<void>;
     assertSource: () => Promise<void>;
     observe: () => Promise<Snapshot>;
+    observeTargets?: (ids: number[]) => Promise<Snapshot>;
+    observeRecentFull?: () => Promise<Snapshot>;
     emit: (event: {
         type: string;
         [key: string]: unknown;
@@ -67,7 +69,9 @@ export async function runIndexedRegions(c: Context) {
             const scope = sourceBatchSelection(local, work, active?.ids), selected = scope.items;
             if (!selected.length)
                 return;
-            const snapshot = await read(), assertReadOnly = readOnlyGuard();
+            const selectedIds = selected.flatMap(i => work.items[i.id]!.entity_ids);
+            const readTargets = () => c.observeTargets ? c.observeTargets(selectedIds) : read();
+            const snapshot = await readTargets(), assertReadOnly = readOnlyGuard();
             const checks = selected.flatMap(i => verifySourceItem(index, i, work.items[i.id]!, snapshot.entities));
             region.checks = checks;
             c.emit({ type: 'source.native_checks', region: region.id, checks });
@@ -109,7 +113,7 @@ export async function runIndexedRegions(c: Context) {
             // All workers in this bounded observation group are read-only.
             // Their reports only choose further views until this FRESH full
             // post-observation query confirms the original native snapshot.
-            const after = await read(); assertReadOnly();
+            const after = await readTargets(); assertReadOnly();
             const coverage = sourcePrimitiveCoverage(reviews, entities, index.source.sha256, p.document!, sourceDigest(snapshot.entities), sourceDigest(after.entities), work.index_sha256);
             const batch: ProgressiveRegion['batches'][number] = { id: region.id + '-source-' + (region.batches.length + 1), operation_ids: selected.flatMap(i => work.items[i.id]!.operation_ids), entity_ids: entities.map(e => e.object_id), state_sha256: sourceDigest(snapshot.entities), checks: [...checks, { id: 'source_visual_target_coverage', status: coverage.complete ? 'pass' : 'not_run', evidence: JSON.stringify(coverage) }], status: 'pending', review, review_history: reviews.slice(1) };
             region.batches.push(batch);
@@ -137,7 +141,7 @@ export async function runIndexedRegions(c: Context) {
             const remaining = local.filter(i => work.items[i.id]!.status !== 'verified');
             if (remaining.length)
                 throw new Error('SOURCE_REGION_HAS_PENDING_ITEMS: ' + JSON.stringify({ counts: sourceWorklistSummary(index, work).counts, remaining: remaining.slice(0, 32).map(i => ({ id: i.id, status: work.items[i.id]!.status, entity_ids: work.items[i.id]!.entity_ids })) }));
-            const snapshot = await read();
+            const snapshot = c.observeRecentFull ? await c.observeRecentFull() : await read();
             region.entity_ids = [...new Set(local.flatMap(i => work.items[i.id]!.entity_ids))];
             const checks = local.flatMap(i => verifySourceItem(index, i, work.items[i.id]!, snapshot.entities));
             if (checks.some(v => v.status !== 'pass')) {
@@ -256,7 +260,7 @@ export async function runIndexedRegions(c: Context) {
             }
             const mark = owner.facts().operations.length, progress = sourceDigest(Object.entries(work.items).map(([id, s]) => [id, s.status, s.entity_ids, s.text ?? null, s.rotation ?? null]));
             await c.enter(region.status === 'repairing' ? 'correcting' : 'drawing');
-            const result = await c.model('使用中文。根据当前工作清单自主选择源图ID并实际绘制，不重新清点全图、不手抄坐标、不重放已确认项。先用create_layer创建CADER_SOURCE_GEOMETRY、CADER_SOURCE_TEXT（已有则复用）；cader_apply_source_batch接受本区最多64个ID（仍受当前工具schema及单轮容量约束），程序复用原Patch预检/权限/预算和串行MCP，自动源复核、原生读回及视觉检查。若文字与路径跨度过大可拆批。源图不可辨项保持待确认，可继续其他accepted/pending项；不要重复提交同一uncertain集合。已提交但待验项用cader_review_cad_view交回受控检查；具体几何失败用本区局部移动/旋转/缩放patch，不删除重建全图。所有ID通过后调用cader_finish_drawing_unit；任务完整性由全图独立验收决定。' + JSON.stringify({ task: c.task, region: p.plan!.regions.find(r => r.id === region.id), worklist: sourceWorklistPage(index, work, tile), native_checks: { passed: region.checks?.filter(c => c.status === 'pass').length ?? 0, failures: region.checks?.filter(c => c.status !== 'pass').slice(0, 8) }, last_visual: { status: region.batches.at(-1)?.status, closeup_reports: region.batches.at(-1)?.review_history?.length ?? 0, scope: 'Primitive evidence only; full-region/global still pending' } }), { cadAction: true, image: c.sourcePath, imageView: { crop: { left: index.tiles[tile]!.view[0], top: index.tiles[tile]!.view[1], width: index.tiles[tile]!.view[2] - index.tiles[tile]!.view[0], height: index.tiles[tile]!.view[3] - index.tiles[tile]!.view[1] } }, maxImageViews: 2, onlyTools: [...names.filter(n => /__(?:draw_polyline|draw_text|create_layer|move_entity|rotate_entity|scale_entity|get_entity)$/.test(n)), 'cader_apply_cad_patch', 'cader_review_cad_view', 'cader_view_image', pageTool.name, finish.name], extraTools: [pageTool, finish], sourceBatch, beforeCadOperation: beforeCad, afterCadBatch: afterBatch, controlledReview: async () => {
+            const result = await c.model('使用中文。根据当前工作清单自主选择源图ID并实际绘制，不重新清点全图、不手抄坐标、不重放已确认项。先用list_layers核对CADER_SOURCE_GEOMETRY、CADER_SOURCE_TEXT，已有则复用，缺少时才create_layer；cader_apply_source_batch接受本区最多64个ID（仍受当前工具schema及单轮容量约束），程序复用原Patch预检/权限/预算和串行MCP，自动源复核、原生读回及视觉检查。若文字与路径跨度过大可拆批。源图不可辨项保持待确认，可继续其他accepted/pending项；不要重复提交同一uncertain集合。已提交但待验项用cader_review_cad_view交回受控检查；具体几何失败用本区局部移动/旋转/缩放patch，不删除重建全图。所有ID通过后调用cader_finish_drawing_unit；任务完整性由全图独立验收决定。' + JSON.stringify({ task: c.task, region: p.plan!.regions.find(r => r.id === region.id), worklist: sourceWorklistPage(index, work, tile), native_checks: { passed: region.checks?.filter(c => c.status === 'pass').length ?? 0, failures: region.checks?.filter(c => c.status !== 'pass').slice(0, 8) }, last_visual: { status: region.batches.at(-1)?.status, closeup_reports: region.batches.at(-1)?.review_history?.length ?? 0, scope: 'Primitive evidence only; full-region/global still pending' } }), { cadAction: true, image: c.sourcePath, imageView: { crop: { left: index.tiles[tile]!.view[0], top: index.tiles[tile]!.view[1], width: index.tiles[tile]!.view[2] - index.tiles[tile]!.view[0], height: index.tiles[tile]!.view[3] - index.tiles[tile]!.view[1] } }, maxImageViews: 2, onlyTools: [...names.filter(n => /__(?:draw_polyline|draw_text|create_layer|move_entity|rotate_entity|scale_entity|get_entity|list_layers)$/.test(n)), 'cader_apply_cad_patch', 'cader_review_cad_view', 'cader_view_image', pageTool.name, finish.name], extraTools: [pageTool, finish], sourceBatch, beforeCadOperation: beforeCad, afterCadBatch: afterBatch, controlledReview: async () => {
                     await afterBatch();
                     const latest = region.batches.at(-1);
                     const review = latest?.review_history?.at(-1) ?? latest?.review;

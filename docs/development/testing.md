@@ -437,3 +437,6 @@ BUG113：真实Vision在同一留存真实AutoCAD截图上，原source-compariso
 
 
 2026-11-28 BUG115 / #20：pnpm typecheck、pnpm test（393/393）、pnpm smoke（DSH组件、非API/CAD）通过。新增有界只读观察集成夹具：17源窗口全部评审、6次新鲜Native全读、3检查点；每组post-read之前零区域晋级。末次Native变化/失败、视觉取消、写入/断连/换图/换原生目标/frozen全为负例；无after hash的观察恒不能complete；无源对象的图层后钩子不重复Executor已有全读。7目标的3次补拍在2次全读之间完成，末次变化时所有源项保持committed。真实attempt10仅保全待验稿：557确认/0未知、547实体139527字节；旧103项hash相同，扩展109，quality未改写。
+
+
+2026-11-28 BUG116 / #20：pnpm typecheck、pnpm test（398/398）、pnpm smoke（DSH组件）通过。新增ExecutionSession确定性MCP夹具验证局部快照只get_entity、不全扫、不覆盖全图计数，空/重复/过量/负ID与返回ID不符拒绝；同一局部对象不能复用成全图快照。补全检查点的历史源项变化/缺失/额外实体反例、局部观察成功但全图checkpoint失败不能释放、受控全图缓存5秒过期/未来时间反例、原生图层fresh查询复用与显式改色必须执行，以及primitive结束复用不省略完整源窗口新读。真实attempt11为应用新修复而安全保全：397确认/0未知、390实体104692字节，旧109份不变，115份新保护清单；quality原记录不修改。

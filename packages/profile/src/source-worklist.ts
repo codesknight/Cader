@@ -33,6 +33,14 @@ export interface SourceWorklist {
     residual_reviews: unknown[];
 }
 export const sourceDigest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+/** A full checkpoint verifies every known committed/verified source item,
+ * including earlier batches; a targeted observation can never replace this. */
+export function verifySourceCheckpoint(index:ReferenceIndex,work:SourceWorklist,entities:Entity[]){
+    const known=index.items.filter(i=>['committed','verified'].includes(work.items[i.id]!.status)),byId=new Map(entities.map(e=>[e.object_id,e]));
+    const ids=new Set(known.flatMap(i=>work.items[i.id]!.entity_ids)),unexpected=entities.filter(e=>!ids.has(e.object_id));
+    const invalid=known.filter(i=>{const state=work.items[i.id]!;return verifySourceItem(index,i,state,state.entity_ids.flatMap(id=>byId.has(id)?[byId.get(id)!]:[])).some(c=>c.status!=='pass');});
+    return {ok:!unexpected.length&&!invalid.length,checked_items:known.length,entity_count:entities.length,invalid_item_ids:invalid.slice(0,16).map(i=>i.id),unexpected_entity_ids:unexpected.slice(0,16).map(e=>e.object_id)};
+}
 /** Aggregate actual per-target observations, never synthesize a model verdict.
  * A closer view can supersede only the targets it really inspected. All raw
  * conflicting reports stay in the batch history and full fidelity stays pending. */

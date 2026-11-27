@@ -156,23 +156,24 @@ export class ExecutionSession {
       throw new Error(this.clean(JSON.stringify({code:'DWG_FILE_VERIFICATION_FAILED',operation,operation_id:request.request_id,outcome:record.outcome,saved_artifact:this.lastArtifact,cause:(error as Error).message,guidance:'Save evidence is retained. Do not replay SaveAs/Open or adopt the verification document. Unknown file dispatch must be reconciled first.'})));
     }
   }
-  async snapshot(){return this.serial(async()=>{
+  async snapshot(entityIds?:readonly number[]){const ids=entityIds?[...entityIds]:undefined;return this.serial(async()=>{
     if(!this.client)throw new Error('MCP_NOT_CONNECTED');
+    if(ids&&(!ids.length||ids.length>64||new Set(ids).size!==ids.length||ids.some(id=>!Number.isSafeInteger(id)||id<=0)))throw new Error('INVALID_ENTITY_SNAPSHOT_SCOPE');
     const operationId=randomUUID();
     let entities:unknown;
-    try {entities=await this.readBack('query_entities',{},operationId);}
+    try {if(ids){const rows=[];for(const [i,id]of ids.entries()){const row=await this.readBack('get_entity',{object_id:id},operationId+'-'+i) as {object_id?:unknown};if(!row||row.object_id!==id)throw new Error('ENTITY_SNAPSHOT_ID_MISMATCH');rows.push(row);}await this.checkIdentity(true);entities=rows;}else entities=await this.readBack('query_entities',{},operationId);}
     catch(error){
-      await this.audit({phase:'quality_snapshot_failed',operation_id:operationId,tool:'query_entities',target:this.scratch,error:this.diagnostic(error),dispatched:true});
+      await this.audit({phase:'quality_snapshot_failed',operation_id:operationId,tool:ids?'get_entity':'query_entities',target:this.scratch,entity_ids:ids,error:this.diagnostic(error),dispatched:true});
       throw error;
     }
     if(!Array.isArray(entities)){
-      await this.audit({phase:'quality_snapshot_failed',operation_id:operationId,tool:'query_entities',target:this.scratch,error:{code:'INVALID_ENTITY_SNAPSHOT'},dispatched:true});
+      await this.audit({phase:'quality_snapshot_failed',operation_id:operationId,tool:ids?'get_entity':'query_entities',target:this.scratch,entity_ids:ids,error:{code:'INVALID_ENTITY_SNAPSHOT'},dispatched:true});
       throw new Error('INVALID_ENTITY_SNAPSHOT');
     }
-    this.observedAt=new Date().toISOString();this.observedCount=entities.length;
-    this.observedOperationMark=this.operations.length;
-    await this.audit({phase:'quality_snapshot',operation_id:operationId,tool:'query_entities',target:this.scratch,observed:entities,document_revision:null});
-    return {document:this.scratch,document_revision:null,entities,observed_at:new Date().toISOString()};
+    if(!ids){this.observedAt=new Date().toISOString();this.observedCount=entities.length;this.observedOperationMark=this.operations.length;}
+    const scope=ids?'entity_set' as const:'full_document' as const;
+    await this.audit({phase:ids?'quality_snapshot_targeted':'quality_snapshot',operation_id:operationId,tool:ids?'get_entity':'query_entities',target:this.scratch,observed:entities,document_revision:null,scope,entity_ids:ids});
+    return {document:this.scratch,document_revision:null,entities,observed_at:new Date().toISOString(),scope};
   });}
   constructor(readonly workspace: string, readonly runDirectory: string,
     readonly clean: (value: string) => string = environmentRedactor().clean,

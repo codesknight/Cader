@@ -6,6 +6,19 @@ import { ExecutionSession } from '@cader/profile';
 import { createToolRuntime, defineTool, invokeTool } from '@cader/dsh-adapter';
 import type { createMcpClient } from '@cader/dsh-adapter';
 
+test('targeted native snapshots query only exact IDs and cannot replace full-document cache or accept a mismatched ID',async()=>{
+ await mkdir('.cader/tests',{recursive:true});const root=await mkdtemp(resolve('.cader/tests/target-snapshot-')),calls:string[]=[];let wrong=false;
+ const names=['new_drawing','query_entities','get_entity','get_backend_status'];const definitions=names.map(name=>defineTool({name:'mcp__autocad__'+name,description:'Offline scope fixture',parameters:{},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(){throw Error('Owner required');}}));
+ const factory:typeof createMcpClient=async()=>({definitions:()=>definitions,toolNames:()=>names,async dispose(){},async call(name,args){calls.push(name);if(name==='new_drawing')return 'Fixture.dwg';if(name==='query_entities')return [{object_id:42},{object_id:99}];if(name==='get_entity')return {object_id:wrong?99:(args as {object_id:number}).object_id};return {};}});
+ const owner=new ExecutionSession(root,join(root,'.cader/runs/owner'),undefined,factory),ctx=await createToolRuntime();owner.mode='workspace-write';
+ try{await owner.connect(resolve('configs/mcp/AutoCAD.example.yaml'));for(const tool of owner.definitions())ctx.tools.register(tool);assert.equal((await invokeTool(ctx,'mcp__autocad__new_drawing',{})).isError,false);
+  const full=await owner.snapshot();assert.equal(full.scope,'full_document');assert.equal(owner.facts().cad_observation.entity_count,2);calls.length=0;
+  const partial=await owner.snapshot([42]);assert.equal(partial.scope,'entity_set');assert.deepEqual(partial.entities,[{object_id:42}]);assert.equal(calls.includes('query_entities'),false);assert.equal(calls.filter(n=>n==='get_entity').length,1);assert.equal(owner.facts().cad_observation.entity_count,2);
+  for(const ids of [[],[42,42],[-1],Array.from({length:65},(_,i)=>i+1)])await assert.rejects(owner.snapshot(ids),/INVALID_ENTITY_SNAPSHOT_SCOPE/);
+  wrong=true;await assert.rejects(owner.snapshot([42]),/ENTITY_SNAPSHOT_ID_MISMATCH/);assert.equal(owner.facts().cad_observation.entity_count,2);assert.equal(owner.facts().frozen,false);
+ }finally{await owner.dispose();await ctx.fiber.dispose();await rm(root,{recursive:true});}
+});
+
 test('transient COM read rejection retries only readback, never the acknowledged mutation',async()=>{
   await mkdir('.cader/tests',{recursive:true});
   const root=await mkdtemp(resolve('.cader/tests/readback-retry-')),calls:string[]=[];let busy=0;

@@ -4,7 +4,7 @@ import type {QualityPlan,ProgressivePlanData,ReferenceObservationData} from '@ca
 import type {ToolDefinition,createLiveRuntime,ImageView} from '@cader/dsh-adapter';
 import {sourceCoordinates} from '@cader/dsh-adapter';
 import type {ReferenceIndex} from '@cader/dsh-adapter';
-import {createSourceWorklist,assertSourceWorklist,sourceWorklistSummary,verifySourceGraph} from './source-worklist.js';
+import {createSourceWorklist,assertSourceWorklist,sourceWorklistSummary,verifySourceGraph,verifySourceCheckpoint} from './source-worklist.js';
 import type {SourceWorklist} from './source-worklist.js';
 import {runIndexedRegions} from './indexed-regions.js';
 import {verifyQuality,qualityTaskContext} from './quality.js';
@@ -23,8 +23,9 @@ type Box=[[number,number],[number,number]];
 const digest=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)??'undefined').digest('hex');
 const same=(a:unknown,b:unknown)=>digest(a)===digest(b);
 const layerKey=(name:unknown)=>String(name).toLowerCase();
-export function canReuseValidatedObservation(token:{snapshot:unknown;mark:number;connection:unknown;target:string}|null,candidate:unknown,current:{frozen:boolean;mark:number;connection:unknown;target:string;document:unknown}){
-  return Boolean(token&&candidate&&typeof candidate==='object'&&token.snapshot===candidate&&!current.frozen&&token.mark===current.mark&&token.connection===current.connection&&token.target===current.target&&(candidate as {document?:unknown}).document===current.document);
+export function canReuseValidatedObservation(token:{snapshot:unknown;mark:number;connection:unknown;target:string}|null,candidate:unknown,current:{frozen:boolean;mark:number;connection:unknown;target:string;document:unknown;maxAgeMs?:number}){
+  const age=candidate&&typeof candidate==='object'?Date.now()-Date.parse((candidate as {observed_at?:string}).observed_at??''):NaN;
+  return Boolean(token&&candidate&&typeof candidate==='object'&&(current.maxAgeMs===undefined||Number.isFinite(age)&&age>=0&&age<=current.maxAgeMs)&&(!(candidate as {scope?:string}).scope||(candidate as {scope?:string}).scope==='full_document')&&token.snapshot===candidate&&!current.frozen&&token.mark===current.mark&&token.connection===current.connection&&token.target===current.target&&(candidate as {document?:unknown}).document===current.document);
 }
 const taskStops=new Set(['TASK_TOOL_BUDGET_EXCEEDED','TASK_CAD_BUDGET_EXCEEDED','TASK_TOKEN_BUDGET_EXCEEDED','MODEL_STEP_BUDGET_EXCEEDED','EXECUTION_ROUND_LIMIT','CANCELLED_OR_TIMEOUT','CONTINUATION_BINDING_CHANGED','TRUNCATION_RECOVERY_UNSAFE','CHECKPOINT_READBACK_FAILED','CHECKPOINT_PERSIST_FAILED','REFERENCE_CHANGED_RESELECT_REQUIRED','PROGRESSIVE_CHECKPOINT_CHANGED','PROGRESSIVE_LEDGER_CHANGED','QUOTA','HTTP_401','HTTP_403','AUTHENTICATION_ERROR','TRANSPORT','TIMEOUT','SERVER','RATE_LIMIT','AUTH','INVALID_REQUEST','PI_AI_ERROR','CONTEXT_WINDOW_EXCEEDED','EMPTY_RESPONSE']);
 const providerFailureCodes=new Set(['TRANSPORT','TIMEOUT','SERVER','RATE_LIMIT','AUTH','INVALID_REQUEST','PI_AI_ERROR','CONTEXT_WINDOW_EXCEEDED','EMPTY_RESPONSE','QUOTA','HTTP_401','HTTP_403','AUTHENTICATION_ERROR']);
@@ -85,6 +86,7 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
   let checks:CheckResult[]=[],visual:Review|null=null;
   let visualError:string|null=null;
   let evidenceFailure:string|null=null;
+  let sourceIndex:ReferenceIndex|undefined;
   const assertEvidenceOutcome=(result:{errorCode?:string;valid?:boolean;review_valid?:boolean;attempts?:{id:string}[]})=>{
     if(result.valid===true||result.review_valid===true)return;
     const ids=new Set(result.attempts?.map(a=>a.id)??[]);
@@ -104,21 +106,25 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
   const assertSource=async()=>{signal?.throwIfAborted();if(persistFailed)throw new Error('CHECKPOINT_PERSIST_FAILED');if(evidenceFailure)throw new Error(evidenceFailure);if(owner.facts().frozen)throw new Error('CAD_WRITE_FROZEN');
     if(reference){const actual=await readReferenceImage(owner.workspace,reference.image.path);if(createHash('sha256').update(actual.data).digest('hex')!==reference.image.sha256)throw new Error('REFERENCE_CHANGED_RESELECT_REQUIRED');}};
   let lastObservation:{snapshot:Awaited<ReturnType<typeof owner.snapshot>>;mark:number;connection:string|null;target:string}|null=null;
-  const observe=async()=>{
+  const observe=async(entityIds?:readonly number[])=>{
     await assertSource();const facts=owner.facts(),scope=owner.taskScope(taskId);
     if(!scope.owned||!scope.new_drawing_confirmed||facts.local_connection_id!==progressive.connection||facts.scratch!==progressive.document)throw new Error('CONTINUATION_BINDING_CHANGED');
     let snapshot:Awaited<ReturnType<typeof owner.snapshot>>;
-    try{snapshot=await owner.snapshot();}catch(error){progressive.last_tool_error={tool:'Scheduler.readback',message:(error as Error).message.slice(0,6000)};throw new Error('CHECKPOINT_READBACK_FAILED');}
+    try{snapshot=await owner.snapshot(entityIds);}catch(error){progressive.last_tool_error={tool:'Scheduler.readback',message:(error as Error).message.slice(0,6000)};throw new Error('CHECKPOINT_READBACK_FAILED');}
     if(snapshot.document!==facts.scratch)throw new Error('CONTINUATION_BINDING_CHANGED');
-    const current=owner.facts();lastObservation={snapshot,mark:current.operations.length,connection:current.local_connection_id,target:digest(current.native_target)};
+    const current=owner.facts();if(!entityIds)lastObservation={snapshot,mark:current.operations.length,connection:current.local_connection_id,target:digest(current.native_target)};
     return snapshot;
   };
   const checkpoint=async(reason:string,verifiedObservation?:Awaited<ReturnType<typeof owner.snapshot>>)=>{
     let reused=false,observedAt:string|undefined;
-    if(owner.taskScope(taskId).new_drawing_confirmed){const facts=owner.facts();reused=canReuseValidatedObservation(lastObservation,verifiedObservation,{frozen:facts.frozen,mark:facts.operations.length,connection:facts.local_connection_id,target:digest(facts.native_target),document:progressive.document});const snapshot=reused?verifiedObservation!:await observe();progressive.observed_sha256=digest(snapshot.entities);observedAt=snapshot.observed_at;}
+    if(owner.taskScope(taskId).new_drawing_confirmed){const facts=owner.facts(),budgetCandidate=reason==='EXECUTION_ROUND_EXHAUSTED'&&!verifiedObservation?lastObservation?.snapshot:undefined,candidate=verifiedObservation??budgetCandidate;reused=canReuseValidatedObservation(lastObservation,candidate,{frozen:facts.frozen,mark:facts.operations.length,connection:facts.local_connection_id,target:digest(facts.native_target),document:progressive.document,...budgetCandidate?{maxAgeMs:5000}:{}});const snapshot=reused?candidate!:await observe();
+      if(sourceIndex&&progressive.source_worklist){const result=verifySourceCheckpoint(sourceIndex,progressive.source_worklist,snapshot.entities);if(!result.ok)throw new Error('SOURCE_CHECKPOINT_NATIVE_MISMATCH: '+JSON.stringify(result));}
+      progressive.observed_sha256=digest(snapshot.entities);observedAt=snapshot.observed_at;}
     progressive.confirmed_operation_ids=owner.facts().operations.filter(op=>op.outcome==='committed').map(op=>op.operation_id);
     checkpoints.push({reason,reused_observation:reused,observed_at:observedAt,region:progressive.active_region,connection:progressive.connection,document:progressive.document,observed_sha256:progressive.observed_sha256,operation_ids:[...progressive.confirmed_operation_ids]});await persist();
   };
+  const observeRecentFull=async()=>{await assertSource();const facts=owner.facts(),candidate=lastObservation?.snapshot;
+    return canReuseValidatedObservation(lastObservation,candidate,{frozen:facts.frozen,mark:facts.operations.length,connection:facts.local_connection_id,target:digest(facts.native_target),document:progressive.document,maxAgeMs:5000})?candidate!:observe();};
   const model=async(instruction:string,request:Parameters<Runtime['run']>[2]={})=>{
     if(!runtime)throw new Error('QUALITY_RUNTIME_REQUIRED');
     let continuation=false,retries=0,submitted=false;const interrupted:string[]=[];
@@ -155,7 +161,6 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
       progressive.resume_count++;
       if(options.resume.budget&&runtime.restoreTaskBudget)runtime.restoreTaskBudget(options.resume.budget);
     }
-    let sourceIndex:ReferenceIndex|undefined;
     const indexedTools=owner.definitions(options.confirm),poly=indexedTools.find(t=>t.name.endsWith('__draw_polyline')),text=indexedTools.find(t=>t.name.endsWith('__draw_text'));
     const supportsIndex=Boolean((poly?.parameters as any)?.properties?.width&&(text?.parameters as any)?.properties?.fit_box);
     const semanticTask=/(?:验证|校验|核对|检查|保证|计算|分析|验算|提取|输出|生成).{0,12}(?:网表|BOM|电气性能|短路电流|功能逻辑|拓扑|连通性|连接关系|电路功能)|\b(?:netlist|BOM|simulate|electrical analysis|verify connectivity)\b/i.test(task);
@@ -223,7 +228,7 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
         await model('立即调用new_drawing，仅新建一次本任务工作图，不绘制、不保存。'+task,{onlyTools:tools,maxModelSteps:2,completeNewDrawing:async()=>{if(!owner.taskScope(taskId).new_drawing_confirmed)throw new Error('TASK_EXECUTION_REQUIRED');progressive.document=owner.facts().scratch;await checkpoint('new_document_confirmed');},resultText:()=>owner.taskScope(taskId).new_drawing_confirmed?'新工作图已确认，交回Scheduler。':undefined});
         if(!owner.taskScope(taskId).new_drawing_confirmed)throw new Error('TASK_EXECUTION_REQUIRED');progressive.document=owner.facts().scratch;await checkpoint('new_document');
       }
-      await runIndexedRegions({runtime,owner,progressive,index:sourceIndex,sourcePath:reference!.image.path,task,signal,model,enter,persist,checkpoint,assertSource,observe,emit:options.emit,confirm:options.confirm,onEvidenceError:error=>{const code=(error as Error).message;if(taskStops.has(code))evidenceFailure=code;},onVisual:(review,hash)=>{visual=review;visualCalls.push({source:'harness',observed_state_hash:hash,review});assertEvidenceOutcome(review);}});
+      await runIndexedRegions({runtime,owner,progressive,index:sourceIndex,sourcePath:reference!.image.path,task,signal,model,enter,persist,checkpoint,assertSource,observe,observeRecentFull,observeTargets:ids=>observe(ids),emit:options.emit,confirm:options.confirm,onEvidenceError:error=>{const code=(error as Error).message;if(taskStops.has(code))evidenceFailure=code;},onVisual:(review,hash)=>{visual=review;visualCalls.push({source:'harness',observed_state_hash:hash,review});assertEvidenceOutcome(review);}});
     }else for(let regionIndex=0;regionIndex<progressive.plan.regions.length;regionIndex++){
       const stopped=runtime.executionStop?.();if(stopped)throw new Error(stopped);
       const descriptor=progressive.plan.regions[regionIndex]!;

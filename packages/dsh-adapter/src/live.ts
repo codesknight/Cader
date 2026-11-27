@@ -307,6 +307,16 @@ export async function createLiveRuntime(options: LiveOptions) {
               for (const tool of options.executionTools) { if (!request.onlyTools || request.onlyTools.includes(tool.name)) {
                 const controlled:ToolDefinition=cadWrite(tool.name)&&(request.sourceBatch||request.beforeCadOperation||request.afterCadBatch||request.completeNewDrawing&&tool.name.endsWith('__new_drawing'))?{...tool,async execute(args,exec){
                   await request.beforeCadOperation?.(tool.name,args);
+                  if(request.sourceBatch&&tool.name.endsWith('__create_layer')&&args&&typeof args==='object'&&Object.entries(args).every(([key,value])=>key==='name'||key==='color'&&value===null)){
+                    assertToolArguments(tool,args);
+                    const lookup=options.executionTools?.find(t=>t.name.endsWith('__list_layers'));
+                    if(lookup&&(!request.onlyTools||request.onlyTools.includes(lookup.name))&&(options.toolAvailable?.(lookup.name)??true)){
+                      const layers=JSON.parse(String(await lookup.execute({},exec)));
+                      if(!Array.isArray(layers)||!layers.every(name=>typeof name==='string'))throw new Error('CAD_LAYER_OBSERVATION_INVALID');
+                      const existing=layers.find(name=>name.toLowerCase()===String((args as {name:string}).name).toLowerCase());
+                      if(existing){emit({type:'cad.layer_reused',agentId:id,tool:tool.name,layer:existing,native_creation_dispatched:false});return JSON.stringify({layer:existing,native_creation_dispatched:false,verification:'fresh controlled list_layers; existing layer reused',task_complete:false});}
+                    }
+                  }
                   const result=await tool.execute(args,exec);
                   if(tool.name.endsWith('__new_drawing')&&request.completeNewDrawing){try{await request.completeNewDrawing();exec.concludeTurn();}catch(error){handoff={kind:'verification',code:'NEW_DRAWING_READBACK_FAILED'};exec.concludeTurn();throw error;}}
                   if(!String(exec.callId).includes(':patch:')&&!tool.name.endsWith('__new_drawing')){
