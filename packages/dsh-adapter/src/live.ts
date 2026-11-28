@@ -395,7 +395,7 @@ export async function createLiveRuntime(options: LiveOptions) {
                       assertToolArguments(sourceTool,args);const ids=(args as {ids:string[]}).ids;
                       let compiled:Awaited<ReturnType<typeof sourceBatch.compile>>;
                       try{compiled=await sourceBatch.compile(ids,String(exec.callId),patchLimit);}
-                      catch(error){if(['SOURCE_RESIDUAL_HELPER_FAILED','SOURCE_HELPER_RESOURCE_EXHAUSTED'].includes((error as Error).message)){handoff={kind:'verification',code:(error as Error).message};exec.concludeTurn();}throw error;}
+                      catch(error){if(['SOURCE_RESIDUAL_HELPER_FAILED','SOURCE_HELPER_RESOURCE_EXHAUSTED','CHECKPOINT_PERSIST_FAILED'].includes((error as Error).message)){handoff={kind:'verification',code:(error as Error).message};exec.concludeTurn();}throw error;}
                       sourcePatchRoots.set(String(exec.callId),{tool:sourceTool.name,arguments:args});
                       let failure:unknown;
                       try{await patch.execute(compiled,exec);}catch(error){failure=error;}

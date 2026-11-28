@@ -21,7 +21,7 @@ test('source-ID alias uses original Patch admission and queues IDs for fresh com
  }finally{await runtime.dispose();}
 });
 
-for(const code of ['SOURCE_RESIDUAL_HELPER_FAILED','SOURCE_HELPER_RESOURCE_EXHAUSTED'])test('actual DSH returns helper failure to Scheduler without another provider step: '+code,async()=>{
+for(const code of ['SOURCE_RESIDUAL_HELPER_FAILED','SOURCE_HELPER_RESOURCE_EXHAUSTED','CHECKPOINT_PERSIST_FAILED'])test('actual DSH returns evidence/checkpoint failure to Scheduler without another provider step: '+code,async()=>{
  const config=await loadConfig(process.cwd());process.env.CADER_HELPER_OFFLINE='offline-fixture';config.profiles=config.profiles.map(p=>({...p,api_key_env:'CADER_HELPER_OFFLINE'}));let steps=0,writes=0;
  const tool=defineTool({name:'mcp__autocad__draw_circle',description:'Offline admission fixture',parameters:{radius:{type:'number',required:true}},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(){writes++;return 'fixture';}});
  const runtime=await createLiveRuntime({...config,root:process.cwd(),runDirectory:resolve('.cader/tests','helper-stop-'+code),executionTools:[tool]});

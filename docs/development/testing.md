@@ -449,3 +449,5 @@ BUG118 / #20：typecheck、400/400 TS测试、DSH组件smoke通过；原始Nativ
 REQ053 / BUG119：pnpm typecheck、pnpm test 404/404、pnpm smoke通过；第一次config fixture把可选时长键当作显式默认导致失败，改测timeout回退；首次观察fixture返回类型失败后修正，原日志保留。新增尾项优先、编译层新建守卫、次数持久化/耗尽、64建议及显式6h/24h配置边界，默认仍30min/2Mtoken/400CAD。实际attempt14因研发辅助清理错误退出，Native2647项独立源检查通过并外部保全，非整图通过。见 [详细测试与限制](2026-11-28-source-observation-tails.md)。
 
 BUG120 / #20：pnpm typecheck、pnpm test 411/411、pnpm smoke通过；uv Ruff check/format及pytest21通过。受限stderr、明确资源状态与未知终止区分、无凭证子环境、Scheduler即时停止、实际DSH一次失败后零后续模型/Native步骤夹具通过。原始32项本地helper组件复验一致，原始整图仍待真实完整验证；999 Native项保全并独立源码几何匹配不是整图通过。详情见 [实际证据和限制](2026-11-28-source-helper-resource-failure.md)。
+
+BUG121 / #20：原始attempt16在298个已验证实体后检查点替换失败（301确认/0未知），旧catch丢失errno；保留原quality、完整临时候选和待验稿。新增Windows有限rename重试及stage/errno诊断、编译失败立即DSH交接。实际本机共享句柄复现EPERM，短占用释放后成功、持续占用失败且旧内容/候选保留；不把该复现断言为旧错误唯一原因。typecheck、417 tests及DSH组件smoke通过，完整原图仍待通过。详见[检查点修复](2026-11-28-checkpoint-replacement.md)。

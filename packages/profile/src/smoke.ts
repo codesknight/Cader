@@ -85,7 +85,7 @@ export { referencedPaths, importReferenceImage, referenceOutput,referenceLayoutH
 export { runExecutionEvidenceSmoke } from './execution-evidence-smoke.js';
 
 export { acceptQualityByUser,userReviewStatus } from './quality-acceptance.js';
-export {atomicPrivateState} from './session-store.js';
+export {atomicPrivateState,retryPrivateRename} from './session-store.js';
 export {createSourceWorklist,assertSourceWorklist,sourceSelection,sourceItemOperation,reconcileSourceBatch,verifySourceItem,sourceWorklistPage,sourceDigest,cadRequestDigest,sourceBatchReviewAccepted,bindSourceReview,verifySourceGraph,sourceGroupReviewScope,sourceBatchSelection,sourceWindowReviewScope,sourcePrimitiveCoverage,expandSourceIds,sourceRenderScope,verifySourceCheckpoint} from './source-worklist.js';
 
 export {runIndexedRegions} from './indexed-regions.js';

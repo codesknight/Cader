@@ -70,9 +70,25 @@ export class SessionStore {
 /** Caller has resolved a private workspace directory. A failed rename leaves
  * the old checkpoint intact and retains the new temporary evidence. */
 export async function atomicPrivateState(path:string,text:string){
-  const temp=join(dirname(path),`.write-${randomUUID()}.json`),file=await open(temp,'wx',0o600);
-  try{await file.writeFile(text);await file.sync();}finally{await file.close();}
-  await rename(temp,path);
+  const temp=join(dirname(path),`.write-${randomUUID()}.json`);let stage='open';
+  try{
+    const file=await open(temp,'wx',0o600);
+    try{stage='write';await file.writeFile(text);stage='sync';await file.sync();}finally{await file.close();}
+    stage='rename';await retryPrivateRename(temp,path);
+  }catch(error){const e=error as NodeJS.ErrnoException&{attempts?:number};throw new Error('CHECKPOINT_PERSIST_FAILED',{cause:{stage,code:e.code,errno:e.errno,syscall:e.syscall,attempts:e.attempts,temp_path:temp,path}});}
+}
+
+/** Retry only replacement of this already-synced file. Never unlink the old
+ * checkpoint, rewrite CAD operations, or treat a durable denial as success. */
+export async function retryPrivateRename(from:string,to:string,io:{platform?:string;rename?:typeof rename;delay?:(ms:number)=>Promise<void>}={}){
+  const waits=[25,50,100,200,400,800,1000,1000,1000];
+  for(let attempt=0;;attempt++){
+    try{await (io.rename??rename)(from,to);return;}
+    catch(error){const e=error as NodeJS.ErrnoException&{attempts?:number};e.attempts=attempt+1;
+      if((io.platform??process.platform)!=='win32'||!['EPERM','EACCES','EBUSY'].includes(e.code??'')||attempt>=waits.length)throw error;
+      await (io.delay??(ms=>new Promise(resolve=>setTimeout(resolve,ms))))(waits[attempt]!);
+    }
+  }
 }
 
 /** Strip terminal controls from untrusted content without losing normal newlines. */
