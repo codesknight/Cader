@@ -17,7 +17,7 @@ function report(question:string,status='pass'){
  return {review_valid:true,image_ref:'fixture-view',evidence:{reference:scope.evidence_mode==='cad-render-only'?null:{sha256:scope.source_sha256},document:'owned',review_scope:scope},structured:{verdict:status,checklist:[{requirement_id:q.requirements[0].id,status}]},scope_report:{scope_id:scope.id,checked_entity_ids:ids,geometry_checks:ids.map((entity_id:number)=>({entity_id,check:'primitive_visibility',status,evidence:'fixture observation'}))}};
 }
 function context(f:ReturnType<typeof fixture>,observe:()=>Promise<any>,review:(q:string)=>Promise<any>){
- return {runtime:{executionStop:()=>null,setVerificationScope:()=>{},reviewCadView:review} as any,owner:{definitions:()=>[],facts:()=>f.facts} as any,progressive:f.state,index:f.index,sourcePath:'fixture',task:'fixture',model:async()=>{throw Error('No writer is allowed in this fixture');},enter:async()=>{},persist:async()=>{},checkpoint:async()=>{},assertSource:async()=>{},observe,emit:()=>{},onEvidenceError:()=>{},onVisual:()=>{}};
+ return {runtime:{executionStop:()=>null,setVerificationScope:()=>{},isCadReviewCurrent:async()=>false,reviewCadView:review} as any,owner:{definitions:()=>[],facts:()=>f.facts} as any,progressive:f.state,index:f.index,sourcePath:'fixture',task:'fixture',model:async():Promise<any>=>{throw Error('No writer is allowed in this fixture');},enter:async()=>{},persist:async()=>{},checkpoint:async()=>{},assertSource:async()=>{},observe,emit:()=>{},onEvidenceError:()=>{},onVisual:()=>{}};
 }
 test('seventeen full-source windows require six fresh native reads and never accept before each bounded post-query',async()=>{
  const f=fixture(17);let reads=0,reviews=0,checkpoints=0;
@@ -70,4 +70,22 @@ for(const failure of ['none','target_changed','checkpoint_failed'])test('targete
  c.model=async(_instruction?:string,request?:any)=>{await request.afterCadBatch();throw Error('FIXTURE_END');};
  await assert.rejects(runIndexedRegions(c),failure==='target_changed'?/SOURCE_BATCH_VISUAL_PENDING/:failure==='checkpoint_failed'?/FULL_CHECKPOINT_FAILED/:/FIXTURE_END/);
  assert.equal(reviews,4);assert.equal(reads,2);assert.equal(fullReads,1);assert.ok(Object.values(f.work.items).every(s=>s.status===(failure==='none'?'verified':'committed')));
+});
+
+test('Scheduler completes the five unresolved observation tails before another Agent drawing turn',async()=>{
+ const f=fixture(1),base=f.index.items[0];f.index.items=Array.from({length:33},(_,i)=>({...base,id:'path_'+i}));f.work=createSourceWorklist(f.index,'fixture');f.state.source_worklist=f.work;f.regions[0]!.status='drawing';
+ f.entities=f.index.items.slice(0,32).map((item:any,i:number)=>{const s=f.work.items[item.id]!;s.status='committed';s.entity_ids=[i+1];const op=sourceItemOperation(f.index,item,s),points=op.arguments.points as number[][];return {object_id:i+1,type:'AcDb2dPolyline',coordinates:points.flat(),coordinate_dimension:3,closed:false,constant_width:op.arguments.width,normal:[0,0,1],elevation:0,bulges:points.map(()=>0),bounding_box:{min:[100,400,0],max:[700,800,0]}};});
+ let reviews=0,models=0;const c=context(f,async()=>({entities:structuredClone(f.entities),document:'owned'}),async question=>{
+  const result=report(question,++reviews===1?'uncertain':'pass');if(reviews===1)result.scope_report.geometry_checks=result.scope_report.geometry_checks.map((row:any,i:number)=>({...row,status:i<3?'pass':'uncertain'}));return result;
+ });Object.assign(c,{observeTargets:async(ids:number[])=>({entities:structuredClone(f.entities.filter(e=>ids.includes(e.object_id))),document:'owned',scope:'entity_set'})});
+ c.model=async(_instruction?:string,request?:any)=>{models++;if(models===1){await assert.rejects(request.afterCadBatch(),/SOURCE_BATCH_VISUAL_PENDING/);assert.equal(Object.values(f.work.items).filter(s=>s.status==='committed').length,5);await assert.rejects(request.sourceBatch.compile(['path_32'],'new'),/SOURCE_COMMITTED_REVIEW_REQUIRED/);return {handoff:{kind:'verification'}} as any;}assert.ok(f.index.items.slice(0,32).every((i:any)=>f.work.items[i.id]!.status==='verified'));throw Error('FIXTURE_DONE');};
+ await assert.rejects(runIndexedRegions(c),/FIXTURE_DONE/);assert.equal(models,2);assert.equal(reviews,10);assert.equal(f.regions[0]!.repairs,0);assert.equal(f.work.items.path_32!.status,'pending');assert.deepEqual(Object.values(f.work.observation_rounds!),[1]);assert.equal(f.facts.operations.length,0,'read-only tail resolution admits no extra native writes');
+});
+
+test('unresolved native-correct observations have a persisted bounded allowance and cannot open drawing turns',async()=>{
+ const f=fixture(1),item=f.index.items[0],s=f.work.items[item.id]!;s.status='committed';s.native_checks=[{id:'source_'+item.id,status:'pass',evidence:'fixture'}];f.regions[0]!.status='repairing';f.regions[0]!.checks=s.native_checks;
+ const op=sourceItemOperation(f.index,item,s),points=op.arguments.points as number[][];f.entities=[{object_id:1,type:'AcDb2dPolyline',coordinates:points.flat(),coordinate_dimension:3,closed:false,constant_width:op.arguments.width,normal:[0,0,1],elevation:0,bulges:points.map(()=>0),bounding_box:{min:[100,400,0],max:[700,800,0]}}];
+ let reviews=0;const c=context(f,async()=>({entities:structuredClone(f.entities),document:'owned'}),async question=>{reviews++;return report(question,'uncertain');});
+ await runIndexedRegions(c);assert.equal(f.regions[0]!.status,'blocked');assert.equal(f.regions[0]!.failure,'SOURCE_VISUAL_REOBSERVATION_LIMIT');assert.equal(s.status,'committed');assert.equal(reviews,4);assert.deepEqual(Object.values(f.work.observation_rounds!),[2]);
+ await runIndexedRegions(c);assert.equal(reviews,4,'same saved frontier cannot reset its allowance');assert.equal(s.status,'committed');
 });

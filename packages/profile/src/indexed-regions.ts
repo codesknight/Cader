@@ -164,6 +164,8 @@ export async function runIndexedRegions(c: Context) {
                 await c.assertSource();
                 if (ids.some(id => !localIds.has(id)))
                     throw new Error('SOURCE_BATCH_REGION_OWNERSHIP_REQUIRED');
+                if (local.some(i => work.items[i.id]!.status === 'committed'))
+                    throw new Error('SOURCE_COMMITTED_REVIEW_REQUIRED: Verify the confirmed pending batch before dispatching new geometry; never replay it.');
                 ids = expandSourceIds(index, work, ids, capacity);
                 if (ids.some(id => !localIds.has(id)))
                     throw new Error('SOURCE_BATCH_REGION_OWNERSHIP_REQUIRED');
@@ -258,6 +260,24 @@ export async function runIndexedRegions(c: Context) {
                 await c.persist();
                 break;
             }
+            const waiting = local.filter(i => work.items[i.id]!.status === 'committed');
+            // Finish a bounded read-only observation before giving the Agent
+            // another drawing turn. A missing closeup is not a CAD defect.
+            if (waiting.length && region.checks?.length && region.checks.every(c => c.status === 'pass') && waiting.every(i => work.items[i.id]!.native_checks?.length && work.items[i.id]!.native_checks!.every(c => c.status === 'pass'))) {
+                const key = region.id + ':' + owner.facts().operations.length;
+                const rounds = work.observation_rounds ??= {}, used = rounds[key] ?? 0;
+                if (!Number.isSafeInteger(used) || used < 0) throw new Error('SOURCE_OBSERVATION_CHECKPOINT_INVALID');
+                if (used >= 2) {
+                    region.status = 'blocked'; region.failure = 'SOURCE_VISUAL_REOBSERVATION_LIMIT';
+                    await c.persist(); break;
+                }
+                rounds[key] = used + 1;
+                c.emit({type:'task.source_observation_resume',region:region.id,round:used+1,pending_entities:waiting.flatMap(i=>work.items[i.id]!.entity_ids),cad_replayed:false});
+                await c.persist();
+                try { await afterBatch(); }
+                catch (error) { if (!(error instanceof Error) || error.message !== 'SOURCE_BATCH_VISUAL_PENDING') throw error; region.status = 'repairing'; await c.persist(); }
+                continue;
+            }
             const mark = owner.facts().operations.length, progress = sourceDigest(Object.entries(work.items).map(([id, s]) => [id, s.status, s.entity_ids, s.text ?? null, s.rotation ?? null]));
             await c.enter(region.status === 'repairing' ? 'correcting' : 'drawing');
             const result = await c.model('使用中文。根据当前工作清单自主选择源图ID并实际绘制，不重新清点全图、不手抄坐标、不重放已确认项。先用list_layers核对CADER_SOURCE_GEOMETRY、CADER_SOURCE_TEXT，已有则复用，缺少时才create_layer；cader_apply_source_batch接受本区最多64个ID（仍受当前工具schema及单轮容量约束），程序复用原Patch预检/权限/预算和串行MCP，自动源复核、原生读回及视觉检查。若文字与路径跨度过大可拆批。源图不可辨项保持待确认，可继续其他accepted/pending项；不要重复提交同一uncertain集合。已提交但待验项用cader_review_cad_view交回受控检查；具体几何失败用本区局部移动/旋转/缩放patch，不删除重建全图。所有ID通过后调用cader_finish_drawing_unit；任务完整性由全图独立验收决定。' + JSON.stringify({ task: c.task, region: p.plan!.regions.find(r => r.id === region.id), worklist: sourceWorklistPage(index, work, tile), native_checks: { passed: region.checks?.filter(c => c.status === 'pass').length ?? 0, failures: region.checks?.filter(c => c.status !== 'pass').slice(0, 8) }, last_visual: { status: region.batches.at(-1)?.status, closeup_reports: region.batches.at(-1)?.review_history?.length ?? 0, scope: 'Primitive evidence only; full-region/global still pending' } }), { cadAction: true, image: c.sourcePath, imageView: { crop: { left: index.tiles[tile]!.view[0], top: index.tiles[tile]!.view[1], width: index.tiles[tile]!.view[2] - index.tiles[tile]!.view[0], height: index.tiles[tile]!.view[3] - index.tiles[tile]!.view[1] } }, maxImageViews: 2, onlyTools: [...names.filter(n => /__(?:draw_polyline|draw_text|create_layer|move_entity|rotate_entity|scale_entity|get_entity|list_layers)$/.test(n)), 'cader_apply_cad_patch', 'cader_review_cad_view', 'cader_view_image', pageTool.name, finish.name], extraTools: [pageTool, finish], sourceBatch, beforeCadOperation: beforeCad, afterCadBatch: afterBatch, controlledReview: async () => {
@@ -284,7 +304,7 @@ export async function runIndexedRegions(c: Context) {
             else
                 idle = 0;
             if (result.handoff?.kind === 'verification' && region.batches.at(-1)?.status === 'fail') {
-                if (++region.repairs >= 3) {
+                if (region.checks?.some(c => c.status !== 'pass') && ++region.repairs >= 3) {
                     region.status = 'blocked';
                     region.failure = 'REGION_REPAIR_LIMIT';
                     await c.persist();

@@ -174,6 +174,12 @@ test('oversized source groups produce bounded pending chunks, never a false comp
  const v=index();v.items=Array.from({length:197},(_,i)=>({...path,id:'large_'+i,group_id:'unit',owner_point:[25,50] as [number,number]}));const w=createSourceWorklist(v,'fixture');const first=sourceWorklistPage(v,w,0).recommended_ids;assert.equal(first.length,64);assert.equal(expandSourceIds(v,w,first).length,64);for(const id of first)w.items[id]!.status='verified';assert.equal(sourceWorklistPage(v,w,0).summary.all_verified,false);const second=sourceWorklistPage(v,w,0).recommended_ids;assert.equal(second.length,64);assert.ok(second.every(id=>!first.includes(id)));assert.equal(sourceSelection(v,w,second,true).length,64);
 });
 
+test('spatial recommendations fill the trusted 64-ID capacity beyond a compact 32-item display page',()=>{
+ const v=index();v.items=Array.from({length:70},(_,i)=>({...path,id:'near_'+i,owner_point:[25,50] as [number,number]}));const w=createSourceWorklist(v,'fixture');
+ const first=sourceWorklistPage(v,w,0);assert.equal(first.items.length,32);assert.equal(first.recommended_ids.length,64);assert.equal(first.next_cursor,32);assert.equal(new Set(first.recommended_ids).size,64);
+ w.items.near_0!.status='unknown';w.items.near_1!.status='verified';assert.ok(sourceWorklistPage(v,w,0).recommended_ids.every(id=>!['near_0','near_1'].includes(id)));
+});
+
 test('checkpoint observation reuse requires the exact validated object and unchanged write/connection/native identity',()=>{
  const snapshot={document:'owned',entities:[]},token={snapshot,mark:4,connection:'conn',target:'native'},current={frozen:false,mark:4,connection:'conn',target:'native',document:'owned'};
  assert.equal(canReuseValidatedObservation(token,snapshot,current),true);

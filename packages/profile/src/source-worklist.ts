@@ -30,6 +30,7 @@ export interface SourceWorklist {
         arguments_sha256: string[];
     } | null;
     rounds: number;
+    observation_rounds?: Record<string, number>;
     residual_reviews: unknown[];
 }
 export const sourceDigest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -338,7 +339,8 @@ export function sourceWorklistPage(index: ReferenceIndex, work: SourceWorklist, 
     const items = index.items.filter(i => sourceItemOwner(index, i) === region && work.items[i.id]!.status !== 'verified').sort((a, b) => rank(a) - rank(b) || a.kind.localeCompare(b.kind) || a.bounds[1] - b.bounds[1] || a.bounds[0] - b.bounds[0]);
     const page = items.slice(cursor, cursor + 32);
     const recommended: SourceItem[] = [];
-    for (const item of page.filter(i => !held(i) && ['accepted', 'pending'].includes(work.items[i.id]!.status))) {
+    for (const item of items.slice(cursor).filter(i => !held(i) && ['accepted', 'pending'].includes(work.items[i.id]!.status))) {
+        if (recommended.length >= 64) break;
         if (recommended.some(i => i.id === item.id))
             continue;
         const group = item.group_id ? items.filter(i => i.group_id === item.group_id && ['accepted', 'pending'].includes(work.items[i.id]!.status)).slice(0, 64 - recommended.length) : [item];

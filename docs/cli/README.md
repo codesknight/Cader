@@ -19,6 +19,8 @@ Batch native observations query the exact submitted IDs; they cannot replace the
 
 Indexed primitive closeups retain at least ten original source pixels of context on each side, and at least twice the native stroke width. This prevents a one-pixel residual stroke from filling the entire viewport. Entity IDs, exact native geometry checks and final paired full-source windows remain mandatory; framing changes do not modify geometry or constitute acceptance.
 
+Confirmed indexed entities awaiting primitive evidence take priority over another drawing batch in the same region. Harness performs at most two additional read-only observation passes at that native write frontier; this does not consume CAD repair rounds or replay creations. Unresolved evidence blocks the region. Source recommendations can fill 64 spatially bounded IDs across the 32-item display pages; the Agent can still choose a different subset/order, with the same admission checks.
+
 ## dev.16: named source views
 
 Scoped source workers submit positions in BASE, DETAIL_n or a returned LOOKUP_n image, using that image own normalized 0..1 coordinates. Harness owns the transforms; original dimensions and crop origins are withheld from these workers. Their crop tool also uses BASE normalized coordinates; global image viewing keeps its original-pixel interface. Crop slots cannot be rebound or expand the source scope. Dense unexecuted regions can refine within bounded depth, area and region-count limits; verified batches and whole-drawing acceptance remain distinct.
@@ -65,7 +67,7 @@ Create a new drawing and reproduce this complex reference in regions: D:\CAD\sou
 /quality resume
 ```
 
-The cumulative scheduled-task limit `max_task_model_steps: 400` is separate from ordinary `max_model_steps: 100`. Default total duration remains 30 minutes; token/tool/CAD/round limits still apply. An explicit `max_task_duration_ms` may allow up to four hours; resumption preserves the original start and totals. Source/visual allowances are bounded per region and also share task-wide usage limits. Large references may remain pending because of unresolved source facts or total budgets. Skill registration does not prove arbitrary large-drawing reconstruction. See [actual regression and limitations](../validation/2026-11-27-progressive-drawing.md).
+The cumulative scheduled-task limit `max_task_model_steps: 400` is separate from ordinary `max_model_steps: 100`. Default total duration remains 30 minutes; token/tool/CAD/round limits still apply. An explicit `max_task_duration_ms` may allow up to 24 hours (for example, `21600000` for six hours); resumption preserves the original start and totals. The higher configurable ceiling grants no automatic time or token allowance. Source/visual allowances are bounded per region and also share task-wide usage limits. Large references may remain pending because of unresolved source facts or total budgets. Skill registration does not prove arbitrary large-drawing reconstruction. See [actual regression and limitations](../validation/2026-11-27-progressive-drawing.md).
 
 
 The original two-task P1 client regression passed: house 6/6 and complex sketch 13/13, with 37/83 entities in the actual read-only verification documents and independent native checks; the circuit also passed eight-net/nine-label validation.

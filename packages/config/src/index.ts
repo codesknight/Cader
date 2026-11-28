@@ -46,7 +46,7 @@ const Runtime = z.object({
   max_parallel_subagents: z.int().min(1).max(5), max_delegation_depth: z.literal(1),
   max_model_steps: z.int().min(1).max(100), max_tool_calls: z.int().min(1).max(100),
   max_task_model_steps:z.int().min(1).max(2000).optional(),
-  max_task_duration_ms:z.int().min(1000).max(14400000).optional(),
+  max_task_duration_ms:z.int().min(1000).max(86400000).optional(),
   max_task_tool_calls: z.int().min(1).max(30000).optional(),
   max_cad_operations_per_round: z.int().min(1).max(256).optional(),
   max_cad_operations: z.int().min(1).max(20000).optional(),
