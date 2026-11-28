@@ -451,3 +451,5 @@ REQ053 / BUG119：pnpm typecheck、pnpm test 404/404、pnpm smoke通过；第一
 BUG120 / #20：pnpm typecheck、pnpm test 411/411、pnpm smoke通过；uv Ruff check/format及pytest21通过。受限stderr、明确资源状态与未知终止区分、无凭证子环境、Scheduler即时停止、实际DSH一次失败后零后续模型/Native步骤夹具通过。原始32项本地helper组件复验一致，原始整图仍待真实完整验证；999 Native项保全并独立源码几何匹配不是整图通过。详情见 [实际证据和限制](2026-11-28-source-helper-resource-failure.md)。
 
 BUG121 / #20：原始attempt16在298个已验证实体后检查点替换失败（301确认/0未知），旧catch丢失errno；保留原quality、完整临时候选和待验稿。新增Windows有限rename重试及stage/errno诊断、编译失败立即DSH交接。实际本机共享句柄复现EPERM，短占用释放后成功、持续占用失败且旧内容/候选保留；不把该复现断言为旧错误唯一原因。typecheck、417 tests及DSH组件smoke通过，完整原图仍待通过。详见[检查点修复](2026-11-28-checkpoint-replacement.md)。
+
+BUG122 / #20：真实整图attempt17在2982已验＋32已确认待验时模型QUOTA。只读checkpoint错误继承provider停写门禁，保存后仍报QUOTA并覆盖错误阶段；旧检查点2985确认操作滞后于实际3018。新鲜Native3014项独立源检查全通过。补provider暂停只读checkpoint、原连接精确已确认后缀对账（参数/源ID/NativeID及完整几何），不改视觉结论、不接管新连接、不放行unknown。typecheck、431 tests、DSH smoke通过；旧已加载进程需要有归档和回执的一次受控迁移，不能冒称原生执行新分支。整图仍待验。详见[暂停对账](2026-11-28-provider-pause-reconciliation.md)。

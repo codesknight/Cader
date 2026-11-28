@@ -4,7 +4,7 @@ import type {QualityPlan,ProgressivePlanData,ReferenceObservationData} from '@ca
 import type {ToolDefinition,createLiveRuntime,ImageView} from '@cader/dsh-adapter';
 import {sourceCoordinates} from '@cader/dsh-adapter';
 import type {ReferenceIndex} from '@cader/dsh-adapter';
-import {createSourceWorklist,assertSourceWorklist,sourceWorklistSummary,verifySourceGraph,verifySourceCheckpoint} from './source-worklist.js';
+import {createSourceWorklist,assertSourceWorklist,sourceWorklistSummary,verifySourceGraph,verifySourceCheckpoint,reconcileKnownSourceCheckpoint} from './source-worklist.js';
 import type {SourceWorklist} from './source-worklist.js';
 import {runIndexedRegions} from './indexed-regions.js';
 import {verifyQuality,qualityTaskContext} from './quality.js';
@@ -53,6 +53,7 @@ export interface ProgressiveState {
   decompositions?:{parent:string;children:string[];reason:string;source?:Observation}[];
   last_tool_error?:{tool:string;message:string};
   source_worklist?:SourceWorklist;
+  resume_reconciliations?:{at:string;prior_observed_sha256:string|null;proof:ReturnType<typeof reconcileKnownSourceCheckpoint>}[];
 }
 
 /** Deterministic batch checks run on actual affected entities. They do not
@@ -103,11 +104,11 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
     quality_accepted:accepted&&phase==='complete',model_runs:modelRuns,checkpoints,drawing_units:[],active_drawing_unit:null,active_planning_unit:null,planning_units:[],source_layout:null,source_frame:null,budget:runtime?.budgetState(),execution:owner.facts(),progressive});
   const persist=async()=>{try{options.onState?.(qualityTaskContext(state()));await options.persist(state());}catch(error){persistFailed=true;evidenceFailure='CHECKPOINT_PERSIST_FAILED';progressive.last_tool_error={tool:'Harness.checkpoint',message:JSON.stringify({code:'CHECKPOINT_PERSIST_FAILED',cause:(error as Error).cause??{message:(error as Error).message}}).slice(0,6000)};throw new Error('CHECKPOINT_PERSIST_FAILED',{cause:error});}};
   const enter=async(next:QualityPhase)=>{phase=next;transitions.push({phase,at:new Date().toISOString()});options.emit({type:'task.phase',phase,region:progressive.active_region,round});await persist();};
-  const assertSource=async()=>{signal?.throwIfAborted();if(persistFailed)throw new Error('CHECKPOINT_PERSIST_FAILED');if(evidenceFailure)throw new Error(evidenceFailure);if(owner.facts().frozen)throw new Error('CAD_WRITE_FROZEN');
+  const assertSource=async(readOnly=false)=>{signal?.throwIfAborted();if(persistFailed)throw new Error('CHECKPOINT_PERSIST_FAILED');if(evidenceFailure&&!(readOnly&&providerFailureCodes.has(evidenceFailure)))throw new Error(evidenceFailure);if(owner.facts().frozen)throw new Error('CAD_WRITE_FROZEN');
     if(reference){const actual=await readReferenceImage(owner.workspace,reference.image.path);if(createHash('sha256').update(actual.data).digest('hex')!==reference.image.sha256)throw new Error('REFERENCE_CHANGED_RESELECT_REQUIRED');}};
   let lastObservation:{snapshot:Awaited<ReturnType<typeof owner.snapshot>>;mark:number;connection:string|null;target:string}|null=null;
   const observe=async(entityIds?:readonly number[])=>{
-    await assertSource();const facts=owner.facts(),scope=owner.taskScope(taskId);
+    await assertSource(true);const facts=owner.facts(),scope=owner.taskScope(taskId);
     if(!scope.owned||!scope.new_drawing_confirmed||facts.local_connection_id!==progressive.connection||facts.scratch!==progressive.document)throw new Error('CONTINUATION_BINDING_CHANGED');
     let snapshot:Awaited<ReturnType<typeof owner.snapshot>>;
     try{snapshot=await owner.snapshot(entityIds);}catch(error){progressive.last_tool_error={tool:'Scheduler.readback',message:(error as Error).message.slice(0,6000)};throw new Error('CHECKPOINT_READBACK_FAILED');}
@@ -156,8 +157,14 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
     if(!runtime)throw new Error('QUALITY_RUNTIME_REQUIRED');runtime.enableTaskBudget();await assertSource();
     if(options.resume){
       if(options.resume.request_sha256!==requestHash||progressive.scope_sha256!==requestHash||progressive.source_sha256!==(reference?.image.sha256??null)||(progressive.plan?progressive.plan_sha256!==digest(progressive.plan):progressive.plan_sha256!==null)||options.resume.execution.local_connection_id!==owner.facts().local_connection_id||options.resume.execution.scratch!==owner.facts().scratch)throw new Error('CONTINUATION_BINDING_CHANGED');
-      if(progressive.document){const snapshot=await observe();if(progressive.observed_sha256!==digest(snapshot.entities))throw new Error('PROGRESSIVE_CHECKPOINT_CHANGED');
-        const actual=owner.facts().operations.filter(op=>op.outcome==='committed').map(op=>op.operation_id);if(!same(actual,progressive.confirmed_operation_ids))throw new Error('PROGRESSIVE_LEDGER_CHANGED');}
+      if(progressive.document){const snapshot=await observe(),operations=owner.facts().operations,actual=operations.filter(op=>op.outcome==='committed').map(op=>op.operation_id);
+        if((progressive.observed_sha256!==digest(snapshot.entities)||!same(actual,progressive.confirmed_operation_ids))&&progressive.source_worklist&&reference&&providerFailureCodes.has(options.resume.failure?.code??'')&&runtime.indexReferenceSource){
+          const indexed=await runtime.indexReferenceSource(reference.image.path,signal);if(!indexed.available)throw new Error('SOURCE_RESUME_INDEX_UNAVAILABLE');sourceIndex=indexed.index;
+          const proof=reconcileKnownSourceCheckpoint(sourceIndex,progressive.source_worklist,progressive.confirmed_operation_ids,operations,snapshot.entities);
+          (progressive.resume_reconciliations??=[]).push({at:new Date().toISOString(),prior_observed_sha256:progressive.observed_sha256,proof});progressive.observed_sha256=proof.observed_sha256;progressive.confirmed_operation_ids=proof.confirmed_operation_ids;await persist();options.emit({type:'task.source_checkpoint_reconciled',proof});
+        }
+        if(progressive.observed_sha256!==digest(snapshot.entities))throw new Error('PROGRESSIVE_CHECKPOINT_CHANGED');
+        if(!same(actual,progressive.confirmed_operation_ids))throw new Error('PROGRESSIVE_LEDGER_CHANGED');}
       progressive.resume_count++;
       if(options.resume.budget&&runtime.restoreTaskBudget)runtime.restoreTaskBudget(options.resume.budget);
     }
@@ -165,7 +172,7 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
     const supportsIndex=Boolean((poly?.parameters as any)?.properties?.width&&(text?.parameters as any)?.properties?.fit_box);
     const semanticTask=/(?:验证|校验|核对|检查|保证|计算|分析|验算|提取|输出|生成).{0,12}(?:网表|BOM|电气性能|短路电流|功能逻辑|拓扑|连通性|连接关系|电路功能)|\b(?:netlist|BOM|simulate|electrical analysis|verify connectivity)\b/i.test(task);
     if(reference&&runtime.indexReferenceSource&&(progressive.source_worklist||!progressive.plan&&image.width*image.height>=8000000&&!semanticTask&&supportsIndex)){
-      await enter('reference');const result=await runtime.indexReferenceSource(reference.image.path,signal);
+      await enter('reference');const result=sourceIndex?{available:true as const,index:sourceIndex,path:progressive.source_worklist!.index_path}:await runtime.indexReferenceSource(reference.image.path,signal);
       if(result.available){sourceIndex=result.index;
         if(progressive.source_worklist)assertSourceWorklist(sourceIndex,progressive.source_worklist);
         else progressive.source_worklist=createSourceWorklist(sourceIndex,result.path);
@@ -486,6 +493,10 @@ export async function runProgressiveTask(options:Options):Promise<Awaited<Return
     try{
       if(authorized&&!persistFailed&&!signal?.aborted&&outputPath&&!owner.facts().frozen&&!['SOURCE_RESIDUAL_HELPER_FAILED','SOURCE_HELPER_RESOURCE_EXHAUSTED'].includes(failure?.code??'')&&owner.taskScope(taskId).geometry_confirmed){await enter('saving');artifact=await owner.saveTaskArtifact(taskId,outputPath,options.confirm,signal);await checkpoint('artifact_saved');options.emit({type:'artifact.verified',artifact,quality:accepted?'accepted':'pending'});}
     }catch(error){accepted=false;failure={stage:'saving',code:(error as Error).message,source:'verification'};checks.push({id:'artifact_delivery',status:'not_run',evidence:failure.code});}
+    if(authorized&&!persistFailed&&!signal?.aborted&&!owner.facts().frozen&&providerFailureCodes.has(failure?.code??'')){
+      try{await checkpoint('provider_pause_checkpoint');}
+      catch(error){checks.push({id:'provider_pause_checkpoint',status:'not_run',evidence:(error as Error).message});}
+    }
     try{await enter(accepted?'complete':owner.facts().frozen?'blocked':'pending_verification');}finally{owner.endTask();}
   }
   return state();

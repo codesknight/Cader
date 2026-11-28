@@ -178,7 +178,8 @@ for(const code of ['TRANSPORT','TIMEOUT','SERVER'])test(`source provider ${code}
   const f=await fixture({partial:true,providerFailure:code});assert.equal(f.result.failure?.code,code);assert.equal(f.result.phase,'pending_verification');assert.equal(f.result.quality_accepted,false);assert.equal(f.draws(),0);assert.equal(f.inspections(),1);assert.equal(f.result.progressive?.regions.length,2);assert.ok(!f.events.some(e=>e.type==='task.region_split'));assert.equal(f.result.progressive?.regions[1]?.status,'pending');
 });
 test('vision provider failure survives a tool callback handoff and preserves a confirmed prefix without more drawing',async()=>{
-  const f=await fixture({reviewProviderFailure:'TRANSPORT'});assert.equal(f.result.failure?.code,'TRANSPORT');assert.equal(f.result.quality_accepted,false);assert.equal(f.draws(),1);assert.equal(f.views(),1);assert.equal(f.result.progressive?.regions[1]?.status,'pending');assert.equal(f.result.execution.session_counts.unknown,0);
+  const f=await fixture({reviewProviderFailure:'TRANSPORT'});assert.equal(f.result.failure?.code,'TRANSPORT');assert.equal(f.result.failure?.source,'model');assert.equal(f.result.quality_accepted,false);assert.equal(f.draws(),1);assert.equal(f.views(),1);assert.equal(f.result.progressive?.regions[1]?.status,'pending');assert.equal(f.result.execution.session_counts.unknown,0);
+  assert.equal(f.result.progressive?.observed_sha256,createHash('sha256').update(JSON.stringify(f.entities)).digest('hex'));assert.deepEqual(f.result.progressive?.confirmed_operation_ids,f.result.execution.operations.filter(o=>o.outcome==='committed').map(o=>o.operation_id));assert.ok(f.result.checkpoints.some((c:any)=>c.reason==='provider_pause_checkpoint'));
 });
 
 

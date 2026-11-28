@@ -467,3 +467,5 @@ BUG119（confirmed，修复待原图完整复验）：原始32项Native正确，
 BUG120（confirmed诊断/调度缺口，修复待完整复验）：helper stderr被丢弃，原始图多次辅助失败后模型仍跨区消耗预算并报SOURCE_REGION_NO_PROGRESS。补私有诊断、明确资源分类、单线程及立即暂停；411 TS/typecheck/smoke、Python21/Ruff通过。同期系统OOM已证实，旧helper单次具体退出原因因无stderr无法确认；同输入事后支持32/32，未把它当CAD通过。原图999项已保全，新完整回归待执行。见 [资源故障审计](2026-11-28-source-helper-resource-failure.md)。
 
 BUG121（confirmed，修复复验中）：原始attempt16检查点临时候选已完成，替换失败且原errno丢失；Windows共享句柄实测可复现EPERM，历史唯一触发者未确认。有限原子替换重试、原始诊断、DSH即时停止已实现，417测试与本机短/长占用反例通过。原始整图待验。见[证据](2026-11-28-checkpoint-replacement.md)。
+
+BUG122（confirmed，修复复验中）：provider故障错误阻止只读checkpoint，真实attempt17的已确认源绘制和保存后缀无法直接续跑。只读暂停checkpoint与精确前缀/完整Native对账已实现，431测试/typecheck/smoke通过；原进程需显式保留旧快照的受控迁移，视觉待验状态不提升。见[证据与边界](2026-11-28-provider-pause-reconciliation.md)。

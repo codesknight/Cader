@@ -2,9 +2,24 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseReferenceIndex, sourceItemView, observedArguments } from '@cader/dsh-adapter';
 import type { ReferenceIndex, SourceItem } from '@cader/dsh-adapter';
-import { createSourceWorklist, assertSourceWorklist, sourceSelection, sourceItemOperation, reconcileSourceBatch, verifySourceItem, sourceWorklistPage, sourceDigest, cadRequestDigest, sourceBatchReviewAccepted,bindSourceReview,verifySourceGraph,sourceGroupReviewScope,sourceBatchSelection,sourceWindowReviewScope,scopedNativeWindowContainsTargets,runIndexedRegions,sourcePrimitiveCoverage,expandSourceIds,visualEvidenceSummary,qualityTaskContext,canReuseValidatedObservation,sourceRenderScope } from '@cader/profile';
+import { createSourceWorklist, assertSourceWorklist, sourceSelection, sourceItemOperation, reconcileSourceBatch, verifySourceItem, sourceWorklistPage, sourceDigest, cadRequestDigest, sourceBatchReviewAccepted,bindSourceReview,verifySourceGraph,sourceGroupReviewScope,sourceBatchSelection,sourceWindowReviewScope,scopedNativeWindowContainsTargets,runIndexedRegions,sourcePrimitiveCoverage,expandSourceIds,visualEvidenceSummary,qualityTaskContext,canReuseValidatedObservation,sourceRenderScope,reconcileKnownSourceCheckpoint } from '@cader/profile';
 const path: SourceItem = { id: 'path_a', kind: 'path', status: 'proposal', bounds: [10, 20, 70, 60], points: [[10, 20], [70, 20], [70, 60]], closed: false, pixel_length: 100, stroke_width: 2 };
 const text: SourceItem = { id: 'text_b', kind: 'text', status: 'proposal', bounds: [25, 70, 55, 80], text: '10kΩ', quad: [[25, 70], [55, 70], [55, 80], [25, 80]], score: .9, alternatives: [] };
+
+function pausedSource(){
+ const v=index();v.items=[v.items[0]!];const work=createSourceWorklist(v,'fixture'),state=work.items[path.id]!;state.status='committed';state.entity_ids=[123];state.operation_ids=['draw'];
+ const expected=sourceItemOperation(v,path,state),rows=[{object_id:123,type:'AcDb2dPolyline',closed:false,coordinates:[100,800,0,700,800,0,700,400,0],coordinate_dimension:3,normal:[0,0,1],elevation:0,constant_width:20,bulges:[0,0,0]}];
+ const ops:any[]=[{operation_id:'new',tool:'new_drawing',outcome:'committed'},{operation_id:'draw',tool:'draw_polyline',outcome:'committed',created_entity_ids:[123],request_arguments_sha256:cadRequestDigest(expected.tool,expected.arguments)},{operation_id:'save',tool:'save_drawing',outcome:'committed'}];return {v,work,rows,ops};
+}
+test('stale provider checkpoint reconciles only a known confirmed suffix without accepting a pending visual result',()=>{
+ const f=pausedSource(),before=sourceDigest(f.work),proof=reconcileKnownSourceCheckpoint(f.v,f.work,['new'],f.ops,f.rows);
+ assert.equal(proof.native.ok,true);assert.deepEqual(proof.confirmed_operation_ids,['new','draw','save']);assert.equal(proof.quality_accepted,false);assert.equal(sourceDigest(f.work),before);assert.equal(f.work.items.path_a!.status,'committed');
+});
+for(const change of ['unknown','foreign-prefix','arguments','unbound','destructive','extra-native','changed-native','duplicate-native','changed-index'] as const)test('stale source checkpoint refuses '+change,()=>{
+ const f=pausedSource();let prefix=['new'];
+ if(change==='unknown')f.ops[1].outcome='unknown';if(change==='foreign-prefix')prefix=['foreign'];if(change==='arguments')f.ops[1].request_arguments_sha256='foreign';if(change==='unbound')f.work.items.path_a!.operation_ids=[];if(change==='destructive')f.ops[2].tool='delete_entity';if(change==='extra-native')f.rows.push({...f.rows[0]!,object_id:456});if(change==='changed-native')f.rows[0]!.constant_width=0;if(change==='duplicate-native')f.rows.push(f.rows[0]!);if(change==='changed-index')f.v.source.sha256='b'.repeat(64);
+ assert.throws(()=>reconcileKnownSourceCheckpoint(f.v,f.work,prefix,f.ops,f.rows),/SOURCE_/);assert.equal(f.work.items.path_a!.status,'committed');
+});
 test('full source window uses exact paired pixel edges; primitive passes cannot release full fidelity',()=>{
  const v=index(),crossing={object_id:7,type:'AcDbPolyline',bounding_box:{min:[0,300,0],max:[900,900,0]}};
  const scoped=sourceWindowReviewScope(v,0,[crossing],'owned','state');

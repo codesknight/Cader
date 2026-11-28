@@ -17,6 +17,7 @@ export interface CheckResult {
   details?:unknown;
 }
 export interface QualityResume {
+  failure?:{code:string;stage?:QualityPhase;source?:string}|null;
   progressive?: import('./progressive.js').ProgressiveState | null;
   budget?: {execution_round:number;tool_reservations:number;cad_reservations:number;reported_tokens:number;round_tool_reservations?:number;round_cad_reservations?:number;model_steps?:number;started_at?:string};
   checkpoints?:unknown[];

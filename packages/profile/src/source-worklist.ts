@@ -34,6 +34,28 @@ export interface SourceWorklist {
     residual_reviews: unknown[];
 }
 export const sourceDigest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+/** Reconcile a stale pause checkpoint only with an exact confirmed journal
+ * extension and a complete fresh native read. Does not accept visual evidence
+ * or acquire document authority; the caller retains its connection guards. */
+export function reconcileKnownSourceCheckpoint(index:ReferenceIndex,work:SourceWorklist,previous:string[],operations:CadOperationRecord[],entities:Entity[]){
+    assertSourceWorklist(index,work);
+    if(operations.some(o=>!['committed','blocked_not_dispatched','failed_before_dispatch'].includes(o.outcome))||Object.values(work.items).some(i=>i.status==='unknown'))throw new Error('SOURCE_RESUME_UNKNOWN_OUTCOME');
+    const confirmed=operations.filter(o=>o.outcome==='committed');
+    if(new Set(confirmed.map(o=>o.operation_id)).size!==confirmed.length||new Set(previous).size!==previous.length||previous.length>=confirmed.length||!previous.every((id,i)=>confirmed[i]?.operation_id===id))throw new Error('SOURCE_RESUME_LEDGER_NOT_PREFIX');
+    const suffix=confirmed.slice(previous.length);
+    for(const op of suffix){
+        const name=op.tool.split('__').at(-1);
+        if(name==='save_drawing'&&!op.created_entity_ids?.length)continue;
+        if(!['draw_polyline','draw_text'].includes(name??'')||op.created_entity_ids?.length!==1)throw new Error('SOURCE_RESUME_UNSUPPORTED_OPERATION');
+        const candidates=index.items.filter(i=>work.items[i.id]!.operation_ids.includes(op.operation_id));
+        if(candidates.length!==1)throw new Error('SOURCE_RESUME_OPERATION_UNBOUND');
+        const item=candidates[0]!,state=work.items[item.id]!,expected=sourceItemOperation(index,item,state);
+        if(!['committed','verified'].includes(state.status)||sourceDigest(state.entity_ids)!==sourceDigest(op.created_entity_ids)||op.request_arguments_sha256!==cadRequestDigest(expected.tool,expected.arguments))throw new Error('SOURCE_RESUME_ARGUMENTS_CHANGED');
+    }
+    const native=verifySourceCheckpoint(index,work,entities);
+    if(new Set(entities.map(e=>e.object_id)).size!==entities.length||!native.ok)throw new Error('SOURCE_RESUME_NATIVE_MISMATCH');
+    return {reason:'KNOWN_SOURCE_PREFIX_RECONCILED',observed_sha256:sourceDigest(entities),confirmed_operation_ids:confirmed.map(o=>o.operation_id),suffix_operation_ids:suffix.map(o=>o.operation_id),native,quality_accepted:false};
+}
 /** A full checkpoint verifies every known committed/verified source item,
  * including earlier batches; a targeted observation can never replace this. */
 export function verifySourceCheckpoint(index:ReferenceIndex,work:SourceWorklist,entities:Entity[]){
