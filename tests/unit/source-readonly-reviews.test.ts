@@ -17,7 +17,7 @@ function report(question:string,status='pass'){
  return {review_valid:true,image_ref:'fixture-view',evidence:{reference:scope.evidence_mode==='cad-render-only'?null:{sha256:scope.source_sha256},document:'owned',review_scope:scope},structured:{verdict:status,checklist:[{requirement_id:q.requirements[0].id,status}]},scope_report:{scope_id:scope.id,checked_entity_ids:ids,geometry_checks:ids.map((entity_id:number)=>({entity_id,check:'primitive_visibility',status,evidence:'fixture observation'}))}};
 }
 function context(f:ReturnType<typeof fixture>,observe:()=>Promise<any>,review:(q:string)=>Promise<any>){
- return {runtime:{executionStop:()=>null,setVerificationScope:()=>{},isCadReviewCurrent:async()=>false,reviewCadView:review} as any,owner:{definitions:()=>[],facts:()=>f.facts} as any,progressive:f.state,index:f.index,sourcePath:'fixture',task:'fixture',model:async():Promise<any>=>{throw Error('No writer is allowed in this fixture');},enter:async()=>{},persist:async()=>{},checkpoint:async()=>{},assertSource:async()=>{},observe,emit:()=>{},onEvidenceError:()=>{},onVisual:()=>{}};
+ return {runtime:{executionStop:()=>null,setVerificationScope:()=>{},isCadReviewCurrent:async()=>false,reviewCadView:review} as any,owner:{definitions:()=>[],facts:()=>f.facts} as any,progressive:f.state,index:f.index,sourcePath:'fixture',task:'fixture',model:async():Promise<any>=>{throw Error('No writer is allowed in this fixture');},enter:async()=>{},persist:async()=>{},checkpoint:async()=>{},assertSource:async()=>{},observe,emit:()=>{},onEvidenceError:(_error:unknown)=>{},onVisual:()=>{}};
 }
 test('seventeen full-source windows require six fresh native reads and never accept before each bounded post-query',async()=>{
  const f=fixture(17);let reads=0,reviews=0,checkpoints=0;
@@ -88,4 +88,12 @@ test('unresolved native-correct observations have a persisted bounded allowance 
  let reviews=0;const c=context(f,async()=>({entities:structuredClone(f.entities),document:'owned'}),async question=>{reviews++;return report(question,'uncertain');});
  await runIndexedRegions(c);assert.equal(f.regions[0]!.status,'blocked');assert.equal(f.regions[0]!.failure,'SOURCE_VISUAL_REOBSERVATION_LIMIT');assert.equal(s.status,'committed');assert.equal(reviews,4);assert.deepEqual(Object.values(f.work.observation_rounds!),[2]);
  await runIndexedRegions(c);assert.equal(reviews,4,'same saved frontier cannot reset its allowance');assert.equal(s.status,'committed');
+});
+
+for(const code of ['SOURCE_RESIDUAL_HELPER_FAILED','SOURCE_HELPER_RESOURCE_EXHAUSTED'])test('source worker failure hands the original cause to Scheduler before native writes: '+code,async()=>{
+ const f=fixture(1);f.work.items.path_a!.status='pending';f.work.items.path_a!.entity_ids=[];f.regions[0]!.status='pending';let notifications=0,helpers=0,models=0;
+ const c=context(f,async()=>{throw Error('No native observation allowed');},async()=>{throw Error('No visual call allowed');});
+ c.runtime.checkSourcePaths=async()=>{helpers++;throw Error(code);};c.onEvidenceError=error=>{notifications++;assert.equal((error as Error).message,code);};
+ c.model=async(_instruction?:string,request?:any)=>{models++;await request.sourceBatch.compile(['path_a'],'fixture');throw Error('Unreachable');};
+ await assert.rejects(runIndexedRegions(c),new RegExp(code));assert.equal(models,1);assert.equal(helpers,1);assert.equal(notifications,1);assert.equal(f.work.items.path_a!.status,'pending');assert.equal(f.facts.operations.length,0);assert.notEqual(f.regions[0]!.failure,'SOURCE_REGION_NO_PROGRESS');
 });

@@ -47,6 +47,7 @@ export {sourceCoordinates,sourceRegionView,clipSourceView,sourceAspectViews} fro
 export {sourceViewContract} from './source-view-contract.js';
 
 export {indexReferenceSource,parseReferenceIndex} from './reference-index.js';
+export {runSourceHelper,sourceHelperEnvironment,sourceHelperFailureCode} from './source-helper.js';
 export type {ReferenceIndex,SourceItem,PixelBox} from './reference-index.js';
 
 export {sourceItemView,sourceLiteralKey,reviewIndexedSource} from './reference-review.js';

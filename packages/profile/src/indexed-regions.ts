@@ -174,7 +174,9 @@ export async function runIndexedRegions(c: Context) {
                 const pathItems = unread.filter(i => i.kind === 'path');
                 for (let offset = 0; offset < pathItems.length; offset += 32) {
                     await c.enter('reference');
-                    const proof = await runtime.checkSourcePaths(c.sourcePath, index, pathItems.slice(offset, offset + 32), c.signal);
+                    let proof:Awaited<ReturnType<Runtime['checkSourcePaths']>>;
+                    try { proof = await runtime.checkSourcePaths(c.sourcePath, index, pathItems.slice(offset, offset + 32), c.signal); }
+                    catch (error) { c.onEvidenceError(error); await c.persist(); throw error; }
                     for (const check of proof.report.checks) {
                         const state = work.items[check.id]!;
                         state.status = check.source_supported ? 'accepted' : 'uncertain';

@@ -393,7 +393,9 @@ export async function createLiveRuntime(options: LiveOptions) {
                   const sourceTool:ToolDefinition={name:'cader_apply_source_batch',description:`Apply up to ${patchLimit} source item IDs selected by the Agent. Harness fills pending glyph-group siblings up to batch capacity (remaining IDs stay pending), resolves frozen source coordinates and literal text, independently checks source evidence, then uses the SAME whole-patch preflight, leaf budget, permission, serial writer, readback and visual checks. Confirmed/unknown items cannot be replayed. No arbitrary shell, drawing adoption or completion.`,parameters:{type:'object',properties:{ids:{type:'array',minItems:1,maxItems:patchLimit,uniqueItems:true,items:{type:'string',pattern:'^[a-zA-Z0-9_]{1,64}$'}}},required:['ids'],additionalProperties:false},isConcurrencySafe:()=>false,output:patch.output,
                     async execute(args,exec){
                       assertToolArguments(sourceTool,args);const ids=(args as {ids:string[]}).ids;
-                      const compiled=await sourceBatch.compile(ids,String(exec.callId),patchLimit);
+                      let compiled:Awaited<ReturnType<typeof sourceBatch.compile>>;
+                      try{compiled=await sourceBatch.compile(ids,String(exec.callId),patchLimit);}
+                      catch(error){if(['SOURCE_RESIDUAL_HELPER_FAILED','SOURCE_HELPER_RESOURCE_EXHAUSTED'].includes((error as Error).message)){handoff={kind:'verification',code:(error as Error).message};exec.concludeTurn();}throw error;}
                       sourcePatchRoots.set(String(exec.callId),{tool:sourceTool.name,arguments:args});
                       let failure:unknown;
                       try{await patch.execute(compiled,exec);}catch(error){failure=error;}

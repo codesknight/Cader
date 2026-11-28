@@ -11,7 +11,18 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
+
+# Fixed local workers must not reserve a numerical-library thread pool per
+# request on a CAD workstation. Set these before numpy/OpenCV are imported.
+for _thread_variable in (
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+):
+    os.environ[_thread_variable] = "1"
 
 
 def raster_path(image, points, closed, width):
@@ -30,6 +41,8 @@ def raster_path(image, points, closed, width):
 def compare(image_path, native):
     import cv2
     import numpy as np
+
+    cv2.setNumThreads(1)
 
     data = Path(image_path).read_bytes()
     source = native["source"]
@@ -147,6 +160,8 @@ def path_support(image_path, request):
     """Independent source-pixel support, not a semantic or completeness claim."""
     import cv2
     import numpy as np
+
+    cv2.setNumThreads(1)
 
     data = Path(image_path).read_bytes()
     source = request["source"]

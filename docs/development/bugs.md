@@ -463,3 +463,5 @@ BUG117（confirmed symptom，根因待完整复验）：attempt12 Source新建�
 BUG118（confirmed，修复复验中）：极小源笔画Native几何正确，0.401×0.2 WCS取景被粗线填满，三次无法目视判清。相同实体4×4真实Native图及独立Vision可见，未修改几何。程序按源像素/线宽留上下文，完整配对源图窗口不变。400 tests/typecheck/smoke通过，保全原失败，原始新版整图仍待实测。见 [修复证据](2026-11-28-tiny-source-framing.md)。
 
 BUG119（confirmed，修复待原图完整复验）：原始32项Native正确，宽图不清29，补拍24后余5；旧Scheduler仍允许新绘图，形成待验尾项。程序优先只读收敛，最多2额外轮并持久化；源新批次编译拒绝本区已确认待验项，纯观察不计CAD修正。404/typecheck/组件smoke通过，未以fixture或中断的attempt14冒称整图验收。见 [证据与实现](2026-11-28-source-observation-tails.md)。
+
+BUG120（confirmed诊断/调度缺口，修复待完整复验）：helper stderr被丢弃，原始图多次辅助失败后模型仍跨区消耗预算并报SOURCE_REGION_NO_PROGRESS。补私有诊断、明确资源分类、单线程及立即暂停；411 TS/typecheck/smoke、Python21/Ruff通过。同期系统OOM已证实，旧helper单次具体退出原因因无stderr无法确认；同输入事后支持32/32，未把它当CAD通过。原图999项已保全，新完整回归待执行。见 [资源故障审计](2026-11-28-source-helper-resource-failure.md)。

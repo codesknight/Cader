@@ -21,6 +21,8 @@ Indexed primitive closeups retain at least ten original source pixels of context
 
 Confirmed indexed entities awaiting primitive evidence take priority over another drawing batch in the same region. Harness performs at most two additional read-only observation passes at that native write frontier; this does not consume CAD repair rounds or replay creations. Unresolved evidence blocks the region. Source recommendations can fill 64 spatially bounded IDs across the 32-item display pages; the Agent can still choose a different subset/order, with the same admission checks.
 
+If the local source helper fails, the task pauses with its actual helper error and a private diagnostic containing bounded stderr and exit status. Explicit resource failures are reported separately. Harness stops further model/region retries and automatic SaveAs; it preserves the task rather than declaring the reference unreadable. After repairing resources/dependencies, `/quality resume` requires the original live connection and binding. This does not authorize inheriting an old drawing after a process exit. Fixed local CV workers use one numerical-library thread and receive no model credentials.
+
 ## dev.16: named source views
 
 Scoped source workers submit positions in BASE, DETAIL_n or a returned LOOKUP_n image, using that image own normalized 0..1 coordinates. Harness owns the transforms; original dimensions and crop origins are withheld from these workers. Their crop tool also uses BASE normalized coordinates; global image viewing keeps its original-pixel interface. Crop slots cannot be rebound or expand the source scope. Dense unexecuted regions can refine within bounded depth, area and region-count limits; verified batches and whole-drawing acceptance remain distinct.

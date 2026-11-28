@@ -2,6 +2,10 @@ import type { AgentResult, PublicEvent } from '@cader/dsh-adapter';
 
 export type FailureSource = 'provider' | 'agent' | 'mcp' | 'configuration' | 'runtime' | 'verification' | 'usage';
 const hints: Record<string, string> = {
+  SOURCE_HELPER_RESOURCE_EXHAUSTED:'本机源图辅助程序报告内存或启动资源不足，已停止新绘图和跨区重试；查看私有failure诊断，释放资源后在原连接上/quality resume。未把源图判为不可辨，未重放CAD操作。',
+  SOURCE_RESIDUAL_HELPER_FAILED:'本机源图辅助程序失败，已暂停并保存退出码、stderr及输入哈希诊断；这不是CAD冻结或原图不清。修复本机辅助环境后再在原连接续跑。',
+  SOURCE_VISUAL_REOBSERVATION_LIMIT:'同一原生写入边界的额外只读观察仍未确认全部图元，保留已确认实体和原始视觉报告；不新画、不重放、不宣称验收。',
+  SOURCE_REGION_NO_PROGRESS:'本区域连续回合没有可核实进展；查看实际工具错误及未完成源ID，不把程序辅助器故障解释为原图不可辨。',
   PROGRESSIVE_PLAN_MISSING:'模型在有限重试后仍未提交有效分区计划；尚未允许绘图。查看本任务受控诊断，不重复整图清点。',
   INVOCATION_MODEL_STEP_BUDGET_EXCEEDED:'当前阶段的有限模型步骤已耗尽，仍未提交有效结果；查看本阶段工具校验错误。已保存任务进度，这不是CAD冻结或任务总预算归零。',
   PROGRESSIVE_AGENT_FAILED:'当前渐进阶段未形成有效模型结果，进度已保留；工具ACK不等于区域验收通过。',

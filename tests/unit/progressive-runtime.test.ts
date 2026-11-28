@@ -21,6 +21,14 @@ test('source-ID alias uses original Patch admission and queues IDs for fresh com
  }finally{await runtime.dispose();}
 });
 
+for(const code of ['SOURCE_RESIDUAL_HELPER_FAILED','SOURCE_HELPER_RESOURCE_EXHAUSTED'])test('actual DSH returns helper failure to Scheduler without another provider step: '+code,async()=>{
+ const config=await loadConfig(process.cwd());process.env.CADER_HELPER_OFFLINE='offline-fixture';config.profiles=config.profiles.map(p=>({...p,api_key_env:'CADER_HELPER_OFFLINE'}));let steps=0,writes=0;
+ const tool=defineTool({name:'mcp__autocad__draw_circle',description:'Offline admission fixture',parameters:{radius:{type:'number',required:true}},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(){writes++;return 'fixture';}});
+ const runtime=await createLiveRuntime({...config,root:process.cwd(),runDirectory:resolve('.cader/tests','helper-stop-'+code),executionTools:[tool]});
+ runtime.ctx.on('llm/stream',async function*():AsyncGenerator<StreamChunk>{assert.equal(++steps,1);yield* call('cader_apply_source_batch',{ids:['source_a']});});
+ try{const result=await runtime.run('MainAgent','Offline helper failure',{harnessTask:true,onlyTools:[tool.name,'cader_apply_cad_patch'],sourceBatch:{async compile(){throw Error(code);},async settled(){throw Error('No compiled patch to settle');}}});assert.equal(result.handoff?.code,code);assert.equal(steps,1);assert.equal(writes,0);}finally{await runtime.dispose();}
+});
+
 test('source alias retains compact authoritative progress instead of recirculating native receipts into model history',async()=>{
  const config=await loadConfig(process.cwd());process.env.CADER_COMPACT_SOURCE='offline-fixture';config.profiles=config.profiles.map(p=>({...p,api_key_env:'CADER_COMPACT_SOURCE'}));let steps=0;
  const marker='PRIVATE_NATIVE_RECEIPT_'.repeat(2000),tool=defineTool({name:'mcp__autocad__draw_circle',description:'Fixture only',parameters:{radius:{type:'number',required:true}},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(){return marker;}});

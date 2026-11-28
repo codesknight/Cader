@@ -447,3 +447,5 @@ BUG113：真实Vision在同一留存真实AutoCAD截图上，原source-compariso
 BUG118 / #20：typecheck、400/400 TS测试、DSH组件smoke通过；原始Native极小笔画同实体宽窗真实Vision通过仅作诊断，不是整图结果。959实体待验稿和132份保护基线留存。详见 [取景与实际验证](2026-11-28-tiny-source-framing.md)。
 
 REQ053 / BUG119：pnpm typecheck、pnpm test 404/404、pnpm smoke通过；第一次config fixture把可选时长键当作显式默认导致失败，改测timeout回退；首次观察fixture返回类型失败后修正，原日志保留。新增尾项优先、编译层新建守卫、次数持久化/耗尽、64建议及显式6h/24h配置边界，默认仍30min/2Mtoken/400CAD。实际attempt14因研发辅助清理错误退出，Native2647项独立源检查通过并外部保全，非整图通过。见 [详细测试与限制](2026-11-28-source-observation-tails.md)。
+
+BUG120 / #20：pnpm typecheck、pnpm test 411/411、pnpm smoke通过；uv Ruff check/format及pytest21通过。受限stderr、明确资源状态与未知终止区分、无凭证子环境、Scheduler即时停止、实际DSH一次失败后零后续模型/Native步骤夹具通过。原始32项本地helper组件复验一致，原始整图仍待真实完整验证；999 Native项保全并独立源码几何匹配不是整图通过。详情见 [实际证据和限制](2026-11-28-source-helper-resource-failure.md)。

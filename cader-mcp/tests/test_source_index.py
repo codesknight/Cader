@@ -101,6 +101,7 @@ def test_source_support_rejects_a_shifted_path_without_certifying_semantics(tmp_
         ],
     }
     assert path_support(path, request)["checks"][0]["source_supported"]
+    assert cv2.getNumThreads() == 1
     request["items"][0]["points"] = [[10, 60], [90, 60]]
     result = path_support(path, request)
     assert not result["checks"][0]["source_supported"]

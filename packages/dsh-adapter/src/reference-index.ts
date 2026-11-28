@@ -3,6 +3,7 @@ import { readFile, mkdir, stat, rename, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { readReferenceImage } from '@cader/config';
+import {runSourceHelper,sourceHelperEnvironment} from './source-helper.js';
 export type PixelBox = [
     number,
     number,
@@ -68,14 +69,8 @@ async function localSourceCheck(root: string, workspace: string, runDirectory: s
     await mkdir(directory, { recursive: true });
     const native = join(directory, id + '-input.json'), output = join(directory, id + '-result.json'), raw = JSON.stringify(input);
     await writeFile(native, raw, { flag: 'wx' });
-    const environment: NodeJS.ProcessEnv = { PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' };
-    for (const key of ['PATH', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'USERPROFILE', 'HOME', 'LOCALAPPDATA', 'APPDATA'])
-        if (process.env[key])
-            environment[key] = process.env[key];
     const python = resolve(root, 'cader-mcp/.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
-    const code = await new Promise<number>((accept, reject) => { const child = spawn(python, ['-m', 'cader_mcp.source_residual', path, native, output, ...mode === 'paths' ? ['--path-support'] : []], { cwd: root, env: environment, windowsHide: true, signal, stdio: 'ignore' }); child.on('error', reject); child.on('close', code => accept(code ?? 1)); });
-    if (code !== 0)
-        throw new Error('SOURCE_RESIDUAL_HELPER_FAILED');
+    await runSourceHelper({python,args:['-m','cader_mcp.source_residual',path,native,output,...mode==='paths'?['--path-support']:[]],root,signal,diagnostic:join(directory,id+'-failure.json'),metadata:{mode,source_sha256:input.source.sha256,input_sha256:createHash('sha256').update(raw).digest('hex')}});
     const report = JSON.parse(await readFile(output, 'utf8'));
     if (report.source_sha256 !== input.source.sha256 || report.input_sha256 !== createHash('sha256').update(raw).digest('hex') || report.quality_accepted !== false || report.semantics !== 'not_verified')
         throw new Error('SOURCE_RESIDUAL_REPORT_BINDING_INVALID');
@@ -161,10 +156,7 @@ export async function indexReferenceSource(root: string, workspace: string, path
     catch { /* Incomplete/untrusted caches never authorize writes. */ }
     await mkdir(directory, { recursive: true });
     const pending = join(directory, 'index-' + randomUUID() + '.json');
-    const environment: NodeJS.ProcessEnv = { PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1', OMP_NUM_THREADS: '4' };
-    for (const key of ['PATH', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'USERPROFILE', 'HOME', 'LOCALAPPDATA', 'APPDATA'])
-        if (process.env[key])
-            environment[key] = process.env[key];
+    const environment = sourceHelperEnvironment();
     let stderr = '', stdout = '';
     const exit = await new Promise<number>((accept, reject) => {
         const child = spawn(python, ['-m', 'cader_mcp.source_index', path, pending], { cwd: root, env: environment, windowsHide: true, signal, stdio: ['ignore', 'pipe', 'pipe'] });
