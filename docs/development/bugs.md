@@ -469,3 +469,5 @@ BUG120（confirmed诊断/调度缺口，修复待完整复验）：helper stderr
 BUG121（confirmed，修复复验中）：原始attempt16检查点临时候选已完成，替换失败且原errno丢失；Windows共享句柄实测可复现EPERM，历史唯一触发者未确认。有限原子替换重试、原始诊断、DSH即时停止已实现，417测试与本机短/长占用反例通过。原始整图待验。见[证据](2026-11-28-checkpoint-replacement.md)。
 
 BUG122（confirmed，修复复验中）：provider故障错误阻止只读checkpoint，真实attempt17的已确认源绘制和保存后缀无法直接续跑。只读暂停checkpoint与精确前缀/完整Native对账已实现，431测试/typecheck/smoke通过；原进程需显式保留旧快照的受控迁移，视觉待验状态不提升。见[证据与边界](2026-11-28-provider-pause-reconciliation.md)。
+
+BUG123（confirmed，修复复验中）：写入端可产生58MB大图质量记录，CLI读取固定16MB限制导致resume异常，旧测试驱动退出。统一256MiB分块有界读取、复用已解析resume、非致命CLI错误已修复；434测试/typecheck/smoke及原始失败文件完整加载通过。原始新任务完整回归仍待通过。见[记录](2026-11-28-large-quality-manifest.md)。

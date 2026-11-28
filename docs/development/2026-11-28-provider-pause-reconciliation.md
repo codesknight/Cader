@@ -22,3 +22,5 @@ provider 故障被共用的 `assertSource` 写入/模型门禁阻止了只读 ch
 attempt17 的主驱动已经加载 `e180c7d`，不是热更新后的新 Harness。因此旧活跃运行需要使用同一生产校验器做一次有记录的状态迁移，不能宣称它天然经过了新的自动恢复分支。迁移前保存原质量文件的完整字节及 SHA256，新鲜 Native 证据、原 writer/连接/源身份、确定确认后缀和新旧检查点均记录。仅迁移 checkpoint，`quality_accepted=false`、2982 verified / 32 committed / 606 pending 及原 `QUOTA` 保持；不调用模型、不派发 CAD、不关闭图纸、不接管旧连接。原 owner 下一次 `/quality resume` 仍须独立新鲜读回和严格账本比对，迁移本身不保证续跑或整图验收通过。
 
 原始失败和一切后续结果分别保留。私有证据位于 `.cader/runs/source-worklist-20261127/`：`pause-checkpoint17.json`、`pause-fresh-native17.json`；受控迁移原快照和回执记录为 `pause-original-quality17.json`、`pause-migration17.json`。正式全图验收和最终 DWG 结果待实际完成补记。
+
+实际迁移校验3014/3014通过，0模型/0CAD写入，原始质量快照保留；但随后旧 CLI 的16MB记录上限使 resume 在模型调用前失败，驱动退出。**迁移成功不等于旧会话成功续跑。** 见 [BUG123真实失败及修复](2026-11-28-large-quality-manifest.md)。

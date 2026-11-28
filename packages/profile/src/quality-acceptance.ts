@@ -3,12 +3,12 @@ import { readFile,writeFile } from 'node:fs/promises';
 import { resolve,dirname,extname } from 'node:path';
 import { workspacePath } from '@cader/config';
 import type { ExecutionSession,Approval } from './execution.js';
+import{readQualityManifest}from'./quality-store.js';
 
 const sha=(v:string|Buffer)=>createHash('sha256').update(v).digest('hex');
 export interface UserQualityReview {version:1;task_id:string;manifest_sha256:string;artifact:{path:string;sha256:string};source_sha256:string|null;image_sha256:string|null;at:string;comment:string;receipt_path:string;scope:'delivered_DWG_only';source:'interactive_user_confirmation'}
 async function inspect(workspace:string,path:string){
-  const manifest=await workspacePath(workspace,path),raw=await readFile(manifest,'utf8');
-  const saved=JSON.parse(raw),artifact=saved.artifact??saved.execution?.artifact;
+  const manifest=await workspacePath(workspace,path),{raw,saved}=await readQualityManifest(manifest),artifact=saved.artifact??saved.execution?.artifact;
   if(!saved.task_id||!saved.plan||!artifact?.path||!artifact.sha256)throw new Error('HUMAN_REVIEW_ARTIFACT_REQUIRED');
   if(artifact.file_contract&&artifact.file_verification?.status!=='verified')throw new Error('HUMAN_REVIEW_FILE_VERIFICATION_REQUIRED');
   if(saved.execution?.frozen||saved.execution?.operations?.some((op:{outcome:string;tool?:string;stage?:string})=>op.outcome==='unknown'||op.outcome==='committed_observation_failed'&&!(op.tool==='export_current_view'&&op.stage==='capture_restored')))throw new Error('HUMAN_REVIEW_UNCERTAIN_WRITE_DENIED');

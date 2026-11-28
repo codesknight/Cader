@@ -6,6 +6,7 @@ import { loadConfig, loadMcp, loadSkills, readReferenceImage, workspacePath, par
 import type { PublicEvent } from '@cader/dsh-adapter';
 import { runTask } from './task.js';
 import { SessionStore, newSession, privateDirectory, environmentRedactor, terminalText } from './session-store.js';
+import {readQualityManifest}from'./quality-store.js';
 import type { ChatSession } from './session-store.js';
 import { runUserShell } from './interactive-shell.js';
 import { ExecutionSession, PERMISSION_MODES } from './execution.js';
@@ -122,6 +123,7 @@ export class InteractiveSession {
     if (this.active) return { text: '当前任务运行中，按 Esc 中断。', error: true };
     this.active = true;
     try { return await this.dispatch(line.trim(), callbacks); }
+    catch(error){if(['QUALITY_MANIFEST_TOO_LARGE','QUALITY_MANIFEST_INVALID'].includes((error as Error).message))return {text:(error as Error).message+'：质量记录已保留，未派发CAD操作。当前会话和连接保持；请检查记录大小或格式后重试。',error:true};throw error;}
     finally { this.active = false; }
   }
   private async dispatch(line: string, callbacks: ChatCallbacks): Promise<ChatReply> {
@@ -158,8 +160,7 @@ export class InteractiveSession {
         case '/quality':{
           if(!this.state.qualityRun)return {text:'当前没有质量任务。复杂绘图会自动建立质量清单。'};
           const path=await workspacePath(this.state.workspace,this.state.qualityRun);
-          if((await stat(path)).size>16_000_000)throw new Error('QUALITY_MANIFEST_TOO_LARGE');
-          const saved=JSON.parse(await readFile(path,'utf8'));
+          const {saved}=await readQualityManifest(path);
           const userReview=await userReviewStatus(this.state.workspace,path,this.state.qualityReview);
           if(!arg)return {text:this.clean(JSON.stringify({...qualityTaskContext(saved),acceptance:userReview.accepted?'accepted_by_user':qualityTaskContext(saved).acceptance,user_review:userReview,path},null,2))};
           if(arg==='accept'||arg.startsWith('accept ')){
@@ -282,8 +283,7 @@ export class InteractiveSession {
     let priorQuality: Parameters<typeof qualityTaskContext>[0] & QualityResume | undefined;
     if(this.state.qualityRun){
       const path=await workspacePath(this.state.workspace,this.state.qualityRun);
-      if((await stat(path)).size>16_000_000)throw new Error('QUALITY_MANIFEST_TOO_LARGE');
-      priorQuality=JSON.parse(await readFile(path,'utf8'));
+      priorQuality=qualityResume??(await readQualityManifest(path)).saved;
       if(!priorQuality?.task_id||!Array.isArray(priorQuality.checks))throw new Error('QUALITY_MANIFEST_INVALID');
     }
     const remember=async(text:string)=>{
@@ -329,7 +329,7 @@ export class InteractiveSession {
       else{
         line=referenceTask.request;
         if(!qualityResume&&referenceTask.qualityRun){
-          const saved=JSON.parse(await readFile(await workspacePath(this.state.workspace,referenceTask.qualityRun),'utf8'));
+          const {saved}=await readQualityManifest(await workspacePath(this.state.workspace,referenceTask.qualityRun));
           if(saved.phase==='complete')return {text:`该重绘任务已完成，DWG：${saved.artifact?.path??saved.execution?.artifact?.path??referenceTask.outputPath}；未重复绘图。`};
           if(saved.plan)qualityResume=saved;
         }
