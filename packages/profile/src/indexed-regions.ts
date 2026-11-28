@@ -2,7 +2,7 @@ import type { ReferenceIndex, SourceItem, ToolDefinition, createLiveRuntime } fr
 import type { ProgressiveState, ProgressiveRegion } from './progressive.js';
 import type { ExecutionSession } from './execution.js';
 import type { QualityPhase } from './quality.js';
-import { sourceDigest, sourceSelection, sourceItemOperation, reconcileSourceBatch, verifySourceItem, sourceItemOwner, sourceWorklistPage, sourceWorklistSummary, cadRequestDigest, sourceBatchReviewAccepted, sourceGroupReviewScope, sourceBatchSelection, sourceWindowReviewScope, sourcePrimitiveCoverage, expandSourceIds, sourceRenderScope } from './source-worklist.js';
+import { sourceDigest, sourceSelection, sourceItemOperation, reconcileSourceBatch, verifySourceItem, sourceItemOwner, sourceWorklistPage, sourceWorklistSummary, cadRequestDigest, sourceBatchReviewAccepted, sourceGroupReviewScope, sourceBatchSelection, sourceWindowReviewScope, sourcePrimitiveCoverage, expandSourceIds, sourceRenderScope,refreshUnexecutedSourceReadings } from './source-worklist.js';
 type Runtime = Awaited<ReturnType<typeof createLiveRuntime>>;
 type Model = (instruction: string, request?: Parameters<Runtime['run']>[2]) => Promise<Awaited<ReturnType<Runtime['run']>>>;
 type Snapshot = Awaited<ReturnType<ExecutionSession['snapshot']>>;
@@ -190,15 +190,19 @@ export async function runIndexedRegions(c: Context) {
                     await c.enter('reference');
                     runtime.setVerificationScope('source-read:' + region.id + ':' + work.rounds++);
                     let report: Awaited<ReturnType<Runtime['reviewIndexedSource']>>;
+                    const priorUncertain=new Set(textItems.slice(offset,offset+32).filter(i=>work.items[i.id]!.status==='uncertain').map(i=>i.id));
                     try {
-                        report = await runtime.reviewIndexedSource(c.sourcePath, index, textItems.slice(offset, offset + 32), c.task, c.signal);
+                        report = await runtime.reviewIndexedSource(c.sourcePath, index, textItems.slice(offset, offset + 32), c.task, c.signal,priorUncertain.size>0);
                     }
                     catch (error) {
                         c.onEvidenceError(error);
                         throw error;
                     }
                     c.emit({ type: 'source.items_reviewed', region: region.id, report });
+                    const refreshed=report.items.filter(row=>row.status==='clear'&&priorUncertain.has(row.id)).map(row=>row.id);
+                    if(refreshed.length)refreshUnexecutedSourceReadings(index,work,report,refreshed);
                     for (const row of report.items) {
+                        if(refreshed.includes(row.id))continue;
                         const state = work.items[row.id]!;
                         state.source_evidence = { source_sha256: report.source_sha256, view: report.view, attempt_ids: report.attempts.map(a => a.id), reading: row };
                         state.status = row.status === 'clear' ? 'accepted' : 'uncertain';

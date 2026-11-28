@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import type { ReferenceIndex, SourceItem } from '@cader/dsh-adapter';
+import {sourceItemView,sourceLiteralKey}from'@cader/dsh-adapter';
+import type { ReferenceIndex, SourceItem,reviewIndexedSource } from '@cader/dsh-adapter';
 import type { CadOperationRecord } from './execution.js';
 import type { CheckResult } from './quality.js';
 import { cadRequestDigest } from './cad-arguments.js';
@@ -34,6 +35,27 @@ export interface SourceWorklist {
     residual_reviews: unknown[];
 }
 export const sourceDigest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+/** New source-only evidence may resolve an unexecuted label. Never silently
+ * revise a Native entity or turn a source reading into CAD/visual acceptance. */
+export function refreshUnexecutedSourceReadings(index:ReferenceIndex,work:SourceWorklist,report:Awaited<ReturnType<typeof reviewIndexedSource>>,ids:string[]=report.items.map(r=>r.id)){
+    assertSourceWorklist(index,work);
+    if(report.source_sha256!==work.source_sha256||report.complete_source_accepted!==false||!ids.length||new Set(ids).size!==ids.length||ids.some(id=>!report.index_item_ids.includes(id)||report.items.filter(r=>r.id===id).length!==1))throw Error('SOURCE_REFRESH_BINDING_INVALID');
+    const updates=ids.map(id=>{
+        const item=index.items.find(i=>i.id===id),state=work.items[id],row=report.items.find(r=>r.id===id);
+        if(!item||item.kind!=='text'||!state||!['pending','accepted','uncertain'].includes(state.status)||state.entity_ids.length||state.operation_ids.length)throw Error('SOURCE_REFRESH_ALREADY_EXECUTED_OR_UNSUPPORTED');
+        if(!row||row.status!=='clear'||!row.text?.trim()||row.text.length>1024||row.rotation===null||![0,90,180,270].includes(row.rotation))throw Error('SOURCE_REFRESH_READING_UNCERTAIN');
+        const crop=sourceItemView(index,[item],1).crop;
+        const targets=report.attempts.filter(a=>a.items.length===1&&a.items[0]?.id===id&&Number.isSafeInteger(a.view.display_scale)&&(a.view.display_scale??0)>=1&&(a.view.display_scale??0)<=8&&sourceDigest(a.view.crop)===sourceDigest(crop)).slice(-2);
+        if(targets.length!==2||targets[0]!.id===targets[1]!.id||targets.some(a=>a.items[0]!.status!=='clear'||sourceLiteralKey(a.items[0]!.text)!==sourceLiteralKey(row.text)||a.items[0]!.rotation!==row.rotation))throw Error('SOURCE_REFRESH_TARGET_PROOF_REQUIRED');
+        return {id,state,row};
+    });
+    for(const {state,row}of updates){
+        (state.history??=[]).push({source:state.source_evidence,status:state.status,reason:'independent-target-source-refresh'});
+        state.source_evidence={source:'independent_target_reread',source_sha256:report.source_sha256,view:report.view,attempt_ids:report.attempts.map(a=>a.id),report_sha256:sourceDigest(report),reading:structuredClone(row),not_cad_acceptance:true};
+        state.text=sourceLiteralKey(row.text)!;state.rotation=row.rotation!;state.status='accepted';
+    }
+    return {applied_ids:ids,source_sha256:report.source_sha256,report_sha256:sourceDigest(report),cad_operations:0,quality_accepted:false};
+}
 /** Reconcile a stale pause checkpoint only with an exact confirmed journal
  * extension and a complete fresh native read. Does not accept visual evidence
  * or acquire document authority; the caller retains its connection guards. */

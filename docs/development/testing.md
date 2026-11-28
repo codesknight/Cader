@@ -455,3 +455,5 @@ BUG121 / #20：原始attempt16在298个已验证实体后检查点替换失败�
 BUG122 / #20：真实整图attempt17在2982已验＋32已确认待验时模型QUOTA。只读checkpoint错误继承provider停写门禁，保存后仍报QUOTA并覆盖错误阶段；旧检查点2985确认操作滞后于实际3018。新鲜Native3014项独立源检查全通过。补provider暂停只读checkpoint、原连接精确已确认后缀对账（参数/源ID/NativeID及完整几何），不改视觉结论、不接管新连接、不放行unknown。typecheck、431 tests、DSH smoke通过；旧已加载进程需要有归档和回执的一次受控迁移，不能冒称原生执行新分支。整图仍待验。详见[暂停对账](2026-11-28-provider-pause-reconciliation.md)。
 
 BUG123 / #20：实际attempt17未成功续跑，旧CLI 16MB上限拒绝58.5MB质量记录，未捕获异常导致原驱动退出/连接释放。新增统一256MiB分块有界证据读取、已加载resume对象复用、尺寸/格式错误非致命reply，owner不dispose。434 tests/typecheck/smoke通过；同一实际失败记录新入口完整加载约330ms且字节hash不变。旧3014实体DWG和P1验证保留，整图未过；下一轮必须新工作图，不能虚称原连接仍在。见[大记录证据](2026-11-28-large-quality-manifest.md)。
+
+BUG124 / #20：真实原图未执行源文字项出现宽图邻行串读、76×27微小TARGET一清晰一不确定。补所有生产/观察分歧必须两次目标证据、有界队列尾项保持uncertain、nearest整数显示放大和逆坐标、仅未执行源项可刷新。446 tests/typecheck/smoke通过；原始目标真实模型两次一致、0CAD，实际发送图与独立逐像素复制证明一致，原源图不改写。活跃attempt18仍a084，证据尚未导入质量文件，不能称Native/整图通过。见[目标证据](2026-11-28-literal-target-proof.md)。

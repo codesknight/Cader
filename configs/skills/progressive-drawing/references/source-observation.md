@@ -8,6 +8,8 @@ For indexed label OCR, read only the supplied target and return index/text/certa
 
 For stable source-ID review, submit the actual current tool schema. Clear visible geometry and uncertain functional meaning are separate facts (`semantic_pending`). A path can be a glyph stroke without being an identified label. Inspect exact requested paths/literals; do not reject a visible path because its symbol function is unknown. Native TEXT proposals are not authoritative OCR. Harness re-reads bounded uncertain targets at local resolution, retains disagreements, and preserves already accepted unrelated facts.
 
+Agreement between two wide views can repeat the same neighboring-line mistake. When producer and independent readings differ, require the bounded target-only evidence supplied by Harness. Tiny source targets may be nearest-neighbor display-enlarged; this replicates original pixels and creates no new source information. Keep case, units and punctuation exact. New source evidence can refine only unexecuted labels; acknowledged Native objects require controlled repair and fresh verification, never a silent rewrite of source facts.
+
 For a bounded draft, independently inspect the same candidate subset against actual pixels. Correct or reject candidates; matching earlier output is not the goal. Only clear geometry supported by both reads can be released. Preserve omissions; do not extrapolate hidden connections or add decorative content. A verified subset never proves regional completeness or full topology. Submit the current tool's schema; do not plan the whole drawing or call CAD tools in this worker.
 
 
