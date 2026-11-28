@@ -1,11 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { acceptancePlanSchema, parseAcceptancePlan, loadSkills, readReferenceImage } from '@cader/config';
+import { acceptancePlanSchema, parseAcceptancePlan, loadSkills, readReferenceImage,sourceConnectionReviewSchema,parseSourceConnectionReview,mergeConfirmedSourceConnections } from '@cader/config';
 import type { QualityPlan } from '@cader/config';
 import type { createLiveRuntime, ToolDefinition, PublicEvent, ImageView } from '@cader/dsh-adapter';
 import type { ExecutionSession, Approval } from './execution.js';
 import type { ReferenceTask } from './reference-input.js';
-import { referenceLayoutHints } from './reference-input.js';
+import type {LocalArtifact} from './file-artifacts.js';
+import { referenceLayoutHints,sourcePlanLayout,referencePlanHints } from './reference-input.js';
 import {crossesInterior} from './cad-arguments.js';
+import { taskIntent } from './task-intent.js';
+import {verifyNetlist,missingSymbolPorts} from './netlist.js';
 export type QualityPhase = 'reference' | 'planning' | 'drawing' | 'geometry' | 'topology' | 'vision' | 'correcting' | 'saving' | 'complete' | 'pending_verification' | 'blocked';
 export interface CheckResult {
   id: string;
@@ -14,11 +17,21 @@ export interface CheckResult {
   details?:unknown;
 }
 export interface QualityResume {
+  failure?:{code:string;stage?:QualityPhase;source?:string}|null;
+  progressive?: import('./progressive.js').ProgressiveState | null;
+  budget?: {execution_round:number;tool_reservations:number;cad_reservations:number;reported_tokens:number;round_tool_reservations?:number;round_cad_reservations?:number;model_steps?:number;started_at?:string};
+  checkpoints?:unknown[];
+  transitions?:{phase:QualityPhase;at:string}[];
+  model_runs?:{phase:QualityPhase;status:string;text:string;tools:string[];error_code?:string;handoff?:unknown}[];
   task_id: string;
   original_request: string;
   request_sha256: string;
-  plan: QualityPlan;
+  plan?: QualityPlan;
   round: number;
+  visual_calls?: VisualCall[];
+  reviews?: unknown[];
+  visual_attempt_count?: number;
+  visual_model_call_count?:number;
   reference_task?:ReferenceTask|null;
   execution: {
     local_connection_id: string | null;
@@ -26,9 +39,48 @@ export interface QualityResume {
   };
 }
 export function requiresQuality(task: string) {
+  if (taskIntent(task) !== 'drawing') return false;
   if(/有什么功能|能画什么|如何|怎么|已经.*验证.*吗/.test(task))return false;
   if(/^(?:请)?(?:移动|平移|旋转|move|rotate)/i.test(task))return false;
   return /画|绘制|重绘|复现|临摹|描绘|布局|添加.*(?:文字|标注)|(?:创建|设计|生成|制作|搭建|做).*(?:电路|图|符号|组件)|\bdraw\b|\bredraw\b|\btrace\b|\breproduce\b|\brecreate\b|\bdiagram\b|\bschematic\b/i.test(task);
+}
+type VisualResult = Awaited<ReturnType<Awaited<ReturnType<typeof createLiveRuntime>>['reviewCadView']>>;
+type VisualCall = { source: 'agent' | 'harness'; observed_state_hash: string; review: VisualResult;adjudication_of?:string };
+
+/** Model context is a projection, not a second copy of immutable pixel/native
+ * evidence. Full snapshots and captured scopes remain in the private manifest. */
+export function visualEvidenceSummary(value:unknown){
+  if(!value||typeof value!=='object')return null;
+  const e=value as Record<string,any>,scope=e.review_scope;
+  return {source:e.source,document:e.document,document_revision:e.document_revision,captured_at:e.captured_at,sha256:e.sha256,width:e.width,height:e.height,reference:e.reference,image_bounds:e.image_bounds,view_request:e.view_request?{world_window:e.view_request.world_window,min_long_edge:e.view_request.min_long_edge}:undefined,review_scope:scope?{id:scope.id,mode:scope.mode,geometry_only:scope.geometry_only,entity_ids:scope.entity_ids,source_sha256:scope.source_sha256,snapshot_hash:scope.snapshot_hash}:undefined,local_details:Array.isArray(e.local_details)?e.local_details.map((d:any)=>({path:d.path,entity_ids:d.entity_ids,sha256:d.evidence?.sha256})):[],full_evidence_sha256:createHash('sha256').update(JSON.stringify(value)).digest('hex'),evidence_scope:'Compact context only; full immutable capture/native evidence retained by Harness. Not a new observation.'};
+}
+
+/** Compact evidence for model steps and status queries. Saved evidence is
+ * historical, never a fresh native revision or authority to resume writes. */
+export function qualityTaskContext(saved: { task_id: string; phase: string; original_request: string; round: number;
+  checks: CheckResult[]; failure?:{code:string;stage:string}|null;progressive?:import('./progressive.js').ProgressiveState|null; visual_calls?: VisualCall[]; reviews?: unknown[]; plan?: QualityPlan; visual_attempt_count?: number;visual_model_call_count?:number;visual_error?: string | null;artifact?:Partial<LocalArtifact>|null;execution?:{artifact?:Partial<LocalArtifact>|null} }) {
+  const legacy = saved.reviews?.at(-1) as { image_evidence?: unknown; visual_report?: unknown } | undefined;
+  const last = saved.visual_calls?.at(-1)?.review;
+  const file=saved.artifact??saved.execution?.artifact;
+  const clipped=Boolean((last?.evidence as {image_bounds?:{possible_clipping?:boolean}}|undefined)?.image_bounds?.possible_clipping);
+  return { task_id: saved.task_id, phase: saved.phase, original_request: saved.original_request,
+    correction_round: saved.round, visual_call_count:saved.visual_model_call_count??Math.max(saved.visual_calls?.reduce((sum,call)=>sum+(call.review.attempts?.length??1),0)??0,saved.reviews?.filter(r=>Boolean((r as {image_evidence?:unknown}).image_evidence)).length??0),
+    capture_attempt_count:saved.visual_attempt_count??Math.max(saved.visual_calls?.length??0,saved.reviews?.filter(r=>Boolean((r as {image_evidence?:unknown}).image_evidence)).length??0),
+    visual_error: saved.visual_error ?? null,
+    pending_reasons: [...new Set([...saved.checks.filter(c=>c.status!=='pass').map(c=>c.id),
+      ...(saved.failure?[saved.failure.code]:[]),...(clipped?['capture_bounds']:[]),...(saved.visual_error?[saved.visual_error]:[]),...(last&&!last.review_valid?['visual_report_invalid']:[])])],
+    failure:saved.failure??null,
+    progressive:saved.progressive?{active_region:saved.progressive.active_region,last_tool_error:saved.progressive.last_tool_error??null,source_worklist:saved.progressive.source_worklist?{index_sha256:saved.progressive.source_worklist.index_sha256,counts:Object.values(saved.progressive.source_worklist.items).reduce<Record<string,number>>((a,v)=>(a[v.status]=(a[v.status]??0)+1,a),{}),active_batch:saved.progressive.source_worklist.active_batch?.ids??null}:null,regions:saved.progressive.regions.map(r=>({id:r.id,status:r.status,failure:r.failure,entity_count:r.entity_ids.length,batches:r.batches.length})),resume:'Same original connection, document, source and observed checkpoint only; never replay committed operations.'}:null,
+    last_visual: last ? { review_valid: last.review_valid, result: last.structured, image_evidence: visualEvidenceSummary(last.evidence), image_ref: last.image_ref } : legacy ? { result: legacy.visual_report, image_evidence: visualEvidenceSummary(legacy.image_evidence) } : null,
+    file_delivery:file?{path:file.path,requested_path:file.requested_path??file.path,sha256:file.sha256,bytes:file.bytes,contract:file.file_contract?.contract??'legacy',status:file.file_verification?.status??'saved_without_readonly_reopen',geometry_scope:file.file_verification?.geometry_scope??null,verification_document_id:file.file_verification?.document.document_id??null,verification:file.file_verification?.verification??'File reopen not evaluated'}:null,
+    checks: saved.checks, unmet_conditions: [...saved.checks.filter(c => c.status !== 'pass'),...(saved.failure?[{id:saved.failure.code,status:'not_run' as const,evidence:`Stage: ${saved.failure.stage}`}]:[])],
+    verification: {
+      geometry: saved.checks.filter(c => !['visual','series_cycle','netlist'].includes(saved.plan?.requirements?.find(r=>r.id===c.id)?.check??'')),
+      topology: saved.checks.filter(c => ['series_cycle','netlist'].includes(saved.plan?.requirements?.find(r=>r.id===c.id)?.check??'')),
+      vision: last ? {valid:last.review_valid,verdict:last.structured?.verdict??null} : legacy?.visual_report??null,
+    },
+    acceptance: saved.phase === 'complete' ? 'passed' : 'pending',
+    evidence_scope: 'Task evidence; no authoritative native revision. Re-query before further edits or acceptance.' };
 }
 type Entity = Record<string, any>;
 type P = number[];
@@ -81,7 +133,7 @@ export function verifyQuality(plan: QualityPlan, entities: Entity[], context:{ne
       edges.push([nodes[i - 1]!.i, nodes[i]!.i]);
   }
   for(const c of plan.components)
-    edges.push([key(c.ports[0]), key(c.ports[1])]);
+    if(c.ports.length===2)edges.push([key(c.ports[0]!), key(c.ports[1]!)]);
   const degrees = points.map(() => 0);
   edges.forEach(([a, b]) => { degrees[a]!++; degrees[b]!++; });
   const seen = new Set<number>();
@@ -103,7 +155,7 @@ export function verifyQuality(plan: QualityPlan, entities: Entity[], context:{ne
   const plane = wires[0]?.start_point[2] ?? 0;
   const planar = wires.every(w => Math.abs((w.start_point[2] ?? 0) - plane) < 1e-5 && Math.abs((w.end_point[2] ?? 0) - plane) < 1e-5);
   const supported = entities.filter(e => e.layer === plan.wire_layer).every(e => e.type === 'AcDbLine');
-  const cycle = planar && supported && plan.components.length >= 2 && wires.length > 0 && componentEvidence && points.length > 0 && degrees.every(d => d === 2) && seen.size === points.length;
+  const cycle = planar && supported && plan.components.every(c=>c.ports.length===2) && plan.components.length >= 2 && wires.length > 0 && componentEvidence && points.length > 0 && degrees.every(d => d === 2) && seen.size === points.length;
   const through = wires.some(e => plan.components.some(c => crossesInterior(e.start_point, e.end_point, c.bounds)));
   const labels = entities.filter(e => typeof e.text_string === 'string' && e.bounding_box);
   const textOverlap = labels.some(e => wires.some(w => crossesInterior(w.start_point, w.end_point, [e.bounding_box.min, e.bounding_box.max])));
@@ -114,13 +166,17 @@ export function verifyQuality(plan: QualityPlan, entities: Entity[], context:{ne
     if(r.check==='saved_dwg')return {id:r.id,status:context.saved_dwg?'pass':'not_run',evidence:context.saved_dwg?'本任务DWG保存、文件头及hash已校验':'等待程序保存/文件校验，不能从截图判断'};
     if(r.check === 'visual')
       return { id: r.id, status: 'not_run', evidence: 'Requires validated image review' };
+    if(r.check==='netlist'){
+      const result=verifyNetlist(plan,entities);
+      return {id:r.id,status:result.pass&&componentEvidence?'pass':'fail',evidence:result.evidence+`; component evidence=${componentEvidence}`,details:result.details};
+    }
     if(r.check === 'entity_count') {
-      const actual = entities.filter(e => !r.entity_type || e.type === r.entity_type).length;
+      const actual = entities.filter(e => (!r.entity_type || e.type === r.entity_type)&&(!r.layer||e.layer===r.layer)).length;
       pass = actual >= (r.min ?? 1) && actual <= (r.max ?? Number.MAX_SAFE_INTEGER);
       evidence = `actual=${actual}, expected=${r.min ?? 1}..${r.max ?? 'unbounded'}`;
     }
     if(r.check === 'text') {
-      const found = labels.filter(e => r.text && labelText(e.text_string)===labelText(r.text));
+      const found = labels.filter(e => r.text && labelText(e.text_string)===labelText(r.text)&&(!r.layer||e.layer===r.layer));
       const c = plan.components.find(c => c.id === r.component);
       const nearby=found.filter(e => !c || distance([(e.bounding_box.min[0] + e.bounding_box.max[0]) / 2, (e.bounding_box.min[1] + e.bounding_box.max[1]) / 2], [(c.bounds[0][0] + c.bounds[1][0]) / 2, (c.bounds[0][1] + c.bounds[1][1]) / 2]) <= 3 * Math.max(c.bounds[1][0] - c.bounds[0][0], c.bounds[1][1] - c.bounds[0][1]));
       pass=nearby.length>=(r.min??1)&&nearby.length<=(r.max??Number.MAX_SAFE_INTEGER);
@@ -162,8 +218,11 @@ export async function runQualityTask(options: {
   persist: (state: unknown) => Promise<void>;
   request?: Parameters<Awaited<ReturnType<typeof createLiveRuntime>>['run']>[2];
   referenceTask?:ReferenceTask;
+  alwaysVisual?: boolean;
+  onState?: (state: ReturnType<typeof qualityTaskContext>) => void;
 }) {
   const { runtime, owner, task, signal } = options;
+  runtime?.enableTaskBudget?.();
   let phase: QualityPhase = 'planning', plan: QualityPlan | undefined, round = 0, checks: CheckResult[] = [], visual: unknown = null;
   const modelRuns: {
     phase: QualityPhase;
@@ -171,12 +230,38 @@ export async function runQualityTask(options: {
     text: string;
     tools: string[];
   }[] = [];
-  const reviews: unknown[] = [];
+  const reviews: unknown[] = [...options.resume?.reviews ?? []];
+  const visualCalls: VisualCall[] = [...options.resume?.visual_calls ?? []];
+  let visualAttempts=options.resume?.visual_attempt_count??qualityTaskContext({task_id:'',phase:'',original_request:'',round:0,checks:[],visual_calls:visualCalls,reviews}).visual_call_count;
+  const priorModelCalls=options.resume?.visual_model_call_count??qualityTaskContext({task_id:'',phase:'',original_request:'',round:0,checks:[],visual_calls:visualCalls,reviews}).visual_call_count;
+  let visualError:string|null=null;
+  let cachedReview: { key: string; review: VisualResult } | undefined;
+  let candidateReview: { key: string; review: VisualResult } | undefined;
+  const checkpoints: unknown[] = [];
+  const drawingUnits:{id:string;status:'active'|'checked_in';snapshot_sha256?:string}[]=[];
+  let activeUnit:string|null=null;
+  let activePlanningUnit:string|null=null,sourceLayoutEvidence:ReturnType<typeof sourcePlanLayout>|null=null;
+  const planningUnits:{id:string;status:'active'|'checked_in'}[]=[];
+  let budgetPaused=false;
+  let outputRecoveries=0;
+  const responseRecoveries=new Map<string,number>();
+  const compactExecution=(facts:ReturnType<ExecutionSession['facts']>)=>({...facts,operations:facts.operations.slice(-8),operation_history_scope:'Latest 8; full ledger remains persisted. Never replay older confirmed operations; query IDs when needed.'});
+  let reviewedWrites: string | undefined;
+  let reviewFlight: Promise<VisualResult> | undefined;
   let guidance = '';
   const referenceTask=options.referenceTask??options.resume?.reference_task??undefined;
+  const sourceStrokeRequested=/手绘风格|手写风格|手写字体|铅笔效果|(?:保留|保持|模仿|照搬).{0,8}(?:笔触|笔迹)|sketch[- ]style|hand[- ]drawn style|handwritten font|preserve.{0,16}strokes?/i.test(task);
+  const renderingContract=()=>referenceObservation?.structured?.drawing_kind!=='schematic'?{output:'editable CAD',requirements:'Follow the original requested visual features; do not invent output-style requirements.'}:({output:'editable CAD',source_is_not_output_style:true,preserve_stroke_texture:sourceStrokeRequested,preserve_source_font:sourceStrokeRequested,
+    requirements:'Preserve symbols, literal labels, connections and relative layout. Hand-drawn describes the input medium; do not require rough strokes or handwriting in CAD unless explicitly requested.'});
+  let sourceFrameEvidence:ReturnType<typeof referencePlanHints>['frame']|null=null;
   let artifact:Awaited<ReturnType<ExecutionSession['saveTaskArtifact']>>|null=null;
   let accepted=false;
   let referenceObservation:Awaited<ReturnType<NonNullable<typeof runtime>['inspectReference']>>|null=null;
+  const labelConfirmations:{index:number;text:string;source_quote:string;image_sha256:string;original_reading:unknown}[]=[];
+  const unconfirmedLabelReviews:{index:number;reason:string}[]=[];
+  const connectionConfirmations:{pins:{object:string;terminal:number}[];source_quote:string;image_sha256:string;original_nets:unknown}[]=[];
+  const unconfirmedConnectionReviews:{source_quote:string;reason:string}[]=[];
+  const hasConnectionClarification=/连接确认\s*[:：]|connection confirmation\s*:/i.test(task);
   let referenceView:ImageView|undefined;
   const sourceUnchanged=async()=>{
     if(!referenceTask)return;
@@ -190,55 +275,285 @@ export async function runQualityTask(options: {
   }[] = [];
   const hash = createHash('sha256').update(task).digest('hex');
   const taskId = options.resume?.task_id ?? randomUUID();
-  const state = () => ({ version: 1, task_id: taskId, phase, original_request: task, request_sha256: hash, plan, round, checks, visual, reviews, transitions, failure,reference_task:referenceTask??null,reference_observation:referenceObservation,artifact,quality_accepted:accepted, model_runs: modelRuns, execution: owner.facts() });
-  const act = async (instruction: string, request?: Parameters<Awaited<ReturnType<typeof createLiveRuntime>>['run']>[2]) => {
+  const state = () => ({ version: 1, progressive:null as import('./progressive.js').ProgressiveState|null,task_id: taskId, phase, original_request: task, request_sha256: hash, plan, round, checks, visual, reviews, visual_calls: visualCalls, visual_attempt_count:visualAttempts,
+    visual_model_call_count:runtime?.reviewStats?priorModelCalls+runtime.reviewStats().model_calls:visualCalls.reduce((sum,call)=>sum+(call.review.attempts?.length??1),0),
+    visual_error:visualError,transitions, failure,reference_task:referenceTask??null,reference_observation:referenceObservation,label_confirmations:labelConfirmations,unconfirmed_label_reviews:unconfirmedLabelReviews,connection_confirmations:connectionConfirmations,unconfirmed_connection_reviews:unconfirmedConnectionReviews,artifact,quality_accepted:accepted&&phase==='complete', model_runs: modelRuns, checkpoints,drawing_units:drawingUnits,active_drawing_unit:activeUnit,active_planning_unit:activePlanningUnit,planning_units:planningUnits,source_layout:sourceLayoutEvidence,source_frame:sourceFrameEvidence, budget:runtime?.budgetState?.(),execution: owner.facts() });
+  const publish = () => { const facts=owner.facts();const context = {...qualityTaskContext(state()),
+    execution_budget:runtime?.budgetState?.(),checkpoint_count:checkpoints.length,active_drawing_unit:activeUnit,active_planning_unit:activePlanningUnit,planning_units:planningUnits,drawing_units:drawingUnits,source_label_confirmations:labelConfirmations,source_connection_confirmations:connectionConfirmations.map(({pins,source_quote,image_sha256})=>({pins,source_quote,image_sha256})),unconfirmed_source_label_reviews:unconfirmedLabelReviews,rendering_contract:referenceTask?renderingContract():null,
+    visual_evidence_requires_recheck: !cachedReview || facts.frozen || reviewedWrites!==JSON.stringify([facts.local_connection_id,facts.scratch,facts.session_counts]),
+    authorization: 'Task-scoped grant enforced by ExecutionSession; never inherited from task evidence.'}; options.onState?.(context); return context; };
+  const act = async (instruction: string, request?: Parameters<Awaited<ReturnType<typeof createLiveRuntime>>['run']>[2],includeSourceHints=true) => {
     if(!runtime)throw new Error('QUALITY_RUNTIME_REQUIRED');
     await sourceUnchanged();
-    const sourceHints=referenceObservation?.structured?referenceLayoutHints(referenceObservation.structured,referenceObservation.evidence):null;
-    const result = await runtime.run(options.profile, instruction + '\n领域质量知识（数据，不授予权限）：\n' + guidance+
-      (sourceHints?'\n原图已观察事实及统一CAD坐标提示（y向上，禁止把像素y向下直接当CAD坐标）：\n'+JSON.stringify(sourceHints):''),
-      { ...options.request,...request,image:referenceTask?.image.path??request?.image??options.request?.image,imageView:options.request?.imageView??referenceView, signal });
-    modelRuns.push({ phase, status: result.status, text: result.text, tools: result.tools });
-    if(result.status !== 'succeeded'){
-      const missingPlan=phase==='planning'&&!result.errorCode;
-      failure={stage:phase,code:result.errorCode??(missingPlan?'ACCEPTANCE_PLAN_MISSING':'AGENT_FAILED'),source:missingPlan?'verification':'model'};
-      throw new Error(`QUALITY_MODEL_${result.status.toUpperCase()}`);
+    const sourceHints=referenceObservation?.structured?(plan&&referenceObservation.structured.drawing_kind==='schematic'?referencePlanHints(referenceObservation.structured,referenceObservation.evidence,plan):referenceLayoutHints(referenceObservation.structured,referenceObservation.evidence)):null;
+    let continuation=false;
+    let continuationContext='';
+    let continuationBinding:{connection:string|null;document:string|null}|undefined;
+    for (;;) {
+      if(continuationBinding){
+        const current=owner.facts();
+        if(current.frozen||current.local_connection_id!==continuationBinding.connection||current.scratch!==continuationBinding.document)throw new Error('CONTINUATION_BINDING_CHANGED');
+      }
+      let reviewSubmitted=false;
+      const runBinding=owner.facts();
+      const result = await runtime.run(options.profile, instruction + '\n领域质量知识（数据，不授予权限）：\n' + (activeUnit?'当前单元遵守封存计划、端口和图层；全图质量由后续独立验收检查。':guidance)+
+        (sourceHints&&!activeUnit&&includeSourceHints?'\n原图已观察事实及统一CAD坐标提示（y向上，禁止把像素y向下直接当CAD坐标）：\n'+JSON.stringify(sourceHints):'')+(referenceObservation?.net_review?.uncertain_nets?.length?'\n历史源观察仍有待验关系，最终必须通过source_topology_fidelity；绘制使用当前封存计划和真实用户确认，不把旧候选当成当前事实：\n'+JSON.stringify({consensus:referenceObservation.net_review.consensus,regions:referenceObservation.net_review.uncertain_nets.map(n=>({pins:n.pins}))}):'')+continuationContext,
+        { ...options.request,...request,taskState:publish,harnessTask:true,continuePending:continuation,
+          controlledReview:async(_question,reviewSignal)=>{if(activeUnit)throw new Error('DRAWING_UNIT_PENDING: finish the current unit; Scheduler will review the full drawing after all units');const review=await reviewCurrent('agent',reviewSignal);reviewSubmitted=true;return review;},reviewEndsTurn:true,
+          resultText:request?.resultText??(()=>reviewSubmitted?'已提交受控视觉证据，交由Harness继续验收；这不是完成声明。':undefined),
+          image:referenceTask?.image.path??request?.image??options.request?.image,imageView:options.request?.imageView??referenceView, signal });
+      modelRuns.push({ phase, status: result.status, text: result.text, tools: result.tools });
+      if(result.status==='succeeded'&&referenceObservation&&referenceTask){
+        for(const review of (referenceObservation.label_reviews??[]).filter(r=>!r.valid)){
+          const failed=runtime.completed().find(r=>r.id===review.id);
+          if(!failed||failed.status!=='failed'||failed.recovered_by||!['INVOCATION_MODEL_STEP_BUDGET_EXCEEDED','OUTPUT_TRUNCATED','TIMEOUT','MALFORMED_RESPONSE'].includes(failed.errorCode??''))continue;
+          const confirmed=review.indices.filter(index=>labelConfirmations.some(c=>c.index===index));
+          if(confirmed.length===review.indices.length&&review.indices.every(index=>referenceObservation!.structured?.visible_text[index]?.certainty==='clear')){
+            failed.recovered_by=result.id;failed.recovery_kind='source_label_confirmation';failed.recovery_evidence={indices:review.indices,source_sha256:referenceTask.image.sha256,confirmed_indices:confirmed};
+            options.emit({type:'reference.label_read_reconciled',failed_agent_id:failed.id,resolver_agent_id:result.id,indices:confirmed,source:'explicit_user_confirmation',not_ocr_success:true});
+          }
+        }
+      }
+      if(result.status !== 'succeeded'){
+        const recoveryScope=activeUnit??'task';
+        const scopeRecoveries=responseRecoveries.get(recoveryScope)??0;
+        if(['OUTPUT_TRUNCATED','TIMEOUT','MALFORMED_RESPONSE'].includes(result.errorCode??'')&&['drawing','correcting'].includes(phase)&&scopeRecoveries<2&&!signal?.aborted){
+          const before=owner.facts();
+          if(before.frozen||before.local_connection_id!==runBinding.local_connection_id)throw new Error('TRUNCATION_RECOVERY_UNSAFE');
+          const scope=owner.taskScope(taskId);
+          if(before.scratch!==runBinding.scratch&&(!scope.owned||!scope.new_drawing_confirmed))throw new Error('CONTINUATION_BINDING_CHANGED');
+          responseRecoveries.set(recoveryScope,scopeRecoveries+1);
+          const checkpoint={at:new Date().toISOString(),task_id:taskId,phase,reason:result.errorCode,attempt:++outputRecoveries,recovery_scope:recoveryScope,scope_attempt:scopeRecoveries+1,
+            failed_agent_id:result.id,execution:before,observation:null as Awaited<ReturnType<ExecutionSession['snapshot']>>|null,observation_error:null as string|null};
+          checkpoints.push(checkpoint);await options.persist(state());
+          try{checkpoint.observation=before.scratch?await owner.snapshot():null;}
+          catch(error){checkpoint.observation_error='CHECKPOINT_READBACK_FAILED';failure={stage:phase,code:'CHECKPOINT_READBACK_FAILED',source:'verification'};await options.persist(state());throw error;}
+          await sourceUnchanged();const after=owner.facts();
+          if(after.frozen||before.local_connection_id!==after.local_connection_id||before.scratch!==after.scratch||JSON.stringify(before.session_counts)!==JSON.stringify(after.session_counts)||(checkpoint.observation&&checkpoint.observation.document!==after.scratch))throw new Error('CONTINUATION_BINDING_CHANGED');
+          continuationBinding={connection:after.local_connection_id,document:after.scratch};
+          await options.persist(state());options.emit({type:'task.output_retry',reason:result.errorCode,attempt:outputRecoveries,recovery_scope:recoveryScope,scope_attempt:scopeRecoveries+1,document:after.scratch});
+          // Start a fresh response, never stitch/replay incomplete arguments. No
+          // continuePending here: only the budget handoff can own pending calls.
+          continuation=false;
+          continuationContext='\nScheduler响应恢复：上次响应不完整，禁止拼接其JSON、重放整批或猜测成功。下面真实账本/读回是唯一执行依据；新图已确认则严禁再次new_drawing。一次只生成一个组件或最多8项小Patch，立即实际调用工具，不先推演整张图。按尚缺部分继续；完成后提交受控视觉检查。\n'+JSON.stringify({scope,execution:compactExecution(after),observation:checkpoint.observation});
+          continue;
+        }
+        const missingPlan=phase==='planning'&&!result.errorCode;
+        failure={stage:phase,code:result.errorCode??(missingPlan?'ACCEPTANCE_PLAN_MISSING':'AGENT_FAILED'),source:missingPlan?'verification':'model'};
+        throw new Error(`QUALITY_MODEL_${result.status.toUpperCase()}`);
+      }
+      if(result.handoff?.kind==='budget'){
+        // AgentLoop is idle here: no native writes can race this checkpoint.
+        const before=owner.facts();
+        if(before.frozen)throw new Error('CAD_WRITE_FROZEN');
+        if(!result.handoff.renewable){budgetPaused=true;failure={stage:phase,code:result.handoff.code,source:'verification'};}
+        const checkpoint={at:new Date().toISOString(),task_id:taskId,phase,correction_round:round,
+          plan_sha256:createHash('sha256').update(JSON.stringify(plan??null)).digest('hex'),
+          connection:before.local_connection_id,document:before.scratch,execution:before,
+          observation:null as Awaited<ReturnType<ExecutionSession['snapshot']>>|null,
+          observation_error:null as string|null,budget:runtime.budgetState(),reason:result.handoff.code};
+        checkpoints.push(checkpoint);
+        await options.persist(state());
+        let observation:typeof checkpoint.observation=null;
+        try{observation=before.scratch?await owner.snapshot():null;checkpoint.observation=observation;}
+        catch(error){checkpoint.observation_error='CHECKPOINT_READBACK_FAILED';await options.persist(state());throw error;}
+        await sourceUnchanged();
+        const after=owner.facts();
+        if(after.frozen||before.local_connection_id!==after.local_connection_id||before.scratch!==after.scratch||
+          (observation&&observation.document!==after.scratch))throw new Error('CONTINUATION_BINDING_CHANGED');
+        continuationBinding={connection:after.local_connection_id,document:after.scratch};
+        await options.persist(state());
+        options.emit({type:'task.checkpoint',reason:result.handoff.code,execution_round:checkpoint.budget.execution_round,
+          document:after.scratch,continuing:Boolean(result.handoff.renewable)});
+        if(!result.handoff.renewable)throw new Error(result.handoff.code);
+        signal?.throwIfAborted();
+        continuation=true;
+        continuationContext='\n执行回合已续期，仍为同一任务、连接、图纸及授权。Scheduler会先派发上回合预算拒绝且从未派发的请求；Available.continuation_results是其真实结果。禁止重复已确认操作，禁止重建图纸。只继续尚未完成部分，然后调用受控视觉入口，交回独立验收。当前全图读回：\n'+JSON.stringify(observation);
+        continue;
+      }
+      if(outputRecoveries&&result.status==='succeeded')for(const checkpoint of checkpoints as {failed_agent_id?:string}[]){
+        const old=runtime.completed?.().find(r=>r.id===checkpoint.failed_agent_id);if(old&&!old.recovered_by)old.recovered_by=result.id;
+      }
+      return result;
     }
-    return result;
   };
-  const enter = async (next: QualityPhase) => { phase = next; transitions.push({ phase, at: new Date().toISOString() }); options.emit({ type: 'task.phase', phase, round }); await options.persist(state()); };
+  const enter = async (next: QualityPhase) => { phase = next; transitions.push({ phase, at: new Date().toISOString() }); publish(); options.emit({ type: 'task.phase', phase, round, has_reference: Boolean(referenceTask) }); await options.persist(state()); };
+  // Both the model tool and mandatory fallback use this controller. Cache is
+  // task-local and requires the same connection, document, writes and full readback.
+  const reviewCurrent = async (source: 'agent' | 'harness', reviewSignal = signal): Promise<VisualResult> => {
+    if (reviewFlight) { await reviewFlight; reviewSignal?.throwIfAborted(); return reviewCurrent(source, reviewSignal); }
+    const perform = async () => {
+      reviewSignal?.throwIfAborted();
+      if (!runtime || !plan || !['drawing','correcting','vision'].includes(phase)) throw new Error('VISUAL_REVIEW_PHASE_DENIED');
+      if (owner.facts().frozen) throw new Error('CAD_CAPTURE_BLOCKED_FROZEN');
+      await sourceUnchanged();
+      const before = await owner.snapshot();
+      reviewSignal?.throwIfAborted();
+      const facts = owner.facts();
+      const digest = createHash('sha256').update(JSON.stringify(before.entities)).digest('hex');
+      const key = JSON.stringify([taskId, facts.local_connection_id, facts.scratch, before.document, digest, facts.session_counts, plan, referenceTask?.image.sha256]);
+      // A post-review read may have failed. This fresh matching full readback
+      // certifies that same candidate instead of capturing/paying for it again.
+      if(candidateReview?.key===key&&candidateReview.review.review_valid){
+        cachedReview=candidateReview;candidateReview=undefined;visualError=null;
+        reviewedWrites=JSON.stringify([facts.local_connection_id,facts.scratch,facts.session_counts]);
+      }
+      if (cachedReview?.key === key) {
+        options.emit({type:'task.visual',source,reused:true,review_valid:cachedReview.review.review_valid,verdict:cachedReview.review.structured?.verdict??null});
+        return cachedReview.review;
+      }
+      const geometry = verifyQuality(plan, before.entities, {new_document:owner.taskScope?.(taskId).new_drawing_confirmed,saved_dwg:Boolean(artifact??owner.taskArtifact?.(taskId))});
+      checks=geometry;publish();
+      visualAttempts++;visualError=null;publish();
+      const observedSource=referenceObservation?.structured,sourceImage=referenceObservation?.evidence;
+      const sourceDetails=referenceTask&&observedSource&&sourceImage?referenceObservation?.net_review?.uncertain_nets?.slice(0,3).flatMap(net=>{
+        const points=net.pins.flatMap(pin=>{const p=observedSource.objects.find(o=>o.id===pin.object)?.terminals[pin.terminal];return p?[p]:[];});if(!points.length)return [];
+        const left=Math.max(0,Math.floor((Math.min(...points.map(p=>p[0]))-0.12)*sourceImage.width)),top=Math.max(0,Math.floor((Math.min(...points.map(p=>p[1]))-0.12)*sourceImage.height));
+        const right=Math.min(sourceImage.width,Math.ceil((Math.max(...points.map(p=>p[0]))+0.12)*sourceImage.width)),bottom=Math.min(sourceImage.height,Math.ceil((Math.max(...points.map(p=>p[1]))+0.12)*sourceImage.height));
+        return [{path:referenceTask.image.path,view:{crop:{left,top,width:right-left,height:bottom-top}},label:`ORIGINAL Image A detail for independent connection verification; NOT a CAD result. The following pins locate a region, not an assertion that they share a net: ${JSON.stringify(net.pins)}. Follow actual wire strokes; slight pen irregularity is not proof of disconnection.`}];
+      }):undefined;
+      const reviewQuestion={ original_request: task,
+        requirements: plan.requirements.filter(r => r.check === 'visual'), geometry, domain_guidance: guidance, source_frame:sourceFrameEvidence,
+        source_connection_review:{independent_check_required:Boolean(referenceTask),regions_to_inspect:referenceObservation?.net_review?.uncertain_nets?.map(n=>({pins:n.pins}))??[],
+          note:'Preliminary model opinions are not authoritative and are deliberately withheld. Independently compare actual original pixels and CAD. The supplied region pins are locations, not a claim of connectivity.'},rendering_contract:referenceTask?renderingContract():null,
+        source_terminal_index:observedSource&&sourceImage?{sha256:sourceImage.sha256,objects:observedSource.objects.map(({id,bounds,terminals})=>({id,bounds,terminals}))}:null,
+        source_connection_confirmations:connectionConfirmations.map(({pins,source_quote})=>({pins,source_quote})),
+        cad_external_netlist:plan.domain==='electrical-schematic'?{verified:geometry.some(c=>c.status==='pass'&&plan!.requirements.find(r=>r.id===c.id)?.check==='netlist'),components:plan.components,nets:plan.nets,wire_layer:plan.wire_layer}:null,
+        entity_snapshot: before.entities, observed_state_hash: digest, document_revision: null,
+        note: 'Image evidence checks appearance. Queried coordinates/IDs are authoritative; ambiguous pixels remain uncertain.',reference:referenceTask?.image??null };
+      let review=await runtime.reviewCadView(JSON.stringify(reviewQuestion),reviewSignal,referenceTask?.image.path,sourceDetails);
+      visual = review;
+      visualCalls.push({source,observed_state_hash:digest,review});
+      const deterministicReady=geometry.filter(c=>!['visual','saved_dwg'].includes(plan!.requirements.find(r=>r.id===c.id)?.check??'')).every(c=>c.status==='pass');
+      if(review.review_valid&&review.structured?.verdict==='uncertain'&&deterministicReady&&runtime.reassessCadView&&typeof (review.evidence as {sha256?:unknown}).sha256==='string'){
+        const check=await owner.snapshot();
+        if(digest!==createHash('sha256').update(JSON.stringify(check.entities)).digest('hex'))throw new Error('VISUAL_OBSERVATION_CHANGED');
+        options.emit({type:'task.visual_adjudication',image_ref:review.image_ref,reason:'UNCERTAIN_WITH_VERIFIED_GEOMETRY'});
+        const first=review;
+        try{
+          review=await runtime.reassessCadView(JSON.stringify({...reviewQuestion,adjudication:{previous_report:first.structured,unresolved_requirement_ids:first.structured!.checklist.filter(c=>c.status!=='pass').map(c=>c.requirement_id),policy:'Independently re-check only disputed required conditions with the same actual images and native evidence. Separate required fidelity from optional style preferences. Do not demand exact pixel placement, handwriting or photorealism unless requested. Native verified values/topology need not be re-proven from ambiguous pixels. Do not inherit the prior verdict or force pass: concrete defects fail; genuinely unresolved required evidence stays uncertain for the user.'}}),first.image_ref,reviewSignal,referenceTask?.image.path,sourceDetails);
+          visualCalls.push({source:'harness',observed_state_hash:digest,review,adjudication_of:first.image_ref});visual=review;
+        }catch(error){visualError='VISUAL_ADJUDICATION_FAILED: '+(error as Error).message;review=first;visual=first;}
+      }
+      candidateReview={key,review};
+      const after = await owner.snapshot();
+      reviewSignal?.throwIfAborted();
+      await sourceUnchanged();
+      const afterFacts=owner.facts();
+      const stable = !afterFacts.frozen && before.document===after.document && facts.local_connection_id===afterFacts.local_connection_id && facts.scratch===afterFacts.scratch &&
+        digest===createHash('sha256').update(JSON.stringify(after.entities)).digest('hex') && JSON.stringify(facts.session_counts)===JSON.stringify(afterFacts.session_counts);
+      // Invalid or stale results are retained as evidence, never reusable acceptance.
+      if(stable && review.review_valid) {cachedReview={key,review};reviewedWrites=JSON.stringify([afterFacts.local_connection_id,afterFacts.scratch,afterFacts.session_counts]);}
+      else cachedReview=undefined;
+      candidateReview=undefined;
+      publish(); await options.persist(state());
+      options.emit({type:'task.visual',source,reused:false,call_count:visualCalls.length,review_valid:review.review_valid,verdict:review.structured?.verdict??null,observation_unchanged:stable});
+      if(!stable) throw new Error('VISUAL_OBSERVATION_CHANGED');
+      return review;
+    };
+    reviewFlight=perform();
+    try { return await reviewFlight; }
+    catch(error){visualError=error instanceof Error?error.message:'VISUAL_REVIEW_FAILED';publish();await options.persist(state());throw error;}
+    finally {reviewFlight=undefined;}
+  };
   const saveReferenceArtifact=async()=>{
     if(!referenceTask)return;
     await sourceUnchanged();await enter('saving');
     artifact=await owner.saveTaskArtifact(taskId,referenceTask.outputPath,options.confirm,signal);
-    checks=checks.map(check=>plan!.requirements.find(r=>r.id===check.id)?.check==='saved_dwg'?{id:check.id,status:'pass',evidence:'本任务DWG保存、文件头、hash和保存后CAD查询已验证'}:check);
+    checks=checks.map(check=>plan!.requirements.find(r=>r.id===check.id)?.check==='saved_dwg'?{id:check.id,status:'pass',evidence:artifact?.file_verification?'本任务DWG文件指纹、独立只读重开及支持的实体摘要已验证（完整几何/语义验证另计）':'本任务DWG保存、文件头、hash和保存后CAD查询已验证'}:check);
     options.emit({type:'artifact.verified',artifact,quality:accepted?'accepted':'pending'});
   };
   const tool: ToolDefinition = {
-    name: 'cader_submit_acceptance_plan', description: 'Submit requirements quoted from the original request and independently testable checks. Components have planned bounds and two actual connection ports. Wire layer is explicit. Do not submit CAD operation sequences.', parameters: acceptancePlanSchema,
-    output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] }, async execute(args, exec) {
-      const parsed = parseAcceptancePlan(args);
+    name: 'cader_submit_acceptance_plan', description: 'Submit compact independent requirements. Components have 1..8 boundary ports with matching pin_names. Branched/multi-pin circuits use netlist and explicit junctions; series_cycle is only for a simple two-terminal series loop. Reference circuits preserve source_id and source_terminals in port order. Never submit operation sequences.', parameters: acceptancePlanSchema,
+    output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: String(v) }] },isConcurrencySafe:()=>false, async execute(args, exec) {
+      let input=args,layout:ReturnType<typeof sourcePlanLayout>|null=null;
+      if((args as {source_layout?:boolean}).source_layout===true){
+        const source=referenceObservation?.structured;if(!referenceTask||source?.drawing_kind!=='schematic'||!source.nets?.length)throw new Error('SOURCE_LAYOUT_UNAVAILABLE');
+        layout=sourcePlanLayout(source,referenceObservation!.evidence);
+        const compact=args as {requirements:QualityPlan['requirements'];wire_layer?:string};
+        const requirements=[...compact.requirements];
+        // These deterministic guards are mandatory for every schematic, not an
+        // optional model memory test. User-specific visual/label criteria remain
+        // independently authored and validated below.
+        for(const check of ['netlist','no_wire_through_component','text_clearance'] as const)
+          if(!requirements.some(r=>r.check===check))requirements.push({id:`required_${check}`,check,source_quote:compact.requirements[0]?.source_quote??task.slice(0,200),description:`Required schematic safety check: ${check}`});
+        input={version:1,domain:'electrical-schematic',wire_layer:compact.wire_layer??'WIRE',visual_required:true,components:layout.components,nets:layout.nets,requirements};
+      }
+      const parsed = parseAcceptancePlan(input);
       if(parsed.requirements.some(r => !task.toLowerCase().includes(r.source_quote.toLowerCase())))
         throw new Error('SOURCE_QUOTE_MUST_BE_FROM_ORIGINAL_REQUEST');
       if(!referenceTask&&parsed.requirements.some(r=>r.check==='saved_dwg')&&!/保存|另存|导出|\bsave\b|\bexport\b|\.dwg\b/i.test(task))throw new Error('UNREQUESTED_FILE_ACCEPTANCE: no DWG save was requested; remove saved_dwg rather than inventing a delivery condition');
       if(!referenceTask&&parsed.domain==='electrical-schematic'&&parsed.requirements.some(r=>r.check==='entity_count'&&r.entity_type==='AcDbLine'&&r.max!==undefined)&&!/线段|直线|最多.*线|\blines?\b/i.test(task))throw new Error('UNREQUESTED_PRIMITIVE_LIMIT: the user specified components, not a maximum number of AcDbLine entities; use symbol/topology checks, without an invented line-count ceiling');
+      if(!referenceTask&&parsed.requirements.some(r=>r.check==='entity_count'&&r.max!==undefined)&&!/直线|线段|多段线|圆|圆弧|矩形|文字|文本|\b(?:lines?|circles?|arcs?|polylines?|rectangles?|texts?)\b/i.test(task))throw new Error('UNREQUESTED_PRIMITIVE_LIMIT: no primitive counts were specified; use visual component/layout conditions without invented entity-count ceilings');
       if(/电路|circuit/i.test(task) && parsed.domain !== 'electrical-schematic')
         throw new Error('SCHEMATIC_TOPOLOGY_REQUIRED');
-      if(/并联|\bparallel\b/i.test(task) && parsed.domain === 'electrical-schematic') throw new Error('PARALLEL_TOPOLOGY_VERIFIER_UNAVAILABLE: cannot substitute a series-cycle check');
+      if(/并联|\bparallel\b/i.test(task) && parsed.domain === 'electrical-schematic'&&!parsed.requirements.some(r=>r.check==='netlist')) throw new Error('BRANCHED_TOPOLOGY_REQUIRES_NETLIST');
       if(/图|diagram|文字|text|电路|circuit/i.test(task))
         parsed.visual_required = true;
+      if(options.alwaysVisual||requiresQuality(task)||parsed.requirements.some(r=>r.check==='visual')) parsed.visual_required = true;
+      if(parsed.visual_required&&!parsed.requirements.some(r=>r.check==='visual'))throw new Error('VISUAL_ACCEPTANCE_REQUIRED: include an independently reviewable visual condition quoted from the original request');
       if(referenceTask){
+        if(hasConnectionClarification&&referenceObservation?.structured?.drawing_kind==='schematic'&&!connectionConfirmations.length&&!unconfirmedConnectionReviews.length)throw new Error('EXPLICIT_SOURCE_CONNECTIONS_UNREVIEWED: bind the actual connection confirmation with cader_confirm_source_connections before submitting a plan. Map source object IDs/terminal indices, quote the real confirmation, never infer a confirmation from the picture.');
+        if(/补充确认|标注确认|label clarification/i.test(task)){
+          const unreviewed=referenceObservation?.structured?.visible_text.flatMap((label,index)=>/[\p{L}\p{N}]/u.test(label.text)&&!labelConfirmations.some(r=>r.index===index)&&!unconfirmedLabelReviews.some(r=>r.index===index)?[{index,text:label.text,certainty:label.certainty}]:[])??[];
+          if(unreviewed.length)throw new Error('EXPLICIT_SOURCE_CLARIFICATIONS_UNREVIEWED: actual label confirmation must be reviewed even if OCR says clear. Bind applicable exact user quotes with cader_confirm_source_labels; explicitly record genuinely uncovered indices in unconfirmed. '+JSON.stringify(unreviewed));
+        }
+        if(/确认|clarification|confirm/i.test(task)){
+          const unreviewed=referenceObservation?.structured?.visible_text.flatMap((label,index)=>label.certainty==='uncertain'&&!unconfirmedLabelReviews.some(r=>r.index===index)?[{index,text:label.text,bounds:label.bounds}]:[])??[];
+          if(unreviewed.length)throw new Error('EXPLICIT_SOURCE_CLARIFICATIONS_UNREVIEWED: review the actual user clarification BEFORE submitting a plan. Use cader_confirm_source_labels for matching confirmed values; put genuinely uncovered indices in unconfirmed with a reason, never guess or ignore an applicable confirmation. '+JSON.stringify(unreviewed));
+        }
+        if(parsed.requirements.some(r=>r.check==='entity_count'&&r.entity_type==='AcDbBlockReference')&&!/图块|块引用|AcDbBlockReference|\bblocks?\b/i.test(task))throw new Error('UNREQUESTED_BLOCK_REPRESENTATION: source symbols are semantic components, not a request for block references or a fixed primitive implementation. Remove this count; use visual symbol coverage plus source terminals/netlist. Do not replace it with another arbitrary primitive count');
+        if(referenceObservation?.structured?.drawing_kind==='schematic'&&parsed.requirements.some(r=>r.check==='text'&&r.text&&!/[\p{L}\p{N}]/u.test(r.text)&&!task.includes(r.text)))throw new Error('SYMBOL_MARK_NOT_LITERAL_TEXT: source polarity/arrows are symbol details, not an unrequested AcDbText count. Verify them visually; do not duplicate geometry with extra punctuation labels');
+        if(referenceObservation?.structured?.drawing_kind==='schematic'&&!sourceStrokeRequested&&parsed.requirements.some(r=>/手绘风格|手写(?:风格|字体)|手绘笔触|铅笔(?:效果|纹理)|(?:原稿|原图).*笔触|sketch[- ]style|hand[- ]drawn style|handwritten font|pencil texture/i.test(r.description)))throw new Error('UNREQUESTED_SOURCE_STYLE: hand-drawn is the INPUT medium, not a request for rough CAD strokes or handwriting. Preserve component symbols, labels, topology and layout; remove invented stroke/font style gates unless the user explicitly requested them');
         parsed.visual_required=true;
         if(!parsed.requirements.some(r=>r.check==='visual'))throw new Error('REFERENCE_APPEARANCE_CHECK_REQUIRED');
+        if(referenceObservation?.net_review?.uncertain_nets?.length&&!parsed.requirements.some(r=>r.id==='source_topology_fidelity'&&r.check==='visual'))throw new Error('SOURCE_TOPOLOGY_VISUAL_RESOLUTION_REQUIRED: add visual condition id=source_topology_fidelity to independently verify ALL pending source nets against original pixels; agreement between preliminary observations is not final acceptance');
         const labels=referenceObservation?.structured?.visible_text.filter(t=>t.certainty==='clear'&&/[\p{L}\p{N}]/u.test(t.text))??[];
         const missing=labels.filter(t=>!parsed.requirements.some(r=>r.check==='text'&&r.text&&labelText(r.text)===labelText(t.text)));
         if(missing.length)throw new Error('SOURCE_LABEL_ACCEPTANCE_REQUIRED: preserve exact verified source labels and SI case in text checks: '+JSON.stringify(missing.map(t=>t.text)));
+        const counts=new Map<string,number>();for(const label of labels)counts.set(labelText(label.text),(counts.get(labelText(label.text))??0)+1);
+        const missingCounts=[...counts].filter(([text,count])=>!parsed.requirements.some(r=>r.check==='text'&&!r.component&&r.text&&labelText(r.text)===text&&(r.min??1)>=count));
+        if(missingCounts.length)throw new Error('SOURCE_LABEL_MULTIPLICITY_REQUIRED: add global literal text checks with min counts for ALL verified occurrences: '+JSON.stringify(missingCounts));
+        if(referenceObservation?.structured?.drawing_kind==='schematic'){
+          const source=referenceObservation.structured;
+          if(parsed.domain!=='electrical-schematic'||!parsed.requirements.some(r=>r.check==='netlist')||!source.nets?.length)throw new Error('SOURCE_NETLIST_REQUIRED: preserve branched circuit, never substitute series_cycle');
+          const mapped=parsed.components.filter(c=>c.source_id);
+          if(new Set(mapped.map(c=>c.source_id)).size!==mapped.length||source.objects.filter(o=>o.terminals.length).some(o=>!mapped.some(c=>c.source_id===o.id&&c.ports.length===o.terminals.length&&c.source_terminals?.length===o.terminals.length&&c.source_terminals.every(t=>t<o.terminals.length)))||parsed.components.some(c=>!source.objects.some(o=>o.id===c.source_id&&o.terminals.length)))throw new Error('SOURCE_TERMINALS_MUST_BE_PRESERVED: map each source object and ALL terminal indices to named ports, no invented devices');
+          const canonical=(nets:string[][])=>nets.map(pins=>pins.sort().join('|')).sort().join(';');
+          const expected=source.nets.map(n=>n.pins.map(p=>`${p.object}:${p.terminal}`));
+          const actual=parsed.nets!.map(n=>n.pins.map(p=>{const c=mapped.find(c=>c.id===p.component)!;return `${c.source_id}:${c.source_terminals![c.pin_names!.indexOf(p.pin)]}`;}));
+          if(canonical(expected)!==canonical(actual))throw new Error('SOURCE_NETLIST_MISMATCH: planned external nets must preserve observed source terminal partition');
+        }
       }
-      plan = parsed;
+      if(referenceObservation?.structured?.drawing_kind==='schematic')sourceFrameEvidence=referencePlanHints(referenceObservation.structured,referenceObservation.evidence,parsed).frame;
+      plan = parsed;sourceLayoutEvidence=layout;
       exec.concludeTurn();
       return JSON.stringify(plan);
     }
   };
+  const confirmLabels:ToolDefinition={name:'cader_confirm_source_labels',description:'Review explicit USER label clarifications by source-image index before planning. labels binds exact applicable quotes/values and preserves original OCR. Review applicable user confirmations even when OCR says clear. Record genuinely uncovered indices in unconfirmed; uncertain readings stay pending. Never invent user confirmation or treat inference as OCR success.',isConcurrencySafe:()=>false,parameters:{type:'object',properties:{labels:{type:'array',minItems:0,maxItems:32,items:{type:'object',properties:{index:{type:'integer',minimum:0},text:{type:'string',minLength:1,maxLength:80},source_quote:{type:'string',minLength:1,maxLength:800}},required:['index','text','source_quote'],additionalProperties:false}},unconfirmed:{type:'array',maxItems:32,items:{type:'object',properties:{index:{type:'integer',minimum:0},reason:{type:'string',minLength:1,maxLength:800}},required:['index','reason'],additionalProperties:false}}},required:['labels'],additionalProperties:false},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args){
+    await sourceUnchanged();const {labels,unconfirmed=[]}=args as {labels:{index:number;text:string;source_quote:string}[];unconfirmed?:{index:number;reason:string}[]};
+    const indices=[...labels,...unconfirmed].map(l=>l.index);
+    if(!referenceTask||!referenceObservation?.structured||!indices.length||new Set(indices).size!==indices.length||unconfirmed.some(r=>!referenceObservation!.structured!.visible_text[r.index]||!r.reason?.trim()))throw new Error('SOURCE_CONFIRMATION_INVALID');
+    for(const label of labels){
+      const observed=referenceObservation.structured.visible_text[label.index];
+      if(!observed||labelConfirmations.some(c=>c.index===label.index)||!task.includes(label.source_quote)||/\.(?:png|jpe?g|dwg)\b/i.test(label.source_quote)||!/确认|clarification|confirm/i.test(label.source_quote)||!labelText(label.source_quote).includes(labelText(label.text)))throw new Error('EXPLICIT_USER_CONFIRMATION_REQUIRED: source indices not previously confirmed, exact user quote and confirmed literal value');
+    }
+    const originals=labels.map(label=>({index:label.index,reading:structuredClone(referenceObservation!.structured!.visible_text[label.index]!)})),start=labelConfirmations.length,unconfirmedStart=unconfirmedLabelReviews.length;
+    for(const label of labels){const observed=referenceObservation.structured.visible_text[label.index]!;labelConfirmations.push({...label,image_sha256:referenceTask.image.sha256,original_reading:structuredClone(observed)});observed.text=label.text;observed.certainty='clear';}
+    unconfirmedLabelReviews.push(...unconfirmed);
+    try{await options.persist(state());}catch(error){for(const original of originals)referenceObservation.structured.visible_text[original.index]=original.reading;labelConfirmations.length=start;unconfirmedLabelReviews.length=unconfirmedStart;throw error;}options.emit({type:'reference.labels_confirmed',count:labels.length,unconfirmed:unconfirmed.length,image_sha256:referenceTask.image.sha256,source:'explicit_user_quote'});return JSON.stringify({confirmed:labels,unconfirmed,source:'user_confirmation',not_ocr_success:true});
+  }};
+  const confirmConnections:ToolDefinition={name:'cader_confirm_source_connections',description:'Bind explicit USER confirmation that source terminals share one connected external net. Use original object IDs and zero-based terminal indices. Quote the actual confirmation including its confirmation wording; never invent one from an image. Only merges declared source groups, no CAD writes, no arbitrary splits. Record genuinely unmappable clarifications as unconfirmed; they stay pending.',parameters:sourceConnectionReviewSchema,isConcurrencySafe:()=>false,
+    output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args){
+      await sourceUnchanged();const review=parseSourceConnectionReview(args),source=referenceObservation?.structured;
+      if(plan||!referenceTask||!source?.nets?.length||!review.connections.length&&!review.unconfirmed?.length)throw new Error('SOURCE_CONNECTION_CONFIRMATION_INVALID');
+      if([...review.connections,...review.unconfirmed??[]].some(r=>!task.includes(r.source_quote)||!/确认|confirm/i.test(r.source_quote)||/\.(?:png|jpe?g|dwg)\b/i.test(r.source_quote)))throw new Error('EXPLICIT_USER_CONNECTION_QUOTE_REQUIRED: quote the real confirmation clause including confirmation wording, not a filename or guessed intention');
+      const original=structuredClone(source.nets),next=mergeConfirmedSourceConnections(source.nets,review.connections),start=connectionConfirmations.length,unconfirmedStart=unconfirmedConnectionReviews.length;
+      source.nets=next;connectionConfirmations.push(...review.connections.map(c=>({...c,image_sha256:referenceTask.image.sha256,original_nets:original})));unconfirmedConnectionReviews.push(...review.unconfirmed??[]);
+      try{await options.persist(state());}catch(error){source.nets=original;connectionConfirmations.length=start;unconfirmedConnectionReviews.length=unconfirmedStart;throw error;}
+      options.emit({type:'reference.connections_confirmed',count:review.connections.length,image_sha256:referenceTask.image.sha256,source:'explicit_user_quote'});return JSON.stringify({nets:source.nets,confirmed:review.connections,unconfirmed:review.unconfirmed??[],not_vision_success:true});
+    }};
   try {
     if(owner.facts().frozen){await enter('blocked');return state();}
     if(!runtime)throw new Error('QUALITY_RUNTIME_REQUIRED');
@@ -247,7 +562,7 @@ export async function runQualityTask(options: {
       await enter('reference');
       referenceObservation=await runtime.inspectReference(referenceTask.image.path,task,signal);
       if(!referenceObservation.valid||referenceObservation.evidence.sha256!==referenceTask.image.sha256||!referenceObservation.structured?.objects.length){
-        failure={stage:'reference',code:'REFERENCE_INSPECTION_FAILED',source:'verification'};await enter('blocked');return state();
+        failure={stage:'reference',code:referenceObservation.component_inventory&&!referenceObservation.component_inventory.valid?'SOURCE_COMPONENT_INVENTORY_FAILED':referenceObservation.net_review&&!referenceObservation.net_review.valid?(referenceObservation.net_review.report_valid===false?'SOURCE_NET_REPORT_INVALID':'SOURCE_TOPOLOGY_UNCERTAIN'):referenceObservation.label_inventory&&!referenceObservation.label_inventory.valid?'SOURCE_LABEL_INVENTORY_FAILED':'REFERENCE_INSPECTION_FAILED',source:'verification'};await enter('blocked');return state();
       }
       const [a,b]=referenceObservation.structured.content_bounds,w=referenceObservation.evidence.width,h=referenceObservation.evidence.height;
       const margin=Math.max(b[0]-a[0],b[1]-a[1])*0.03;
@@ -263,9 +578,46 @@ export async function runQualityTask(options: {
         return state();
       }
     }
-    else
-      await act('用中文规划以下绘图任务。必须调用cader_submit_acceptance_plan，只提交需求验收清单与组件布局/端口；此阶段不能绘图。若有参考图片，必须先观察实际像素；可用cader_view_image裁看原图。识别可读符号、文字与连接，示意图使用布局坐标，不因缺少物理比例尺全局拒绝；不可读的值单独标未知。source_quote必须原样引用用户请求，图片中数值可在description/text写出并用“参考图”等请求原文作source_quote。独立列出数量、文字、布局及源图外观匹配条件。新建文档与保存由程序验证，不能用任意实体数代替。entity_count必须是可测的实际AcDb类型；COM draw_polyline/rectangle生成AcDb2dPolyline，不是AcDbPolyline。组件语义使用visual检查。电路使用真实组件边界端口和适合的拓扑检查，不强加电路条件到普通图。标注以text检查，禁止导线穿组件或短接其端口。不得把本阶段的“只做规划”误写为整任务不准绘图。\n' + task,
-        { signal, onlyTools: [tool.name,'cader_view_image'], extraTools: [tool], resultText: () => plan ? JSON.stringify(plan) : undefined });
+    else {
+      const canConfirm=Boolean(referenceTask&&referenceObservation?.structured?.visible_text.length&&/确认|clarification|confirm/i.test(task));
+      const canConfirmConnections=Boolean(hasConnectionClarification&&referenceObservation?.structured?.nets?.length);
+      if(referenceObservation?.structured?.drawing_kind==='schematic'){
+        tool.parameters={anyOf:[{type:'object',properties:{source_layout:{const:true},requirements:acceptancePlanSchema.properties.requirements,wire_layer:{type:'string',minLength:1,maxLength:80}},required:['source_layout','requirements'],additionalProperties:false},acceptancePlanSchema]};
+        tool.description+=' Custom bounds/ports must share a globally consistent source-to-CAD axis scale/translation, checked before drawing; labels use that same frame. For a reference schematic prefer {source_layout:true,requirements:[...],wire_layer?:...}: reuse the already model-observed and independently reviewed source layout/net groups. The program normalizes boundary ports and runs the same plan checks before approval; never submit operation sequences or duplicate the whole graph.';
+        const focused=async(id:string,instruction:string,selected:ToolDefinition,includeHints:boolean)=>{
+          activePlanningUnit=id;const progress:{id:string;status:'active'|'checked_in'}={id,status:'active'};planningUnits.push(progress);await options.persist(state());
+          const request={signal,keepExecutionRound:true,maxImageViews:0,onlyTools:[selected.name],extraTools:[tool,selected],resultText:()=> '当前源信息确认阶段已保存，等待后续验收规划。'};
+          try{await act(instruction,request,includeHints);}catch(error){const failed=runtime.completed().filter(r=>r.profile===options.profile).at(-1);if(signal?.aborted||!failed||!['OUTPUT_TRUNCATED','MALFORMED_RESPONSE','TIMEOUT'].includes(failed.errorCode??''))throw error;failure=null;options.emit({type:'task.planning_retry',reason:failed!.errorCode,attempt:1,unit_id:id});await act('上次本阶段响应中断；只提交当前确认，不规划或绘图。'+instruction,request,includeHints);const recovered=runtime.completed().filter(r=>r.profile===options.profile).at(-1);if(recovered?.status==='succeeded')failed.recovered_by=recovered.id;}
+          progress.status='checked_in';activePlanningUnit=null;await options.persist(state());
+        };
+        if(canConfirm&&/补充确认|标注确认|label clarification/i.test(task)){
+          const indices=referenceObservation.structured.visible_text.flatMap((label,index)=>/[\p{L}\p{N}]/u.test(label.text)&&!labelConfirmations.some(r=>r.index===index)&&!unconfirmedLabelReviews.some(r=>r.index===index)?[index]:[]);
+          for(let offset=0;offset<indices.length;offset+=4){const selected=indices.slice(offset,offset+4),schema=structuredClone(confirmLabels.parameters) as any;schema.properties.labels.items.properties.index.enum=selected;schema.properties.unconfirmed.items.properties.index.enum=selected;
+            const confirmationQuotes=[...task.matchAll(/(?:补充确认|标注确认|label clarification)\s*[:：][^。\n]+/gi)].map(match=>match[0]);
+            if(confirmationQuotes.length)schema.properties.labels.items.properties.source_quote.enum=confirmationQuotes;
+            const limited:ToolDefinition={...confirmLabels,parameters:schema,async execute(args,exec){const review=args as {labels:{index:number}[];unconfirmed?:{index:number}[]},provided=[...review.labels,...review.unconfirmed??[]].map(r=>r.index);if(provided.length!==selected.length||new Set(provided).size!==selected.length||provided.some(i=>!selected.includes(i)))throw new Error('SOURCE_CONFIRMATION_SCOPE: review every current index exactly once, no other indices');const result=await confirmLabels.execute(args,exec);exec.concludeTurn();return result;}};
+            await focused(`labels:${offset/4}`,'使用中文。当前只审定这批源标注，不规划、不追网、不绘图。立即调用cader_confirm_source_labels覆盖本批全部索引；适用的真实用户确认逐字引用并绑定值（包括clear读取），不涵盖的项记unconfirmed理由并保留原certainty。不能把推断伪装确认，不输出整图计划。用户请求：'+task+'\n本批源标注（原图归一化框）：'+JSON.stringify(selected.map(index=>({index,...referenceObservation!.structured!.visible_text[index]}))),limited,false);
+          }
+        }
+        if(canConfirmConnections&&!connectionConfirmations.length&&!unconfirmedConnectionReviews.length){
+          const limited:ToolDefinition={...confirmConnections,async execute(args,exec){const result=await confirmConnections.execute(args,exec);exec.concludeTurn();return result;}};
+          await focused('connections','使用中文。当前仅绑定用户明确的连接确认，立即调用cader_confirm_source_connections；按源对象id和端子索引映射，引用含确认语义的真实原文。不能推演绘图或验收计划，不补其他关系；无法映射记unconfirmed。用户请求：'+task,limited,true);
+        }
+      }
+      const planningRequest={ signal,keepExecutionRound:true,maxImageViews:2, onlyTools: [tool.name,'cader_view_image',...(canConfirm?[confirmLabels.name]:[]),...(canConfirmConnections?[confirmConnections.name]:[])], extraTools: [tool,...(canConfirm?[confirmLabels]:[]),...(canConfirmConnections?[confirmConnections]:[])], resultText: () => plan ? JSON.stringify(plan) : undefined };
+      try {
+      await act('用中文规划以下绘图任务。'+(referenceObservation?.structured?.drawing_kind==='schematic'?'参考手绘电路是输入资料，目标是可编辑CAD；没有明确要求手绘/手写输出风格时，不增加笔触、手写字体或纸张纹理验收，只核对图形、标签、连接和相对布局。':'')+'标注和连接确认按当前任务状态已审定；不能从图片或常见值编造确认。必须调用cader_submit_acceptance_plan，只提交紧凑需求验收清单；参考电路优先使用source_layout:true引用既有源布局和网表，不抄写全部components/nets，不生成操作序列。普通插画的components可为空，勿虚构连接端口。仅拓扑任务需要组件布局/端口；参考电路必须用netlist，components带source_id、source_terminals（按ports顺序的原图端子索引）、pin_names及全部端口；nets必须保持观察的原图端子分组，不能把分支/三端器件改成series_cycle。组件bounds可包含引线，端口在边界；此阶段不能绘图。若有参考图片，必须先观察实际像素；可用cader_view_image裁看原图。识别可读符号、文字与连接，示意图使用布局坐标，不因缺少物理比例尺全局拒绝；不可读的值单独标未知。source_quote必须原样引用用户请求，图片中数值可在description/text写出并用“参考图”等请求原文作source_quote。独立列出数量、文字、布局及源图外观匹配条件。极性+/−、箭头等属于符号细节，未明确请求文字实体时用visual验，不增加纯标点的text数量门槛。新建文档与保存由程序验证，不能用任意实体数代替。entity_count必须是可测的实际AcDb类型；COM draw_polyline/rectangle生成AcDb2dPolyline，不是AcDbPolyline。组件语义使用visual检查。参考图的符号数量不能随意变成全部圆/线实体的硬上限（还可能有接点小圆和符号内部线）；需要实体计数时可用layer限定其语义图层，或以visual验符号。电路使用真实组件边界端口和适合的拓扑检查，不强加电路条件到普通图。标注以text检查，禁止导线穿组件或短接其端口。不得把本阶段的“只做规划”误写为整任务不准绘图。\n' + task,
+        planningRequest);
+      } catch(error) {
+        const failed=runtime.completed().filter(run=>run.profile===options.profile).at(-1);
+        if(plan||signal?.aborted||!failed||!['OUTPUT_TRUNCATED','MALFORMED_RESPONSE','TIMEOUT'].includes(failed.errorCode??''))throw error;
+        failure=null;
+        options.emit({type:'task.planning_retry',reason:failed!.errorCode,attempt:1});
+        await act('上次规划响应中断。仅调用cader_submit_acceptance_plan提交紧凑计划，不输出长文；保持原始需求不变、逐项引用原文。普通插画components可为空；不加入未请求的保存或图元数量上限。必要语义/颜色/布局/风格用visual，新图用new_document。参考电路使用source_layout:true，只写必要requirements，不复制整份端口和net；仍须全部源标签/拓扑/视觉条件。\n'+task,planningRequest);
+        const recovered=runtime.completed().filter(run=>run.profile===options.profile).at(-1);
+        if(recovered?.status==='succeeded')failed.recovered_by=recovered.id;
+      }
+    }
     if(!plan) {
       failure={stage:'planning',code:'ACCEPTANCE_PLAN_MISSING',source:'verification'};
       await enter('blocked');
@@ -278,8 +630,62 @@ export async function runQualityTask(options: {
       return state();
     }
     await enter('drawing');
-    if(!options.resume)
-      await act((referenceTask?'根据当前实际附带的原图重绘。本任务必须先调用new_drawing新建空白图，不允许复用上一任务图。图层先创建再使用；不要只写分析或要求GUI上传。程序会将结果保存到约定DWG，模型阶段不要保存。':'按原始请求及已封存验收计划自主绘图，不要重建已存在的合适工作图。')+'所有点必须XYZ，按验收计划绝对坐标与端口位置执行。WIRE只用于组件外部连接，不得跨过组件本体或短接同一组件两端。所有文本应按原图可读标注绘制，不虚构尺寸。不要调用视觉工具，不要向用户宣称完成；调度器会验证。\n' + JSON.stringify({ task, plan }), options.request);
+    if(!options.resume&&referenceTask&&plan.domain==='electrical-schematic'){
+      // These units come from the model's accepted semantic plan, not a fixed
+      // geometry/script. Every symbol and wire route is still generated by DSH.
+      const layoutHints=referenceObservation?.structured?referencePlanHints(referenceObservation.structured,referenceObservation.evidence,plan):null;
+      const labels=layoutHints?.visible_text.filter(t=>t.certainty==='clear'&&/[\p{L}\p{N}]/u.test(t.text))??[];
+      const unitContract={required_layers:[...new Set([plan.wire_layer,...plan.requirements.map(r=>r.layer)].filter((layer):layer is string=>Boolean(layer)))],
+        appearance_requirements:plan.requirements.filter(r=>r.check==='visual').map(({id,description})=>({id,description})),
+        measurable_requirements:plan.requirements.filter(r=>r.check==='text'||r.check==='entity_count').map(({id,check,text,layer,component,entity_type,min,max})=>({id,check,text,layer,component,entity_type,min,max}))};
+      const units=[{id:'setup',kind:'setup',data:{wire_layer:plan.wire_layer}},
+        ...plan.components.map(c=>({id:`component:${c.id}`,kind:'component',data:{...c,source_appearance:layoutHints?.objects.find(o=>o.id===c.source_id)??null,source_symbol_marks:layoutHints?.visible_text.filter(t=>!/[\p{L}\p{N}]/u.test(t.text)&&t.bounds[0]![0]!<=c.bounds[1][0]&&t.bounds[1]![0]!>=c.bounds[0][0]&&t.bounds[0]![1]!<=c.bounds[1][1]&&t.bounds[1]![1]!>=c.bounds[0][1])??[]}})),
+        ...(plan.nets??[]).map(n=>({id:`net:${n.id}`,kind:'net',data:{...n,pins:n.pins.map(p=>{const c=plan!.components.find(c=>c.id===p.component)!;return {...p,position:c.ports[c.pin_names!.indexOf(p.pin)]};}),junctions:plan!.junctions}})),
+        ...Array.from({length:Math.ceil(labels.length/4)},(_,i)=>({id:`labels:${i}`,kind:'labels',data:labels.slice(i*4,i*4+4)}))];
+      for(const unit of units){
+        signal?.throwIfAborted();if(owner.facts().frozen)throw new Error('CAD_WRITE_FROZEN');
+        activeUnit=unit.id;const progress:{id:string;status:'active'|'checked_in';snapshot_sha256?:string}={id:unit.id,status:'active'};drawingUnits.push(progress);
+        await options.persist(state());let checkedIn=false;
+        const unitBefore=owner.facts();
+        let unitSnapshot:Awaited<ReturnType<ExecutionSession['snapshot']>>|null=null;
+        if(unitBefore.scratch){
+          try{unitSnapshot=await owner.snapshot();}catch(error){failure={stage:'drawing',code:'CHECKPOINT_READBACK_FAILED',source:'verification'};throw error;}
+          const current=owner.facts();
+          if(current.frozen||current.local_connection_id!==unitBefore.local_connection_id||current.scratch!==unitBefore.scratch||unitSnapshot.document!==current.scratch)throw new Error('CONTINUATION_BINDING_CHANGED');
+        }
+        const observedEntities=unitSnapshot?.entities.map(entity=>Object.fromEntries(['object_id','type','layer','color','start_point','end_point','center','radius','coordinates','closed','bounding_box','text_string','height','rotation','insertion_point'].filter(key=>entity[key]!==undefined).map(key=>[key,entity[key]])));
+        const checkIn=async()=>{
+          const before=owner.facts(),scope=owner.taskScope(taskId);
+          if(before.frozen||!scope.owned||!scope.new_drawing_confirmed)throw new Error('DRAWING_UNIT_UNBOUND');
+          let snapshot:Awaited<ReturnType<ExecutionSession['snapshot']>>;try{snapshot=await owner.snapshot();}catch(error){failure={stage:'drawing',code:'CHECKPOINT_READBACK_FAILED',source:'verification'};throw error;}const after=owner.facts();
+          if(after.frozen||before.local_connection_id!==after.local_connection_id||before.scratch!==after.scratch||snapshot.document!==after.scratch){failure={stage:'drawing',code:'CONTINUATION_BINDING_CHANGED',source:'verification'};throw new Error('CONTINUATION_BINDING_CHANGED');}
+          if(unit.kind==='component'){
+            const component=plan!.components.find(c=>`component:${c.id}`===unit.id)!,missing=missingSymbolPorts(component,snapshot.entities,plan!.wire_layer);
+            if(missing.length)throw Object.assign(new Error(JSON.stringify({code:'DRAWING_UNIT_INCOMPLETE',component:component.id,missing_ports:missing,guidance:'Actual non-WIRE symbol endpoints must reach each port. A polyline bounding box is insufficient; use explicit symbol lead lines, not duplicate whole symbols.',no_replay:true})),{code:'DRAWING_UNIT_INCOMPLETE'});
+          }
+          progress.status='checked_in';progress.snapshot_sha256=createHash('sha256').update(JSON.stringify(snapshot.entities)).digest('hex');
+          try{await options.persist(state());}catch(error){progress.status='active';failure={stage:'drawing',code:'CHECKPOINT_PERSIST_FAILED',source:'verification'};throw error;}
+          checkedIn=true;options.emit({type:'task.drawing_unit',unit_id:unit.id,status:'checked_in',document:after.scratch});
+        };
+        const finish:ToolDefinition={name:'cader_finish_drawing_unit',description:'Check in ONLY the current drawing unit after its actual tools have completed. This is a progress checkpoint, never final acceptance.',parameters:{type:'object',properties:{unit_id:{type:'string',const:unit.id}},required:['unit_id'],additionalProperties:false},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:String(v)}]},async execute(args,exec){
+          if((args as {unit_id:string}).unit_id!==unit.id)throw new Error('DRAWING_UNIT_MISMATCH');
+          await checkIn();exec.concludeTurn();return JSON.stringify({unit_id:unit.id,checked_in:true,task_complete:false});
+        }};
+        const instruction='使用中文，立即执行当前一个调度单元，不推演整张图。setup仅新建一次工作图及所需图层（WIRE、SYMBOL、TEXT等）；配色匹配原图/用户要求，文字应与截图背景有足够对比，未请求彩色时优先ACI7，不用浅黄浅绿文字。component仅画指定符号和内部引线，严格在bounds内并接到全部ports，三端器件保留全部引脚；source_appearance保留原图观察到的具体形态（轮廓、填充、箭头、方向），抽象kind不能覆盖它，不能擅自改为同功能但不同形态的标准符号；按appearance_requirements逐项核对本组件。source_symbol_marks中的极性/箭头作为符号细节一次绘制，不会在labels阶段重复添加。每个端口必须有实际SYMBOL层直线引线端点或圆周接触证据；多段线只画内部折线，端口引线另外画成直线，不能只凭bbox宣称到达端口；net仅画该组外部导线，核对已有线避免重叠，绕开所有组件内部，单pin网无需导线，同坐标相接且引线已证实的两端口直接接触，不要绘制零长度线。junctions只用于有明确内部交叉的实际接点；已有T接点通过端点证明，不重复画多余小圆；labels仅按原图位置绘制这批已确认文字（重复值按每个原图位置分别画）。文字插入点使用text_layout.anchor（左下基线附近），高度不超过max_text_height，并使实际文字宽高适合target_width/target_height；不能把source bounds中心当文字左下角，不能按器件高度选择大字号。用读回bounding_box核对不压符号、导线和其他字，必要时先小幅移位；已存在同位置文字则不重复。不得操作其他单元，不保存，不提前视觉检查。每个Patch最多8项，可多次小Patch。优先在最后一个Patch设置unit_complete=true，由程序读回登记并结束当前回合，省去额外模型请求；无需再单独调用finish。没有Patch或分次单工具绘制时，完成后调用cader_finish_drawing_unit交回调度器；下一单元由程序提供，不宣称整图完成。所有坐标XYZ。\n'+JSON.stringify({task,unit,wire_layer:plan.wire_layer,component_bounds:plan.components.map(c=>({id:c.id,bounds:c.bounds,ports:c.ports})),scope:owner.taskScope(taskId),unit_start_readback:unitSnapshot?{document:unitSnapshot.document,entities:observedEntities,scope:'Fresh complete geometry/labels at unit start; do not repeat full/type queries for the same data. Query an affected ID only after modifications if needed. Final independent checks still required.'}:null});
+        const shared=['query_entities','get_entity','list_layers','create_layer'];
+        const scoped=unit.kind==='setup'?['new_drawing','list_layers','create_layer','set_layer_properties','get_backend_status']:unit.kind==='component'?[...shared,'draw_line','draw_polyline','draw_circle','draw_arc','move_entity','delete_entity']:unit.kind==='net'?[...shared,'draw_line','draw_circle','delete_entity']:[...shared,'draw_text','draw_mtext','move_entity','delete_entity'];
+        const onlyTools=owner.definitions(options.confirm).map(t=>t.name).filter(name=>scoped.includes(name.split('__').at(-1)!));
+        const request={...options.request,onlyTools:[...onlyTools,'cader_apply_cad_patch',finish.name],keepExecutionRound:true,completeDrawingUnit:checkIn,extraTools:[finish],resultText:()=>checkedIn?'当前绘图单元已读回登记，等待后续单元与独立验收。':undefined};
+        const boundInstruction=instruction+'\n封存计划的执行约束（不得遗漏或改名）：\n'+JSON.stringify(unitContract)+'\nsetup创建required_layers；component和labels必须遵守对应measurable_requirements的layer/文字条件。前文TEXT、SYMBOL等只是示例，不覆盖计划指定的图层。';
+        await act(boundInstruction,request);
+        if(failure)throw new Error('DRAWING_UNIT_READBACK_FAILED');
+        if(!checkedIn)await act(boundInstruction+'\n上一回合未登记检查点。先读回核对，仅补齐此单元未执行部分，不重放确认操作，然后调用cader_finish_drawing_unit。',request);
+        if(!checkedIn){failure={stage:'drawing',code:'DRAWING_UNIT_NOT_CLOSED',source:'verification'};throw new Error('DRAWING_UNIT_NOT_CLOSED');}
+      }
+      activeUnit=null;await options.persist(state());
+    }
+    else if(!options.resume)
+      await act((referenceTask?'根据当前实际附带的原图重绘。本任务必须先调用new_drawing新建空白图，不允许复用上一任务图。图层先创建再使用；不要只写分析或要求GUI上传。程序会将结果保存到约定DWG，模型阶段不要保存。':'按原始请求及已封存验收计划自主绘图，不要重建已存在的合适工作图。')+'立即实际调用工具，每批最多8个操作、逐组件推进，禁止先生成整图长计划。所有点必须XYZ，按验收计划绝对坐标与端口位置执行。WIRE只用于组件外部连接，不得跨过组件本体或短接同一组件端口。分支按具名端口netlist连接；无连接点的交叉不导通。所有文本应按原图可读标注绘制，不虚构尺寸。绘制后主动调用cader_review_cad_view检查实际结果；该入口由程序绑定本任务需求和实体证据，已有有效检查会复用。若未调用，调度器仍会补验；不要向用户宣称完成。\n' + JSON.stringify({ task, plan }), options.request);
     if(referenceTask&&!owner.facts().frozen){
       let scope=owner.taskScope(taskId);
       if(!scope.new_drawing_confirmed||!scope.geometry_confirmed){
@@ -308,12 +714,7 @@ export async function runQualityTask(options: {
       const snapshotHash = createHash('sha256').update(JSON.stringify(snapshot.entities)).digest('hex');
       if(plan.visual_required) {
         await enter('vision');
-        visual = await runtime.reviewCadView(JSON.stringify({
-          original_request: task, requirements: plan.requirements.filter(r => r.check === 'visual'), geometry: checks, domain_guidance: guidance,
-          entity_snapshot: snapshot.entities, observed_state_hash: snapshotHash, document_revision: null,
-          note: 'Use image for symbol/label/layout quality. Coordinates and IDs from queries are authoritative for location; mark pixel ambiguity uncertain. Do not invent requested dimensions.',
-          reference:referenceTask?.image??null,
-        }), signal,referenceTask?.image.path);
+        visual = await reviewCurrent('harness');
       }
       const review = visual as Awaited<ReturnType<typeof runtime.reviewCadView>> | null;
       const knownIds = new Set(snapshot.entities.map(e => e.object_id));
@@ -339,40 +740,56 @@ export async function runQualityTask(options: {
         document_revision: null, image_evidence: review?.evidence ?? null, visual_report: review?.structured ?? null,
         references_valid: referencesValid, source_bound:sourceBound,possible_clipping: clipped, observation_unchanged: unchanged,
         disagreements: checks.filter(c => c.status === 'pass' && review?.structured?.checklist.some(v => v.requirement_id === c.id && v.status !== 'pass')).map(c => c.id),
+        source_topology_resolution:referenceObservation?.net_review?.uncertain_nets?.length?{original_uncertainty:referenceObservation.net_review,visual_condition:review?.structured?.checklist.find(c=>c.requirement_id==='source_topology_fidelity')??null,structured_source_evidence:review?.source_topology_evidence??null,source_hash:referenceTask?.image.sha256}:null,
         entity_mapping: 'queried ObjectIDs; pixel-to-CAD transform unavailable; visual suggestions require coordinate reconciliation'
       });
       const beforeSave=checks.filter(c=>!referenceTask||plan!.requirements.find(r=>r.id===c.id)?.check!=='saved_dwg');
+      signal?.throwIfAborted();
       if(valid && unchanged && !sourceLabelsUncertain && beforeSave.every(c => c.status === 'pass')) {
+        // Only a fully accepted, current review can supersede older failed
+        // vision attempts. Preserve failures and their evidence in the journal.
+        const replacement=review?.attempts.filter(attempt=>attempt.valid&&attempt.status==='succeeded').at(-1)?.id;
+        if(replacement)for(const attempt of visualCalls.flatMap(call=>call.review.attempts)){
+          const failed=runtime.completed?.().find(run=>run.id===attempt.id&&run.status!=='succeeded'&&!run.recovered_by);
+          if(failed&&failed.id!==replacement){failed.recovered_by=replacement;options.emit({type:'task.visual_recovered',failed_agent_id:failed.id,replacement_agent_id:replacement});}
+        }
         accepted=true;
-        if(!referenceTask)await enter('complete');
+        if(!referenceTask)await enter(owner.taskArtifact?.(taskId)?.file_contract?'saving':'complete');
         break;
       }
       if(clipped)
         checks.push({ id: 'capture_bounds', status: 'not_run', evidence: '视图边缘出现图形，可能被裁切；不得依据不完整图片修改几何。检查MCP打印范围及缩放。' });
+      const sourcePartitionConflict=Boolean(review?.source_topology_evidence?.all_clear&&!review.source_topology_evidence.matches_cad_groups);
+      if(sourcePartitionConflict)checks.push({id:'source_partition_conflict',status:'not_run',evidence:'独立源端子分组与已封存计划冲突；几何修正不能改变源契约，停止无效绘图并保存待验。需要重新核对源分组，不能按旧分组反复增删导线。'});
       const nonActionableUncertainty = review?.structured?.verdict === 'uncertain' && !review.structured.defects.length && !checks.some(c => c.status === 'fail' && plan!.requirements.find(r => r.id === c.id)?.check !== 'visual');
       if(nonActionableUncertainty) checks.push({ id: 'visual_uncertainty', status: 'not_run', evidence: '必要视觉结论仍不确定；没有可定位缺陷，不做推测性修改，保留证据以便安全重验。' });
       if(sourceLabelsUncertain)checks.push({id:'source_labels_uncertain',status:'not_run',evidence:'原图局部复核后仍有必要文字不确定；已绘制结果只能保存为待验稿，不猜测SI单位或标注'});
-      if(sourceLabelsUncertain || nonActionableUncertainty || clipped || !sourceBound || !unchanged || round === 3 || (plan.visual_required && (!review?.review_valid || !referencesValid))) {
+      if(sourcePartitionConflict || sourceLabelsUncertain || nonActionableUncertainty || clipped || !sourceBound || !unchanged || round === 3 || (plan.visual_required && (!review?.review_valid || !referencesValid))) {
         await enter('pending_verification');
         break;
       }
       await enter('correcting');
-      await act('使用中文。程序已附实际读回实体和定位到坐标/ID的拓扑缺陷，修改前核对目标实体，再调用cader_apply_cad_patch或CAD修改工具提交实际局部修改。优先修复程序明确指出的断点、分支、组件越界与文字，不重复增加已存在的线段；错误导线应替换，不能叠加捷径。组件必须容纳于封存bounds且符号引线到达封存ports，物理圆不能画成超出盒的椭圆近似。不要只描述计划，不输出长篇思考，不整图重建；删除仅限本任务实体，由执行层检查。以坐标核对视觉分歧，不能凭像素编辑。验收计划不能更改。不要宣称完成，修正后程序重新核验。\n' + JSON.stringify({ original_request: task, plan, checks, entity_snapshot:after.entities,visual: review?.structured }));
+      await act('使用中文。程序已附实际读回实体和定位到坐标/ID的拓扑缺陷，修改前核对目标实体，再调用cader_apply_cad_patch或CAD修改工具提交实际局部修改。优先修复程序明确指出的断点、分支、组件越界与文字，不重复增加已存在的线段；错误导线应替换，不能叠加捷径。组件必须容纳于封存bounds且符号引线到达封存ports，物理圆不能画成超出盒的椭圆近似。不要只描述计划，不输出长篇思考，不整图重建；删除仅限本任务实体，由执行层检查。以坐标核对视觉分歧，不能凭像素编辑。视觉建议不能改变封存的源图net分组；例如独立接地符号不能凭常见电路假设接入另一回线，应以原图与程序证据核对。验收计划不能更改。不要宣称完成，修正后主动调用cader_review_cad_view；程序仍会重新核验。\n' + JSON.stringify({ original_request: task, plan, checks, entity_snapshot:after.entities,visual: review?.structured }));
     }
     if(referenceTask&&!owner.facts().frozen&&(phase as QualityPhase)!=='blocked'){
       await saveReferenceArtifact();
       await enter(accepted?'complete':'pending_verification');
     }
+    if(!referenceTask&&accepted&&owner.taskArtifact?.(taskId)?.file_contract){
+      await enter('saving');artifact=await owner.verifyTaskArtifact(taskId,signal);
+      options.emit({type:'artifact.verified',artifact,quality:'accepted'});await enter('complete');
+    }
   }
   catch(error) {
-    if((phase as QualityPhase)==='saving')failure={stage:phase,code:'DWG_SAVE_FAILED',source:'verification'};
+    if(!failure&&['CONTINUATION_BINDING_CHANGED','TRUNCATION_RECOVERY_UNSAFE','DRAWING_UNIT_NOT_CLOSED'].includes((error as Error).message))failure={stage:phase,code:(error as Error).message,source:'verification'};
+    if((phase as QualityPhase)==='saving'){accepted=false;checks.push({id:'artifact_delivery',status:'not_run',evidence:'DWG交付验收未完成，保存ACK不等于只读重开与实体读回通过；保留文件和原请求证据'});failure={stage:phase,code:owner.taskArtifact?.(taskId)?.file_contract?'DWG_DELIVERY_VERIFICATION_FAILED':'DWG_SAVE_FAILED',source:'verification'};}
     if(!failure)visual = { previous: visual, error: (error as Error).message };
-    if(referenceTask&&failure?.source==='model'&&!signal?.aborted&&!owner.facts().frozen&&owner.taskScope(taskId).new_drawing_confirmed&&owner.taskScope(taskId).geometry_confirmed){
+    if(referenceTask&&(failure?.source==='model'||budgetPaused||(phase as QualityPhase)==='vision'&&Boolean(visualError))&&!signal?.aborted&&!owner.facts().frozen&&owner.taskScope(taskId).new_drawing_confirmed&&owner.taskScope(taskId).geometry_confirmed){
       accepted=false;
-      checks.push({id:'model_interrupted',status:'not_run',evidence:'模型中断后的当前图形尚未重新完成质量验收；仅保存待验稿'});
+      checks.push({id:'model_interrupted',status:'not_run',evidence:'执行因模型或任务总预算中断，当前图形尚未完成质量验收；仅保存待验稿'});
       try{await saveReferenceArtifact();}catch(saveError){visual={previous:visual,save_error:(saveError as Error).message};}
     }
-    await enter(failure||owner.facts().frozen ? 'blocked' : 'pending_verification');
+    await enter(owner.facts().frozen||failure&&!budgetPaused ? 'blocked' : 'pending_verification');
   }
   finally {
     owner.endTask();

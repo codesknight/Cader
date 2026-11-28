@@ -71,8 +71,27 @@ export { runReliabilitySmoke } from './reliability-smoke.js';
 export { runVisualSmoke } from './visual-smoke.js';
 export { runFaultSmoke } from './fault-smoke.js';
 export { runQualitySmoke } from './quality-smoke.js';
-export { verifyQuality, requiresQuality, runQualityTask } from './quality.js';
+export { verifyQuality, requiresQuality, runQualityTask, qualityTaskContext } from './quality.js';
+export {runProgressiveTask,verifyProgressiveBatch,progressiveFrame} from './progressive.js';
+export {verifyNetlist} from './netlist.js';
+export {validateDraftOperation,verifyDraftGeometry,draftCadTrace,draftAcceptancePlan,draftEntityTraces} from './progressive-draft.js';
+export {progressiveReviewScope,scopedNativeWindowContainsTargets} from './cad-review-scope.js';
+export { taskIntent } from './task-intent.js';
 export { ExecutionSession, PERMISSION_MODES } from './execution.js';
-export { validateCadArguments } from './cad-arguments.js';
+export { publishCadInputContract,validateCadArguments } from './cad-arguments.js';
 export { replyTextAfterStreaming, toolResultLine } from './terminal-output.js';
-export { referencedPaths, importReferenceImage, referenceOutput,referenceLayoutHints } from './reference-input.js';
+export { referencedPaths, importReferenceImage, referenceOutput,referenceLayoutHints,sourcePlanLayout,referencePlanHints } from './reference-input.js';
+
+export { runExecutionEvidenceSmoke } from './execution-evidence-smoke.js';
+
+export { acceptQualityByUser,userReviewStatus } from './quality-acceptance.js';
+export {atomicPrivateState,retryPrivateRename} from './session-store.js';
+export {readQualityManifest,QUALITY_MANIFEST_MAX_BYTES}from'./quality-store.js';
+export{refreshUnexecutedSourceReadings}from'./source-worklist.js';
+export {createSourceWorklist,assertSourceWorklist,sourceSelection,sourceItemOperation,reconcileSourceBatch,verifySourceItem,sourceWorklistPage,sourceDigest,cadRequestDigest,sourceBatchReviewAccepted,bindSourceReview,verifySourceGraph,sourceGroupReviewScope,sourceBatchSelection,sourceWindowReviewScope,sourcePrimitiveCoverage,expandSourceIds,sourceRenderScope,verifySourceCheckpoint,reconcileKnownSourceCheckpoint} from './source-worklist.js';
+
+export {runIndexedRegions} from './indexed-regions.js';
+
+export {visualEvidenceSummary} from './quality.js';
+
+export {canReuseValidatedObservation} from './progressive.js';

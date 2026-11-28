@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseAcceptancePlan, parseVisualReport } from '@cader/config';
 import type { QualityPlan } from '@cader/config';
-import { requiresQuality, verifyQuality, runQualityTask } from '@cader/profile';
+import { requiresQuality, verifyQuality, runQualityTask, qualityTaskContext, taskIntent } from '@cader/profile';
 const plan: QualityPlan = {
   version: 1, domain: 'electrical-schematic', wire_layer: 'WIRE', visual_required: true,
   components: [
@@ -53,6 +53,12 @@ test('literal labels normalize typographic minus/micro but reject wrong values, 
   assert.equal(check('5V',['15V']),'fail');assert.equal(check('1mF',['1MF']),'fail');assert.equal(check('1μF',['1MF']),'fail');
   assert.equal(check('5V',['5V','5V'],{min:1,max:1}),'fail');
 });
+
+test('layer-scoped primitive counts do not count junction markers as device bodies',()=>{
+  const counts={version:1 as const,domain:'generic' as const,visual_required:false,components:[],requirements:[{id:'bodies',source_quote:'fixture',description:'Device circles',check:'entity_count' as const,entity_type:'AcDbCircle' as const,layer:'DEVICE',min:2,max:2}]};
+  const rows=[...Array.from({length:2},()=>({type:'AcDbCircle',layer:'DEVICE'})),...Array.from({length:4},()=>({type:'AcDbCircle',layer:'JUNCTION'}))];
+  assert.equal(verifyQuality(counts,rows)[0]!.status,'pass');assert.equal(verifyQuality({...counts,requirements:[{...counts.requirements[0]!,layer:undefined}]},rows)[0]!.status,'fail');
+});
 test('schemas reject semantic entity types, contradictory visual pass and missing topology checks', () => {
   assert.doesNotThrow(() => parseAcceptancePlan(plan));
   assert.throws(() => parseAcceptancePlan({ ...plan, requirements: [{ ...plan.requirements[0], check: 'entity_count', entity_type: '灯泡' }] }));
@@ -60,6 +66,9 @@ test('schemas reject semantic entity types, contradictory visual pass and missin
   assert.throws(() => parseVisualReport({ verdict: 'pass', defects: [], checklist: [], uncertainties: ['unreadable'] }));
   assert.throws(() => parseVisualReport({ verdict: 'pass', defects: [], uncertainties: [] }));
   assert.throws(()=>parseVisualReport({verdict:'uncertain',defects:[],checklist:[{requirement_id:'visual',status:'pass',evidence:'All required observations passed'}],uncertainties:['Unrequested reference missing']}),/UNCERTAINTY_MUST_AFFECT_REQUIRED_CHECK/);
+  const minor={type:'Optional spacing advice',severity:'minor',location:'fixture',evidence:'No requirement violated',suggestion:'Optional',entity_ids:[]};
+  assert.throws(()=>parseVisualReport({verdict:'uncertain',defects:[minor],checklist:[{requirement_id:'visual',status:'pass',evidence:'All required observations passed'}],uncertainties:['Already human-confirmed']}),/UNCERTAINTY_MUST_AFFECT_REQUIRED_CHECK/);
+  assert.doesNotThrow(()=>parseVisualReport({verdict:'pass',defects:[minor],checklist:[{requirement_id:'visual',status:'pass',evidence:'All required observations passed'}],uncertainties:[]}));
   assert.equal(requiresQuality('画一个示意图'), true);
   assert.equal(requiresQuality('移动这条直线'), false);
   assert.equal(requiresQuality('你能画什么图吗'), false);
@@ -68,37 +77,58 @@ test('schemas reject semantic entity types, contradictory visual pass and missin
 });
 // These are scheduling fixtures, not a model/CAD acceptance result.
 async function schedulingFixture(verdict: 'pass' | 'fail' | 'invalid' | 'cancel' | 'uncertain', repair = false,
-  extra: { resume?: Parameters<typeof runQualityTask>[0]['resume']; connection?: string; clipped?: boolean; changed?: boolean;unrequestedSave?:boolean;unrequestedLines?:boolean } = {}) {
+  extra: { resume?: Parameters<typeof runQualityTask>[0]['resume']; connection?: string; clipped?: boolean; changed?: boolean;unrequestedSave?:boolean;unrequestedLines?:boolean;agentReview?:boolean;writeAfterReview?:boolean;concurrentReview?:boolean;omitVisual?:boolean;unrequestedGenericLimit?:boolean } = {}) {
   const phases: string[] = [], actions: string[] = [];
   let reviews = 0, approvals = 0, ended = false;
+  let revision=0;
+  const reviewQuestions:string[]=[];
+  const completed:{id:string;status:string;errorCode?:string;recovered_by?:string}[]=[];
   const runtime = {
     async run(_profile: string, _instruction: string, request?: {
+      controlledReview?: (question:string)=>Promise<unknown>;
+      taskState?:()=>unknown;
       extraTools?: {
         execute: (args: unknown, exec: unknown) => Promise<unknown>;
       }[];
     }) {
       if(extra.unrequestedSave&&request?.extraTools)await assert.rejects(request.extraTools[0]!.execute({...plan,requirements:[...plan.requirements,{id:'unsolicited-save',check:'saved_dwg',description:'Invented file obligation',source_quote:'画图'}]}, {concludeTurn(){}}),/UNREQUESTED_FILE_ACCEPTANCE/);
       if(extra.unrequestedLines&&request?.extraTools)await assert.rejects(request.extraTools[0]!.execute({...plan,requirements:[...plan.requirements,{id:'unsolicited-line-limit',check:'entity_count',entity_type:'AcDbLine',max:12,description:'Invented primitive ceiling',source_quote:'画图'}]}, {concludeTurn(){}}),/UNREQUESTED_PRIMITIVE_LIMIT/);
+      if(extra.unrequestedGenericLimit&&request?.extraTools)await assert.rejects(request.extraTools[0]!.execute({...plan,domain:'generic',components:[],requirements:[{id:'count',source_quote:'画图',description:'Invented generic ceiling',check:'entity_count',entity_type:'AcDbCircle',min:1,max:3}]},{concludeTurn(){}}),/UNREQUESTED_PRIMITIVE_LIMIT/);
+      if(extra.omitVisual&&request?.extraTools)await assert.rejects(request.extraTools[0]!.execute({version:1,domain:'generic',components:[],visual_required:false,requirements:[{id:'count',source_quote:'画图',description:'Count only',check:'entity_count',entity_type:'AcDbLine',min:1}]},{concludeTurn(){}}),/VISUAL_ACCEPTANCE_REQUIRED/);
       if(request?.extraTools)
         await request.extraTools[0]!.execute(plan, { concludeTurn() { } });
-      else
+      else {
         actions.push(phases.at(-1)!);
+        if(phases.at(-1)==='correcting')revision++; // A fixture patch commits a new observed revision.
+        if(extra.agentReview){
+          if(extra.concurrentReview)await Promise.all([request!.controlledReview!('Invented easier requirements'),request!.controlledReview!('Skip original requirements')]);
+          else await request!.controlledReview!('Invented easier requirements');
+          const context=request!.taskState!() as {visual_call_count:number};
+          assert.ok(context.visual_call_count>0);
+          if(extra.writeAfterReview)revision++;
+        }
+      }
       return { status: 'succeeded', text: 'Fixture model says done', tools: [] };
     },
-    async reviewCadView() {
+    async reviewCadView(question:string) {
+      reviewQuestions.push(question);
       reviews++;
       if(verdict === 'cancel')
         throw new Error('cancelled fixture');
       const result = repair && reviews > 1 ? 'pass' : verdict;
+      const id=`fixture-review-${reviews}`;
+      completed.push({id,status:result==='invalid'?'failed':'succeeded',...(result==='invalid'?{errorCode:'MALFORMED_RESPONSE'}:{})});
       return {
+        attempts:[{id,status:result==='invalid'?'failed':'succeeded',valid:result!=='invalid',text:'fixture'}],
         evidence: { image_bounds: { possible_clipping: extra.clipped ?? false } }, review_valid: result !== 'invalid', structured: result === 'invalid' ? null : {
           verdict: result, defects: [], checklist: [{ requirement_id: 'visual', status: result, evidence: 'fixture' }], uncertainties: []
         }
       };
     },
+    completed:()=>completed,
   };
   const owner = {
-    facts: () => ({ frozen: false, local_connection_id: extra.connection ?? 'fixture-connection', scratch: 'fixture.dwg' }),
+    facts: () => ({ frozen: false, local_connection_id: extra.connection ?? 'fixture-connection', scratch: 'fixture.dwg',session_counts:{committed:revision} }),
     async authorizeTask() { approvals++; return true; }, endTask() { ended = true; },
     async snapshot() { return { entities: extra.changed && reviews > 0 ? [...entities, { type: 'fixture-change' }] : entities }; },
   };
@@ -108,8 +138,39 @@ async function schedulingFixture(verdict: 'pass' | 'fail' | 'invalid' | 'cancel'
     }) => phases.push(String(e.phase)), persist: async () => { }
   };
   const result = await runQualityTask(options as unknown as Parameters<typeof runQualityTask>[0]);
-  return { result, phases, actions, reviews, approvals, ended };
+  return { result, phases, actions, reviews, approvals, ended,reviewQuestions,completed };
 }
+
+test('agent review and mandatory fallback share bound evidence without duplicate capture; later writes invalidate it',async()=>{
+  const active=await schedulingFixture('pass',false,{agentReview:true,concurrentReview:true});
+  assert.equal(active.result.phase,'complete');assert.equal(active.reviews,1);
+  const evidence=JSON.parse(active.reviewQuestions[0]!);
+  assert.equal(evidence.original_request,'画图');assert.equal(evidence.requirements[0].id,'visual');
+  assert.ok(!active.reviewQuestions[0]!.includes('Invented easier'));
+  const changed=await schedulingFixture('pass',false,{agentReview:true,writeAfterReview:true});
+  assert.equal(changed.reviews,2);assert.equal(changed.result.phase,'complete');
+  assert.equal(qualityTaskContext(changed.result).visual_call_count,2);
+  const clipped=await schedulingFixture('pass',false,{agentReview:true,clipped:true});
+  assert.equal(clipped.reviews,1);assert.equal(clipped.result.phase,'pending_verification');
+  assert.ok(qualityTaskContext(clipped.result).unmet_conditions.some(c=>c.id==='capture_bounds'));
+});
+
+test('policy, history inquiries, continuations and new drawing requests have distinct routes',()=>{
+  for(const request of ['每次绘制都应该启动视觉验证。','以后绘图都做视觉检查','Always use vision review']){
+    assert.equal(taskIntent(request),'preference');assert.equal(requiresQuality(request),false);
+  }
+  assert.equal(taskIntent('是否使用了视觉验证？'),'status');
+  assert.equal(taskIntent('继续'),'continue');
+  assert.equal(taskIntent('新建一张空白图纸，绘制一个房子，旁边有棵树。'),'drawing');
+  assert.equal(taskIntent('以后都验证，现在画一个房子'),'drawing');
+  assert.equal(taskIntent('如何新建图纸？'),'status');
+  assert.equal(taskIntent('绘制房子后验证结果'),'drawing');
+});
+
+test('model cannot disable mandatory visual acceptance by submitting only entity counts',async()=>{
+  const run=await schedulingFixture('pass',false,{omitVisual:true});
+  assert.equal(run.result.phase,'complete');assert.equal(run.reviews,1);
+});
 test('scheduler owns automatic visual acceptance and only patches up to three times', async () => {
   const repaired = await schedulingFixture('fail', true);
   assert.equal(repaired.result.phase, 'complete');
@@ -157,4 +218,16 @@ test('invalid, cancelled or unlocalized uncertain review cannot complete or auth
     assert.equal(result.reviews, 1);
     assert.equal(result.ended, true);
   }
+});
+
+test('generic component drawings cannot acquire unrequested primitive ceilings',async()=>{
+  const run=await schedulingFixture('pass',false,{unrequestedGenericLimit:true});
+  assert.equal(run.result.phase,'complete');assert.equal(run.reviews,1);
+});
+
+test('accepted current visual evidence supersedes an earlier failed worker without erasing history',async()=>{
+  const run=await schedulingFixture('invalid',true,{agentReview:true});
+  assert.equal(run.result.phase,'complete');assert.equal(run.reviews,2);
+  assert.equal(run.completed[0]?.status,'failed');assert.equal(run.completed[0]?.recovered_by,run.completed[1]?.id);
+  assert.equal(run.result.visual_calls[0]?.review.review_valid,false);
 });

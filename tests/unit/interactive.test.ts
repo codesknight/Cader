@@ -95,6 +95,27 @@ test('changed references fail before a provider and split credentials/control se
   } finally { await f.cleanup(); }
 });
 
+test('visual preferences and historical status bypass models/CAD; continuation binds the recorded task',async()=>{
+  const f=await setup();let calls=0;
+  let captured:Parameters<TaskRunner>[1]|undefined;
+  const runner=(async(_root,input)=>{calls++;captured=input;throw new Error('CONTINUATION_ROUTED');}) as TaskRunner;
+  try{
+    const chat=await InteractiveSession.create(f.root,f.root,runner);
+    assert.match((await chat.execute('每次绘制都应该启动视觉验证。')).text,/已记录/);
+    assert.equal(chat.state.visualPolicy,'always');assert.equal(calls,0);assert.equal(chat.state.qualityRun,null);
+    const loaded=await chat.store.load(chat.state.id);assert.equal(loaded.visualPolicy,'always');
+    await chat.execute('以后按需做视觉检查。');assert.equal(chat.state.visualPolicy,'auto');assert.equal(calls,0);
+    const directory=join(f.root,'.cader/runs/fixture-quality');await mkdir(directory,{recursive:true});
+    const saved={task_id:'fixture-task',phase:'pending_verification',original_request:'画图',round:0,checks:[{id:'capture_bounds',status:'not_run',evidence:'fixture clipping warning'}],plan:{version:1},reviews:[{image_evidence:{sha256:'fixture-image'},visual_report:{verdict:'pass'}}],execution:{local_connection_id:'fixture',scratch:'fixture.dwg'}};
+    chat.state.qualityRun=join(directory,'quality.json');await writeFile(chat.state.qualityRun,JSON.stringify(saved));
+    const status=await chat.execute('是否使用了视觉验证？');
+    assert.match(status.text,/视觉模型请求 1 次，截图尝试 1 次/);assert.match(status.text,/fixture-image/);assert.match(status.text,/capture_bounds/);assert.equal(calls,0);
+    assert.match((await chat.execute('你做过视觉校验吗？')).text,/视觉模型请求 1 次/);assert.equal(calls,0);
+    await assert.rejects(chat.execute('继续'),/CONTINUATION_ROUTED/);
+    assert.equal(captured?.originalTask,'画图');assert.equal(captured?.qualityResume?.task_id,'fixture-task');
+  }finally{await f.cleanup();}
+});
+
 test('real DSH cancellation settles, records an incomplete turn, and permits the next turn', async () => {
   const f = await setup(); const previous = process.env.CADER_CANCEL_FIXTURE;
   process.env.CADER_CANCEL_FIXTURE = 'sk-cancel-fixture-only';

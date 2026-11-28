@@ -1,6 +1,6 @@
-import { mkdir, readFile, writeFile, rename, lstat, readdir, appendFile } from 'node:fs/promises';
+import { mkdir, readFile, open, rename, lstat, readdir, appendFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { resolve, join } from 'node:path';
+import { resolve, join,dirname } from 'node:path';
 import { z } from 'zod';
 import { workspacePath } from '@cader/config';
 
@@ -9,6 +9,8 @@ export const Session = z.object({ version: z.literal(1), id: z.string().regex(/^
   mcp: z.string().nullable(), skill: z.string().nullable(), shell: z.enum(['ask', 'deny']),
   permission: z.enum(['read-only', 'ask', 'workspace-write', 'full-access']).default('ask'),
   qualityRun:z.string().nullable().default(null),
+  qualityReview:z.object({version:z.literal(1),task_id:z.string(),manifest_sha256:z.string().regex(/^[a-f0-9]{64}$/),artifact:z.object({path:z.string(),sha256:z.string().regex(/^[a-f0-9]{64}$/)}).strict(),source_sha256:z.string().nullable(),image_sha256:z.string().nullable(),at:z.string(),comment:z.string().max(800),receipt_path:z.string(),scope:z.literal('delivered_DWG_only'),source:z.literal('interactive_user_confirmation')}).strict().nullable().default(null),
+  visualPolicy:z.enum(['auto','always']).default('auto'),
   redrawTask:z.object({request:z.string().max(24000),image:z.object({path:z.string(),sha256:z.string().regex(/^[a-f0-9]{64}$/),width:z.int().positive(),height:z.int().positive()}).strict(),outputPath:z.string(),freshDrawing:z.literal(true),qualityRun:z.string().nullable().default(null)}).strict().nullable().default(null),
   pendingRedrawRequest:z.string().max(24000).nullable().default(null),
   summary: z.string().max(12000), contextFrom: z.int().nonnegative(),
@@ -21,7 +23,7 @@ export type ChatSession = z.infer<typeof Session>;
 export function newSession(workspace: string, model: string): ChatSession {
   const now = new Date().toISOString();
   return { version: 1, id: `session-${randomUUID()}`, created: now, updated: now, workspace, model, domain: 'general',
-    mcp: null, skill: null, shell: 'ask', permission: 'ask', qualityRun:null, redrawTask:null, pendingRedrawRequest:null, summary: '', contextFrom: 0, messages: [], references: [] };
+    mcp: null, skill: null, shell: 'ask', permission: 'ask', qualityRun:null, qualityReview:null, visualPolicy:'auto', redrawTask:null, pendingRedrawRequest:null, summary: '', contextFrom: 0, messages: [], references: [] };
 }
 export async function privateDirectory(root: string, child: string) {
   await mkdir(resolve(root, '.cader'), { recursive: true });
@@ -39,9 +41,7 @@ export class SessionStore {
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     const text = this.clean(JSON.stringify(session, null, 2) + '\n');
     if (Buffer.byteLength(text) > 2_000_000) throw new Error('SESSION_SIZE_LIMIT');
-    const temp = join(directory, `.write-${randomUUID()}.json`);
-    await writeFile(temp, text, { flag: 'wx', mode: 0o600 });
-    await rename(temp, path);
+    await atomicPrivateState(path,text);
   }
   async load(id: string) {
     if (!/^session-[a-f0-9-]{36}$/.test(id)) throw new Error('INVALID_SESSION_ID');
@@ -65,6 +65,29 @@ export class SessionStore {
         turns: session.messages.filter(message => message.role === 'user').length, workspace: session.workspace }); } catch { /* Invalid/private links are not loaded. */ }
     }
     return rows.sort((a, b) => b.updated.localeCompare(a.updated));
+  }
+}
+/** Caller has resolved a private workspace directory. A failed rename leaves
+ * the old checkpoint intact and retains the new temporary evidence. */
+export async function atomicPrivateState(path:string,text:string){
+  const temp=join(dirname(path),`.write-${randomUUID()}.json`);let stage='open';
+  try{
+    const file=await open(temp,'wx',0o600);
+    try{stage='write';await file.writeFile(text);stage='sync';await file.sync();}finally{await file.close();}
+    stage='rename';await retryPrivateRename(temp,path);
+  }catch(error){const e=error as NodeJS.ErrnoException&{attempts?:number};throw new Error('CHECKPOINT_PERSIST_FAILED',{cause:{stage,code:e.code,errno:e.errno,syscall:e.syscall,attempts:e.attempts,temp_path:temp,path}});}
+}
+
+/** Retry only replacement of this already-synced file. Never unlink the old
+ * checkpoint, rewrite CAD operations, or treat a durable denial as success. */
+export async function retryPrivateRename(from:string,to:string,io:{platform?:string;rename?:typeof rename;delay?:(ms:number)=>Promise<void>}={}){
+  const waits=[25,50,100,200,400,800,1000,1000,1000];
+  for(let attempt=0;;attempt++){
+    try{await (io.rename??rename)(from,to);return;}
+    catch(error){const e=error as NodeJS.ErrnoException&{attempts?:number};e.attempts=attempt+1;
+      if((io.platform??process.platform)!=='win32'||!['EPERM','EACCES','EBUSY'].includes(e.code??'')||attempt>=waits.length)throw error;
+      await (io.delay??(ms=>new Promise(resolve=>setTimeout(resolve,ms))))(waits[attempt]!);
+    }
   }
 }
 

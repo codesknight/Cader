@@ -4,7 +4,7 @@ import { mkdir,mkdtemp,rm,readFile,cp } from 'node:fs/promises';
 import { resolve,join,sep } from 'node:path';
 import { assertToolArguments,ToolArgumentsError,createToolRuntime,invokeTool,createLiveRuntime } from '@cader/dsh-adapter';
 import type { ToolDefinition,createMcpClient,StreamChunk,PublicEvent } from '@cader/dsh-adapter';
-import { ExecutionSession,toolResultLine,InteractiveSession,runTask,replyTextAfterStreaming,SafeTextStream } from '@cader/profile';
+import { ExecutionSession,toolResultLine,InteractiveSession,runTask,replyTextAfterStreaming,SafeTextStream,publishCadInputContract,validateCadArguments } from '@cader/profile';
 import type { TaskRunner } from '@cader/profile';
 import { loadConfig } from '@cader/config';
 const textSchema={
@@ -17,6 +17,14 @@ const textSchema={
 const raw=(name: string,parameters: Record<string,unknown>,execute: ToolDefinition['execute']): ToolDefinition => ({
   name: `mcp__autocad__${name}`,description: 'Raw MCP-compatible fixture; no AutoCAD',parameters,
   output: { schema: { type: 'string' },render: (_a,v) => [{ type: 'text',text: String(v) }] },execute
+});
+
+test('Agent-visible polyline/hatch point schemas agree with native preflight without mutating server schemas',()=>{
+  for(const name of ['draw_polyline','draw_hatch']){
+    const original=raw(name,{type:'object',properties:{points:{type:'array',items:{type:'array',items:{type:'number'}}}},required:['points'],additionalProperties:false},async()=>{throw new Error('No native dispatch in schema test');});
+    const before=structuredClone(original.parameters),guarded=publishCadInputContract(original),valid={points:[[0,0,0],[10,0,0],[10,10,0]]},invalid={points:[[0,0],[10,0],[10,10]]};
+    assert.doesNotThrow(()=>assertToolArguments(guarded,valid));assert.doesNotThrow(()=>validateCadArguments(name,valid));assert.throws(()=>assertToolArguments(guarded,invalid),ToolArgumentsError);assert.throws(()=>validateCadArguments(name,invalid),/XYZ/);assert.deepEqual(original.parameters,before);
+  }
 });
 test('original raw schemas enforce required/type/enum/nested constraints without changing arguments',() => {
   const tool=raw('draw_text',textSchema,async () => { throw new Error('not invoked'); });

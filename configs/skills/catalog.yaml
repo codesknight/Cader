@@ -1,17 +1,36 @@
 version: 1
 skills:
+  - name: progressive-drawing
+    description: Decompose complex CAD tasks into bounded regions, draw incrementally, verify, repair and resume; grants no execution authority.
+    when_to_use: Complex or dense reference redraws, multi-part drawings, explicit staged drawing, or repeated whole-image analysis failure; not simple primitives.
+    roles: [main, vision]
+    mode: read-only
+    resources:
+      task-decomposition: references/task-decomposition.md
+      source-observation: references/source-observation.md
+      verification-and-repair: references/verification-and-repair.md
+      checkpoint-and-recovery: references/checkpoint-and-recovery.md
+  - name: cad-execution
+    description: CAD execution workflow, dependencies, reference-image use and recovery evidence.
+    when_to_use: Before planning CAD writes, image redraw, patches, layer dependencies or recovery.
+    roles: [main]
+    mode: read-only
+    resources: {}
   - name: electrical-quality
     description: Electrical schematic symbol, port and local correction knowledge; no execution authority.
+    when_to_use: When planning or reviewing electrical symbols, ports and local topology repairs.
     roles: [main, vision]
     mode: read-only
     resources: {}
   - name: cad-inspection
     description: Inspect CAD layers through reviewed read-only MCP tools.
+    when_to_use: When inspecting actual CAD entities, layers or read-only backend evidence.
     roles: [main, subagent, vision]
     mode: read-only
     resources: {}
   - name: cad-redraw-review
     description: Review reference evidence, scale uncertainty and redraw acceptance. The Harness controls authorized drawing and DWG delivery; this skill grants no tools or permissions.
+    when_to_use: When assessing or redrawing an image reference and comparing source evidence with CAD results.
     roles: [main, vision]
     mode: read-only
     resources:

@@ -9,5 +9,6 @@ input: [text, image]
 generation:
   max_output_tokens: 8192
   reasoning_effort: low
+  progressive_reasoning_effort: off
 timeout_ms: 120000
 can_delegate: true

@@ -11,7 +11,7 @@ export const VisualReport = z.object({
 }).strict().superRefine((report, ctx) => {
   if(report.verdict === 'pass' && (report.uncertainties.length || report.defects.some(d => d.severity !== 'minor') || report.checklist.some(c => c.status !== 'pass')))
     ctx.addIssue({ code: 'custom', message: 'Pass conflicts with unresolved evidence' });
-  if(report.verdict==='uncertain'&&report.checklist.length&&report.checklist.every(c=>c.status==='pass')&&!report.defects.length)
+  if(report.verdict==='uncertain'&&report.checklist.length&&report.checklist.every(c=>c.status==='pass'))
     ctx.addIssue({code:'custom',message:'UNCERTAINTY_MUST_AFFECT_REQUIRED_CHECK: every required checklist item passed; remove unrelated/already-proven uncertainty or mark the specific affected requirement uncertain with evidence'});
 });
 export type VisualReview = z.infer<typeof VisualReport>;
@@ -19,22 +19,146 @@ export const visualReportSchema = JSON.parse(JSON.stringify(z.toJSONSchema(Visua
 export function parseVisualReport(value: unknown): VisualReview { return VisualReport.parse(value); }
 const NormalPoint=z.tuple([z.number().min(0).max(1),z.number().min(0).max(1)]);
 const NormalBox=z.tuple([NormalPoint,NormalPoint]).refine(([a,b])=>a[0]<b[0]&&a[1]<b[1],'Positive normalized image bounds required');
+const SourceLabel=z.object({text:Text,bounds:NormalBox,certainty:z.enum(['clear','uncertain'])}).strict();
+const ReferenceLabelInventory=z.object({visible_text:z.array(SourceLabel).max(32)}).strict();
+export const referenceLabelInventorySchema=JSON.parse(JSON.stringify(z.toJSONSchema(ReferenceLabelInventory)));
+export function parseReferenceLabelInventory(value:unknown){return ReferenceLabelInventory.parse(value);}
+/** Associate observations one-to-one; case folding locates a reading only,
+ * never proves a case-sensitive SI value. Independent inventory boxes prevail. */
+export function reconcileSourceLabels(prior:z.infer<typeof SourceLabel>[],inventory:z.infer<typeof SourceLabel>[]){
+  const key=(s:string)=>s.normalize('NFKC').replaceAll('\u2212','-').replace(/\s+/g,'');
+  const duplicate=(a:z.infer<typeof SourceLabel>,b:z.infer<typeof SourceLabel>)=>{
+    if(key(a.text)!==key(b.text))return false;
+    const [p,q]=a.bounds,[r,s]=b.bounds,area=Math.max(0,Math.min(q[0],s[0])-Math.max(p[0],r[0]))*Math.max(0,Math.min(q[1],s[1])-Math.max(p[1],r[1]));
+    return area/Math.max((q[0]-p[0])*(q[1]-p[1]),(s[0]-r[0])*(s[1]-r[1]))>=0.75;
+  };
+  const labels=structuredClone(inventory.filter((label,i)=>!inventory.slice(0,i).some(other=>duplicate(label,other))));
+  for(const label of labels)if([...prior,...inventory].some(other=>duplicate(label,other)&&other.certainty==='uncertain'))label.certainty='uncertain';
+  const candidates=prior.flatMap((p,i)=>labels.flatMap((label,j)=>{const [a,b]=p.bounds,[c,d]=label.bounds,area=Math.max(0,Math.min(b[0],d[0])-Math.max(a[0],c[0]))*Math.max(0,Math.min(b[1],d[1])-Math.max(a[1],c[1])),overlap=area/Math.min((b[0]-a[0])*(b[1]-a[1]),(d[0]-c[0])*(d[1]-c[1])),gap=Math.hypot((a[0]+b[0]-c[0]-d[0])/2,(a[1]+b[1]-c[1]-d[1])/2),same=key(p.text).toLowerCase()===key(label.text).toLowerCase();return overlap>0.2||same&&gap<0.25?[{i,j,score:(same?2:0)+overlap-gap}]:[];})).sort((a,b)=>b.score-a.score);
+  const seen=new Set<number>(),used=new Set<number>();
+  for(const {i,j} of candidates){if(seen.has(i)||used.has(j))continue;seen.add(i);used.add(j);if(key(prior[i]!.text)!==key(labels[j]!.text)||prior[i]!.certainty==='uncertain')labels[j]!.certainty='uncertain';}
+  for(let i=0;i<prior.length;i++)if(!seen.has(i)&&!labels.some(label=>duplicate(prior[i]!,label)))labels.push(structuredClone(prior[i]!));
+  return labels.sort((a,b)=>a.bounds[0][1]-b.bounds[0][1]||a.bounds[0][0]-b.bounds[0][0]);
+}
+const ObservedNet=z.object({id:z.string().min(1).max(64),pins:z.array(z.object({object:z.string().max(32),terminal:z.number().int().min(0).max(7)}).strict()).min(1).max(64),evidence:z.string().min(1).max(400).optional(),certainty:z.enum(['clear','uncertain']).optional()}).strict();
+const SourceObject=z.object({id:z.string().regex(/^[a-zA-Z0-9_-]{1,32}$/),kind:Text,category:z.enum(['component','wire','annotation']).optional(),bounds:NormalBox,terminals:z.array(NormalPoint).max(8),certainty:z.enum(['clear','uncertain'])}).strict();
+const ReferenceComponentInventory=z.object({objects:z.array(SourceObject).min(1).max(32)}).strict().superRefine((v,ctx)=>{
+  if(new Set(v.objects.map(o=>o.id)).size!==v.objects.length||v.objects.some(o=>o.category!=='component'))ctx.addIssue({code:'custom',message:'Inventory unique actual components, not wires or labels'});
+});
+export const referenceComponentInventorySchema=JSON.parse(JSON.stringify(z.toJSONSchema(ReferenceComponentInventory)));
+export function parseReferenceComponentInventory(value:unknown){return ReferenceComponentInventory.parse(value);}
+export function reconcileSourceComponents(prior:z.infer<typeof SourceObject>[],inventory:z.infer<typeof ReferenceComponentInventory>){
+  const used=new Set<number>(),matched=new Set<string>(),additions:z.infer<typeof SourceObject>[]=[];
+  for(const item of inventory.objects){
+    const candidates=prior.map((p,i)=>{const a=p.bounds,b=item.bounds,area=Math.max(0,Math.min(a[1][0],b[1][0])-Math.max(a[0][0],b[0][0]))*Math.max(0,Math.min(a[1][1],b[1][1])-Math.max(a[0][1],b[0][1]));return {i,p,score:area/Math.min((a[1][0]-a[0][0])*(a[1][1]-a[0][1]),(b[1][0]-b[0][0])*(b[1][1]-b[0][1]))};}).filter(v=>!used.has(v.i)&&v.p.terminals.length===item.terminals.length&&v.score>=0.35).sort((a,b)=>b.score-a.score);
+    if(candidates.length){used.add(candidates[0]!.i);matched.add(candidates[0]!.p.id);}
+    else{let id=item.id,n=0;while([...prior,...additions].some(o=>o.id===id))id=`source_extra_${++n}`;additions.push({...item,id});}
+  }
+  return {objects:[...prior,...additions],additions,unmatched_prior_ids:prior.filter(p=>!matched.has(p.id)).map(p=>p.id)};
+}
+const ReferenceNets=z.object({nets:z.array(ObservedNet).min(1).max(64),missing_objects:z.array(SourceObject).max(8).optional()}).strict();
+export const referenceNetsSchema=JSON.parse(JSON.stringify(z.toJSONSchema(ReferenceNets)));
+export function parseReferenceNets(value:unknown){return ReferenceNets.parse(value);}
 export const ReferenceObservation=z.object({
   version:z.literal(1),drawing_kind:z.enum(['schematic','layout','other','uncertain']),summary:Text,
   coordinate_system:z.literal('normalized-image-top-left-y-down'),content_bounds:NormalBox,
-  objects:z.array(z.object({id:z.string().regex(/^[a-zA-Z0-9_-]{1,32}$/),kind:Text,bounds:NormalBox,
-    terminals:z.array(NormalPoint).max(8),certainty:z.enum(['clear','uncertain'])}).strict()).max(32),
-  visible_text:z.array(z.object({text:Text,bounds:NormalBox,certainty:z.enum(['clear','uncertain'])}).strict()).max(32),
+  objects:z.array(SourceObject).max(32),
+  visible_text:z.array(SourceLabel).max(32),
   connections:z.array(z.object({from:z.string().max(32),to:z.string().max(32),description:Text}).strict()).max(64),
+  nets:z.array(ObservedNet).max(64).optional(),
   unknowns:z.array(Text).max(12)
 }).strict().superRefine((value,ctx)=>{
   if(new Set(value.objects.map(o=>o.id)).size!==value.objects.length)ctx.addIssue({code:'custom',message:'Duplicate observed object IDs'});
   if(value.connections.some(c=>![c.from,c.to].every(id=>value.objects.some(o=>o.id===id))))ctx.addIssue({code:'custom',message:'Unknown observed connection endpoint'});
+  if(value.nets){
+    const pins=value.nets.flatMap(n=>n.pins.map(p=>`${p.object}:${p.terminal}`));
+    const expected=value.objects.flatMap(o=>o.terminals.map((_,i)=>`${o.id}:${i}`));
+    const missing=expected.filter(p=>!pins.includes(p)),unknown=pins.filter(p=>!expected.includes(p)),duplicate=[...new Set(pins.filter((p,i)=>pins.indexOf(p)!==i))];
+    if(missing.length||unknown.length||duplicate.length||new Set(value.nets.map(n=>n.id)).size!==value.nets.length)ctx.addIssue({code:'custom',message:'Observed terminal partition invalid; include every actual terminal exactly once. '+JSON.stringify({missing,unknown,duplicate,duplicate_net_ids:new Set(value.nets.map(n=>n.id)).size!==value.nets.length})});
+  }
 });
+export const sourceBodyMarginOverlapMax=0.15;
+/** Reject conflicting symbol bodies while the observing model can still repair
+ * its own pixel report, before immutable source facts reach CAD planning. */
+export function assertSourceBodyLayout(source:z.infer<typeof ReferenceObservation>){
+  if(source.drawing_kind!=='schematic')return;
+  const bodies=source.objects.filter(o=>o.terminals.length);
+  for(let i=0;i<bodies.length;i++)for(let j=i+1;j<bodies.length;j++){
+    const a=bodies[i]!,b=bodies[j]!,overlaps=[0,1].map(axis=>Math.min(a.bounds[1][axis]!,b.bounds[1][axis]!)-Math.max(a.bounds[0][axis]!,b.bounds[0][axis]!));
+    if(overlaps.every(v=>v>0)&&Math.min(...overlaps.map((v,axis)=>v/Math.min(a.bounds[1][axis]!-a.bounds[0][axis]!,b.bounds[1][axis]!-b.bounds[0][axis]!)))>sourceBodyMarginOverlapMax)
+      throw new Error(`SOURCE_SYMBOL_BODY_CONFLICT: ${a.id} and ${b.id} overlap. Reinspect actual pixels: bounds enclose each symbol body only, excluding external wires, nearby labels and adjacent ground/reference symbols; terminals belong to that symbol, not a remote wire junction.`);
+  }
+}
 export type ReferenceObservationData=z.infer<typeof ReferenceObservation>;
 export const referenceObservationSchema=JSON.parse(JSON.stringify(z.toJSONSchema(ReferenceObservation)));
 export function parseReferenceObservation(value:unknown){return ReferenceObservation.parse(value);}
-const ReferenceLabels=z.object({labels:z.array(z.object({index:z.number().int().nonnegative(),text:Text,certainty:z.enum(['clear','uncertain'])}).strict()).min(1).max(4)}).strict();
+const SourceMembership=z.object({membership:z.record(z.string().regex(/^[a-zA-Z0-9_-]{1,32}:[0-7]$/),z.string().min(1).max(64)),
+  nets:z.array(ObservedNet.omit({pins:true})).min(1).max(64),missing_objects:z.array(SourceObject).max(8).optional()}).strict();
+/** Require each known terminal as an object key. The model cannot list the same
+ * terminal in several groups; group arrays are derived, never guessed/repaired. */
+export function referenceMembershipSchema(source:ReferenceObservationData){
+  const schema=JSON.parse(JSON.stringify(z.toJSONSchema(SourceMembership)));
+  const required=source.objects.flatMap(o=>o.terminals.map((_,i)=>`${o.id}:${i}`));
+  schema.properties.membership={type:'object',properties:Object.fromEntries(required.map(pin=>[pin,{type:'string',minLength:1,maxLength:64}])),required,
+    additionalProperties:{type:'string',minLength:1,maxLength:64},maxProperties:256,description:'Each original object:terminal appears exactly once as a key; value is its external net ID. Add keys for any missing_objects terminals too.'};
+  return schema;
+}
+export function parseReferenceMembership(value:unknown,source:ReferenceObservationData){
+  const parsed=SourceMembership.parse(value);
+  const ids=new Set(parsed.nets.map(n=>n.id));
+  if(ids.size!==parsed.nets.length||Object.values(parsed.membership).some(id=>!ids.has(id)))throw new Error('SOURCE_MEMBERSHIP_NET_ID_INVALID');
+  const nets=parsed.nets.map(n=>({...n,pins:Object.entries(parsed.membership).filter(([,id])=>id===n.id).map(([address])=>{const [object,terminal]=address.split(':');return {object:object!,terminal:Number(terminal)};})}));
+  const report=parseReferenceNets({nets,missing_objects:parsed.missing_objects});
+  parseReferenceObservation({...source,objects:[...source.objects,...report.missing_objects??[]],nets:report.nets});
+  return report;
+}
+const SourceConnectionReview=z.object({connections:z.array(z.object({pins:ObservedNet.shape.pins.min(2),source_quote:Text}).strict()).max(16),unconfirmed:z.array(z.object({source_quote:Text,reason:Text}).strict()).max(16).optional()}).strict();
+export const sourceConnectionReviewSchema=JSON.parse(JSON.stringify(z.toJSONSchema(SourceConnectionReview)));
+export function parseSourceConnectionReview(value:unknown){return SourceConnectionReview.parse(value);}
+export type ConfirmedSourceConnection=z.infer<typeof SourceConnectionReview>['connections'][number];
+/** Merge only explicitly confirmed source connections. Uncovered uncertainty
+ * remains uncertain; this never splits nets or generates CAD operations. */
+export function mergeConfirmedSourceConnections(nets:ReturnType<typeof parseReferenceNets>['nets'],confirmations:ConfirmedSourceConnection[]){
+  const address=(p:{object:string;terminal:number})=>`${p.object}:${p.terminal}`;
+  const pins=nets.flatMap(n=>n.pins),indices=new Map(pins.map((p,i)=>[address(p),i])),parent=pins.map((_,i)=>i),proof=pins.map((_,i)=>i),selected=new Set<string>();
+  const root=(list:number[],i:number):number=>list[i]===i?i:(list[i]=root(list,list[i]!));
+  const join=(list:number[],members:typeof pins)=>{const ids=members.map(p=>{const index=indices.get(address(p));if(index===undefined)throw new Error('SOURCE_CONNECTION_UNKNOWN_PIN');return index;});for(const index of ids)list[root(list,index)]=root(list,ids[0]!);};
+  for(const net of nets){join(parent,net.pins);if(net.certainty==='clear')join(proof,net.pins);}
+  for(const c of confirmations){if(c.pins.length<2||new Set(c.pins.map(address)).size!==c.pins.length)throw new Error('SOURCE_CONNECTION_DISTINCT_PINS_REQUIRED');join(parent,c.pins);join(proof,c.pins);c.pins.forEach(p=>selected.add(address(p)));}
+  const groups=new Map<number,typeof pins>();pins.forEach((p,i)=>{const r=root(parent,i);groups.set(r,[...groups.get(r)??[],p]);});
+  const ids=new Set(nets.map(n=>n.id));let serial=0;
+  return [...groups.values()].map(members=>{
+    const prior=nets.filter(n=>n.pins.some(p=>members.some(q=>address(q)===address(p)))),uncertain=prior.filter(n=>n.certainty!=='clear');
+    const clear=!uncertain.length||uncertain.every(n=>n.pins.every(p=>selected.has(address(p))))&&new Set(members.map(p=>root(proof,indices.get(address(p))!))).size===1;
+    let id=prior[0]!.id;if(prior.length>1){do{id=`cader_confirmed_${serial++}`;}while(ids.has(id));ids.add(id);}
+    return {id,pins:members,certainty:clear?'clear' as const:'uncertain' as const,evidence:(prior.length>1?'Explicit user connection confirmation; original observations retained. ':prior[0]!.evidence??'Source observation').slice(0,400)};
+  });
+}
+/** Unknown connectivity is not a proven disconnection. Retain the preliminary
+ * and reviewed candidates separately; every clear old-pin relation must agree.
+ * Never synthesize extra connectivity by unioning uncertain observations. The final pixel-fidelity gate is mandatory. */
+export function reconcileSourceNets(source:ReferenceObservationData,review:ReturnType<typeof parseReferenceNets>){
+  parseReferenceObservation({...source,objects:[...source.objects,...review.missing_objects??[]],nets:review.nets});
+  const uncertain=review.nets.filter(n=>n.certainty!=='clear');
+  if((review.missing_objects??[]).some(o=>o.certainty!=='clear'||o.category!=='component'))return {valid:false,report:review,clear_consistent:false};
+  const address=(p:{object:string;terminal:number})=>`${p.object}:${p.terminal}`;
+  const old=source.objects.flatMap(o=>o.terminals.map((_,terminal)=>({object:o.id,terminal})));
+  const original=new Map(source.nets?.flatMap(n=>n.pins.map(p=>[address(p),n.id] as const))??[]);
+  const reviewed=new Map(review.nets.flatMap(n=>n.pins.map(p=>[address(p),n.id] as const)));
+  const unknown=new Set(uncertain.flatMap(n=>n.pins.map(address)));
+  const originallyUnknown=new Set(source.nets?.filter(n=>n.certainty!=='clear').flatMap(n=>n.pins.map(address))??[]);
+  const known=old.filter(p=>!unknown.has(address(p))&&!originallyUnknown.has(address(p)));
+  let consistent=Boolean(source.nets?.length);
+  for(let i=0;i<known.length;i++)for(let j=i+1;j<known.length;j++)if((original.get(address(known[i]!))===original.get(address(known[j]!)))!==(reviewed.get(address(known[i]!))===reviewed.get(address(known[j]!))))consistent=false;
+  if(!uncertain.length)return {valid:true,report:review,clear_consistent:consistent};
+  if(!consistent)return {valid:false,report:review,clear_consistent:false};
+  // An uncertain rereading is a candidate, never proof of disconnection.
+  // Keep both observations in the caller's evidence history. Do not union old
+  // guesses into the new candidate: that can attach an uncertain return to a
+  // clearly separate reference net, producing a partition no model observed.
+  return {valid:true,clear_consistent:true,report:structuredClone(review)};
+}
+const ReferenceLabels=z.object({labels:z.array(z.object({index:z.number().int().nonnegative(),text:Text,certainty:z.enum(['clear','uncertain']),bounds:NormalBox.optional()}).strict()).min(1).max(4)}).strict();
 export const referenceLabelsSchema=JSON.parse(JSON.stringify(z.toJSONSchema(ReferenceLabels)));
 export function parseReferenceLabels(value:unknown){return ReferenceLabels.parse(value);}
 const Point = z.tuple([z.number().finite(), z.number().finite()]);
@@ -43,14 +167,18 @@ export const AcceptancePlan = z.object({
   wire_layer: z.string().min(1).max(80).optional(),
   requirements: z.array(z.object({
     id: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/), source_quote: Text, description: Text,
-    check: z.enum(['entity_count', 'text', 'series_cycle', 'no_wire_through_component', 'text_clearance', 'visual','new_document','saved_dwg']),
+    check: z.enum(['entity_count', 'text', 'series_cycle', 'netlist', 'no_wire_through_component', 'text_clearance', 'visual','new_document','saved_dwg']),
     entity_type: z.enum(['AcDbLine', 'AcDbCircle', 'AcDbArc', 'AcDbPolyline', 'AcDb2dPolyline', 'AcDb3dPolyline', 'AcDbText', 'AcDbMText', 'AcDbHatch', 'AcDbBlockReference', 'AcDbRotatedDimension', 'AcDbAlignedDimension']).optional(), min: z.number().int().nonnegative().optional(), max: z.number().int().nonnegative().optional(),
-    text: z.string().max(80).optional(), component: z.string().max(64).optional()
+    text: z.string().max(80).optional(), component: z.string().max(64).optional(),layer:z.string().min(1).max(80).optional()
   }).strict()).min(1).max(24),
   components: z.array(z.object({
     id: z.string().max(64), kind: z.string().max(64),
-    ports: z.tuple([Point, Point]), bounds: z.tuple([Point, Point])
+    ports: z.array(Point).min(1).max(8), bounds: z.tuple([Point, Point]),
+    pin_names:z.array(z.string().min(1).max(32)).min(1).max(8).optional(),
+    source_id:z.string().max(32).optional(),source_terminals:z.array(z.number().int().min(0).max(7)).min(1).max(8).optional()
   }).strict()).max(32),
+  nets:z.array(z.object({id:z.string().min(1).max(64),pins:z.array(z.object({component:z.string().max(64),pin:z.string().min(1).max(32)}).strict()).min(1).max(64)}).strict()).max(64).optional(),
+  junctions:z.array(Point).max(128).optional(),
   visual_required: z.boolean()
 }).strict().superRefine((plan, ctx) => {
   if(new Set(plan.requirements.map(r => r.id)).size !== plan.requirements.length)
@@ -65,10 +193,18 @@ export const AcceptancePlan = z.object({
     if(r.min !== undefined && r.max !== undefined && r.min > r.max)
       ctx.addIssue({ code: 'custom', message: 'Invalid count range' });
   }
-  for(const component of plan.components)
-    if(component.ports[0].every((v, i) => v === component.ports[1][i]))
+  for(const component of plan.components) {
+    if(new Set(component.ports.map(p=>JSON.stringify(p))).size!==component.ports.length)
       ctx.addIssue({ code: 'custom', message: 'Distinct ports required' });
-  if(plan.domain === 'electrical-schematic' && (!plan.components.length || !plan.requirements.some(r => r.check === 'series_cycle')))
+    if(component.pin_names&&(component.pin_names.length!==component.ports.length||new Set(component.pin_names).size!==component.pin_names.length))ctx.addIssue({code:'custom',message:'Unique pin_names must correspond to ports'});
+    if(component.source_terminals&&(component.source_terminals.length!==component.ports.length||new Set(component.source_terminals).size!==component.source_terminals.length))ctx.addIssue({code:'custom',message:'source_terminals must correspond one-to-one to ports'});
+  }
+  if(plan.requirements.some(r=>r.check==='series_cycle')&&plan.components.some(c=>c.ports.length!==2))ctx.addIssue({code:'custom',message:'series_cycle supports only two-terminal components; use netlist for branches/multi-pin devices'});
+  if(plan.requirements.some(r=>r.check==='netlist')){
+    const pins=plan.nets?.flatMap(n=>n.pins.map(p=>`${p.component}:${p.pin}`))??[];
+    if(!plan.nets?.length||new Set(plan.nets.map(n=>n.id)).size!==plan.nets.length||new Set(pins).size!==pins.length||plan.components.some(c=>!c.pin_names||c.pin_names.some(pin=>!pins.includes(`${c.id}:${pin}`)))||plan.nets.some(n=>n.pins.some(p=>!plan.components.some(c=>c.id===p.component&&c.pin_names?.includes(p.pin)))))ctx.addIssue({code:'custom',message:'Netlist must partition every named component pin exactly once'});
+  }
+  if(plan.domain === 'electrical-schematic' && (!plan.components.length || !plan.requirements.some(r => ['series_cycle','netlist'].includes(r.check))))
     ctx.addIssue({ code: 'custom', message: 'Schematic requires component ports and topology acceptance' });
   if(plan.domain === 'electrical-schematic' && !plan.wire_layer)
     ctx.addIssue({ code: 'custom', message: 'Schematic wire layer required' });

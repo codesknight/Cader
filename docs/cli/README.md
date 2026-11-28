@@ -1,12 +1,172 @@
 # Cader CLI User Guide
 
+
 **English** · [简体中文](README.zh-CN.md) · [Project home](../../README.md) · [Documentation](../README.md)
 
-**Applies to Cader 0.4.0-dev.7 · Updated 2026-11-22**
+**Applies to Cader 0.4.0-dev.17 · Updated 2026-11-28**
+
+## dev.17: source worklists for large line drawings
+
+Large (at least 8 million pixels) monochrome reference redraws can use a local OCR/path proposal index when the optional vision environment and updated AutoCAD-MCP `draw_polyline.width` / `draw_text.fit_box` support are available. Install explicitly from the repository: `uv sync --project cader-mcp --extra vision`; startup never installs packages. Missing dependencies or unsupported color imagery use the existing progressive observation flow. Simple drawings load no index. Tasks explicitly requesting engineering analysis, a netlist or BOM retain semantic verification.
+
+The Agent chooses region order and stable source IDs. Harness compiles coordinates, uses the existing whole-Patch admission/permissions/serial writer, and verifies native geometry and actual rendered batches. Only unfinished IDs continue on the original live binding; committed/unknown requests are never replayed. Isolated OCR glyphs and unsupported stacked text remain editable native paths, with semantic interpretation unverified. Source proposals and residual scores cannot accept the task: full coverage, native readback, controlled visual review and requested DWG checks remain required. Local optional dependencies are separate from the AutoCAD-MCP conda environment. See [research, implementation and actual evidence](../development/2026-11-27-source-worklist-research.md).
+
+Indexed construction returns compact acknowledgements for direct CAD writes as well as source batches. Full native postflight remains in the execution audit and independent verifier; creating a layer does not copy the entire drawing into model history. Explicit entity queries retain their native results. This changes context projection, not verification or permission checks.
+
+Read-only closeups share a fresh native snapshot before and after the bounded observation group. Full-source windows are reviewed in groups of at most eight, with every window still required. Observations cannot accept an item or region before the fresh post-query; changed geometry, local writes, connection/target changes, frozen state or failed readback prevent acceptance. Native COM revision remains unsupported; this is guarded snapshot comparison, not an authoritative revision counter.
+
+Batch native observations query the exact submitted IDs; they cannot replace the full-document count/cache. Full checkpoints still query and verify all known committed/verified source entities, including earlier batches, and reject unexpected entities. Region primitive completion and immediate round handoff may reuse the exact guarded full snapshot for at most five seconds, preserving its original timestamp; expiry or changed identity/operation count requires a new full read. Full-source windows and final acceptance retain fresh full reads. A name-only layer request reuses a fresh `list_layers` match without native creation (`native_creation_dispatched: false`); explicit color changes still dispatch and verify.
+
+Indexed primitive closeups retain at least ten original source pixels of context on each side, and at least twice the native stroke width. This prevents a one-pixel residual stroke from filling the entire viewport. Entity IDs, exact native geometry checks and final paired full-source windows remain mandatory; framing changes do not modify geometry or constitute acceptance.
+
+Confirmed indexed entities awaiting primitive evidence take priority over another drawing batch in the same region. Harness performs at most two additional read-only observation passes at that native write frontier; this does not consume CAD repair rounds or replay creations. Unresolved evidence blocks the region. Source recommendations can fill 64 spatially bounded IDs across the 32-item display pages; the Agent can still choose a different subset/order, with the same admission checks.
+
+If the local source helper fails, the task pauses with its actual helper error and a private diagnostic containing bounded stderr and exit status. Explicit resource failures are reported separately. Harness stops further model/region retries and automatic SaveAs; it preserves the task rather than declaring the reference unreadable. After repairing resources/dependencies, `/quality resume` requires the original live connection and binding. This does not authorize inheriting an old drawing after a process exit. Fixed local CV workers use one numerical-library thread and receive no model credentials.
+
+## dev.16: named source views
+
+Scoped source workers submit positions in BASE, DETAIL_n or a returned LOOKUP_n image, using that image own normalized 0..1 coordinates. Harness owns the transforms; original dimensions and crop origins are withheld from these workers. Their crop tool also uses BASE normalized coordinates; global image viewing keeps its original-pixel interface. Crop slots cannot be rebound or expand the source scope. Dense unexecuted regions can refine within bounded depth, area and region-count limits; verified batches and whole-drawing acceptance remain distinct.
+
+
+Region uncertainty and boundary-net reviews expose the same bounded high-resolution crop entry (at most two views per stage). Anchor locations are converted to BASE by Harness. A draft-text geometry failure reports actual native bounding boxes and the admitted source bounds; visual readability alone cannot override misplaced text.
+
+A confirmed label-count overflow may refine a smaller unexecuted source region within depth 6, minimum pixel-size and the existing 64-region cap. It does not raise the observation label limit or waive coverage.
+
+## dev.15: Request recovery and target checks
+
+DSH retries a failed open model request at most twice for TRANSPORT/TIMEOUT/SERVER/RATE_LIMIT/EMPTY_RESPONSE. It preserves confirmed tool history, discards failed-stream tool calls and accumulates task time/tokens. QUOTA/auth failures are not retried. Exhaustion pauses the task with preserved progress instead of treating a provider failure as an unreadable region. geometry_only reports require per-target checks. Independent source/vision workers can read role-authorized registered skills; permissions are unchanged.
+
+## dev.14: scoped source and native visual checks
+
+Scoped analysis uses the BASE crop frame. Indexed label OCR reads a fixed location without resubmitting bounds. A partial-draft checklist is compiled from independently agreed traces; whole-source coverage stays pending.
+
+Batch reports bind the actual document, snapshot, scope ID and entity IDs. Native WCS-window PNGs and small-text closeups require the updated AutoCAD-MCP; unsupported services leave verification pending, never claiming an enlarged extents image is native high resolution. Window, actual pixel dimensions, hashes and restored plot state are checked. Unobservable pixels without proven geometry defects retain REGION_VISUAL_EVIDENCE_UNCERTAIN rather than triggering blind repair loops. `/quality` and same-connection `/quality resume` retain evidence; unknown outcomes and cross-process ownership rules remain enforced.
+
+A partial draft checks independently admitted primitives and text. Unobserved stroke weight, fill, color, font style and complete topology remain pending for later acceptance. Small text and tiny primitives receive up to three native close-ups from actual bounding boxes. Independent source/vision workers do not inherit another region’s stale capture state.
+
+A background line may cross a local image edge. It does not block the batch only when verified native window settings match the scope and all declared target bounding boxes lie inside. Visual and geometry checks must still pass.
+
+A geometry_only local report must provide per-entity geometry_checks for visibility, text readability or expected absence, consistent with its scoped verdict. Harness keeps full-source style, coverage and topology pending separately. Actual unobservable targets remain pending.
+
+## Progressive complex drawing (dev.13)
+
+Batch review receives only committed batch requirements/entities; regional and final review retain the full original request. An unbuilt canopy is not a defect in a trunk-only batch. Batch handoff does not request full-region acceptance. Two unchanged read-only preparation slices (up to 12 DSH model steps each) are allowed; the third consecutive slice with no entity or confirmed-operation progress stops safely. Confirmed layer setup counts as progress.
+
+Optional `generation.progressive_reasoning_effort` in `configs/models/MainAgent.yaml` applies to bounded progressive decomposition, local planning and drawing/correction (`off` in this configuration). Ordinary MainAgent requests retain `reasoning_effort: low`, with the same 8192 output limit. Omit it to inherit the ordinary setting. `model.route` records the request; this setting neither replaces verification nor guarantees against truncation.
+
+
+`progressive-drawing` is a registered, read-only workflow skill for MainAgent and VisionAgent. A reference of at least eight million pixels, an explicitly complex request, or staged/region-based drawing selects it automatically. Simple drawings keep the short workflow. Catalog descriptions remain available; skill text and decomposition, verification or recovery references load by stage, with resource hashes in `skill.loaded`. Skills grant no write authority.
+
+If an initially short reference workflow fails its semantic source Gate before any native writes, Harness may select the progressive skill once on the same task/runtime without resetting budgets. It never adopts earlier CAD progress or retries provider/budget failures through this route.
+
+Harness obtains a full-scope region plan (explicit rectangles or program-derived cells from model-selected cuts), authorizes a new owned document under the existing policy, then observes and draws each region. Every effective batch receives native readback, structural checks and actual vision review. Failure returns control to Scheduler; local corrections allow at most three attempts. Unrecognized regions may split. Geometry agreed by two independent source readings can form a **partial pending draft**, never complete coverage. Acceptance still requires all regions, shared boundaries, cross-region conditions and requested DWG delivery proof.
+
+On the same live connection, `/quality resume` verifies the original request, source/plan hashes, document, confirmed ledger and fresh native state before continuing unfinished progressive regions. Verified regions are skipped; budgets, visual evidence and correction counts persist. Restart, reconnect, external document changes, unknown writes, readback failure or checkpoint failure cannot automatically resume writing. Checkpoints use a temporary file, fsync and rename; failures retain the old checkpoint and temporary evidence.
+
+```text
+Create a new drawing and reproduce this complex reference in regions: D:\CAD\source.png. Save the completed drawing to D:\CAD\result.dwg.
+/quality
+/quality resume
+```
+
+The cumulative scheduled-task limit `max_task_model_steps: 400` is separate from ordinary `max_model_steps: 100`. Default total duration remains 30 minutes; token/tool/CAD/round limits still apply. An explicit `max_task_duration_ms` may allow up to 24 hours (for example, `21600000` for six hours); resumption preserves the original start and totals. The higher configurable ceiling grants no automatic time or token allowance. Source/visual allowances are bounded per region and also share task-wide usage limits. Large references may remain pending because of unresolved source facts or total budgets. Skill registration does not prove arbitrary large-drawing reconstruction. See [actual regression and limitations](../validation/2026-11-27-progressive-drawing.md).
+
+
+The original two-task P1 client regression passed: house 6/6 and complex sketch 13/13, with 37/83 entities in the actual read-only verification documents and independent native checks; the circuit also passed eight-net/nine-label validation.
+
+2026-11-26 ordinary COM file-artifact P1: a capable MCP saves DWGs in an exclusive `artifact-*` subdirectory of the requested parent. Use the returned actual path; the original intent is retained as `requested_path`. Files are not overwritten or moved back. Later saves on this working document keep the original requested parent. COM SaveAs changes its label/FullName without transferring lifecycle identity.
+
+The main Agent can call `cader_verify_dwg_artifact`; the Harness also verifies delivery before completion. Only the current authorized task's registered artifact is eligible, with no arbitrary path/document arguments. Verification documents remain separate, read-only and unmanaged. Repeated verification queries the registered document rather than reopening it again. `/quality` exposes the actual path, SHA, delivery state and `legacy_summary_partial` scope; file-verification counters are separate from CAD writes. Unknown file dispatch and ACK-after-observation failure retain a barrier that geometry recovery cannot clear. A proven pre-dispatch refusal can be retried against the same artifact. Older services retain legacy saves with no independent-reopen claim. [Integration and joint validation](../validation/2026-11-26-com-artifact-p1-integration.md).
+
+
+Final live regression (b062b51): the original red-roof/blue-wall/tree case passed 7/7 and the original complex sketch 12/12, including automatic quality checks and independent read-only DWG reopening. Original drawings and old barriers remain intact. [Results and limits](../validation/2026-11-25-p0-quality-fixes.md).
+
+The current P0 patch adds these behaviors; full live-regression results are tracked separately:
+
+- A complete custom reference-schematic plan must share one global axis scale/translation with the source observation. Components, pins and label guides use the same transform. Drift is rejected before CAD dispatch; `source_layout:true` remains available. Arbitrary per-component rearrangement or rotation is not supported by this entry.
+- When required deterministic checks pass but vision remains uncertain, Harness permits one additional evidence review using the same verified capture. Original reports remain intact; the program does not force a pass. Remaining uncertainty stays pending.
+- `/quality accept [review comment]` is a user-only final-DWG review entry. Explicit natural-language manual-review declarations use the same confirmation flow. The terminal proactively asks for review when a verified DWG has only visual conditions unresolved. CAD-tool approval does not count as human acceptance.
+- Human acceptance binds the task, original automatic manifest, source/image evidence and DWG hashes. Changed files or evidence invalidate it. `/quality` shows automatic and human results separately. Acceptance covers only the delivered DWG; it grants no continuation authority, does not clear unknown barriers and cannot override structural failures. File review after restarting does not adopt an old CAD document.
+
+2026-11-25 human acceptance: the user inspected both final DWGs and confirmed no issues. Their hashes still match the regression artifacts; both deliverables are now human-accepted. Historical automatic visual uncertainty is retained separately, without claiming a model pass or treating it as proof of a final drawing defect. Those historical cold-start and coordinate-frame defects are addressed by the current P0 patch; see [the current validation report](../validation/2026-11-25-p0-quality-fixes.md) for actual live results. [Human acceptance and automatic history](../validation/2026-11-25-original-joint-regression.md).
+
+Recorded automatic regression (14ada93): the warm house/red-roof/blue-wall/tree case passed 7/7 and independent DWG reopening. Cold new-document creation failed during MCP name observation. The original circuit passed eight-net/nine-label/native-DWG checks, but visual layout acceptance remains pending. That historical version did not consistently remap source-projected label guides. The current patch adds shared-frame validation; the historical defect is not a description of current code. The read-only receipt contract passed 7/7 with an active document, which is separate from drawing acceptance. [Current results and open defects](../validation/2026-11-25-original-joint-regression.md). Earlier original-circuit success refers to another historical run.
+
+2026-11-25 execution evidence: when a COM server advertises `autocad-backend-evidence/1`, the execution owner selects its new receipt entrypoint per operation. Models retain the controlled CAD tools. Requests are persisted before dispatch; instance/document/request identity, native ACKs, observation stages and affected entity sets are checked. Uncovered operations such as polylines and layers retain their legacy entrypoints with working-document identity checks, without equivalent receipt guarantees. Old servers remain compatible. Broken advertised contracts fail connection; a failed dispatch never falls back to another mutator.
+
+Document names are labels. Different IDs with the same name block writes; SaveAs on the same ID does not transfer ownership. Status distinguishes cached labels from the last explicit identity observation. COM revision remains unsupported. New drawing creation does not require an active document; only a verified working document created by this connection gains write authority.
+
+| Valid receipt evidence | Execution behavior |
+| --- | --- |
+| `not_dispatched`, no native invocation or claimed effects | Pre-dispatch failure without freezing; corrections use a fresh request ID |
+| All native actions ACKed, then `observation_failed` | Committed with failed observation; read-only reconciliation requires the original connection/document |
+| Missing ACK, contradictory/foreign/missing receipt or dispatch timeout | Unknown and frozen; no replay or automatic unlocking |
+
+With this contract, the main Agent can call `cader_cad_execution_status` to read its original current-connection request; it cannot supply an arbitrary request ID. The terminal states that this is read-only and leaves the barrier unchanged. Missing, expired, restarted or foreign records never prove non-execution. This entry does not automatically promote unknown outcomes. Capture still requires the independent plot-state restoration receipt; an execution ACK does not replace it.
+
+Opt-in contract check: `pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --execution-evidence`. It uses no paid model, valid drawing operation or existing-document adoption. It performs real discovery, explicit read-only binding observation, deliberately invalid pre-native admission and journal negative checks. Without an active document, binding checks remain unevaluated and the command exits nonzero while retaining the other results. This is not drawing or quality acceptance. [Implementation, actual results and limits](../validation/2026-11-25-cader-execution-evidence.md).
+
+2026-11-25 validation: the original complex reference circuit passed 12/12 checks with real models and AutoCAD, including safe response/budget continuation. Independent native DWG-copy reopening, eight nets, nine human-confirmed labels and source-symbol outline checks passed. This is one assisted reference case, not general OCR/physical-scale certification. Default CLI saving checks headers/hash/post-save CAD; native reopening was an additional regression check. [Evidence and limits](../validation/2026-11-24-reference-circuit-fix.md).
+
+dev.12: reference circuits use model-planned components, named pins and external netlists, including branches and three-terminal devices. Harness schedules component, net and label units with readback checkpoints; all units still require independent geometry, topology, source-image and DWG acceptance. A unit check-in is progress, never task acceptance. The terminal reports unit progress and truncation retries.
+
+Source-label units receive transformed placement boxes and font-size guides; check actual CAD text bounds and keep labels clear of symbols. Punctuation-only polarity/arrows are component details and are not redrawn as duplicate label units or imposed as unrequested literal-text counts. Active units receive their own data without repeating the full source report; the complete evidence remains on disk.
+
+For reference schematics, explicit label confirmations are scheduled in batches of at most four, followed by connection confirmation and acceptance planning. The internal planning tool can select `source_layout:true` with its requirements instead of copying the complete source graph. This reuses model-observed objects/net groups, records any projection of approximate image ports onto component boundaries and applies the same plan checks before approval. It is a semantic layout reference, not a CAD operation sequence or physical scale; full custom plans remain supported.
+
+Each component also receives its original `source_appearance` and sealed `appearance_requirements`; an abstract component kind must not replace the observed outline, fill, polarity or arrow with a merely similar convention. Visual models can still miss such differences; a passed model report alone does not prove exact symbol fidelity.
+
+Every drawing unit receives the sealed measurable requirements and required layer names. Setup creates those layers; symbol/label work follows the plan's explicit layer constraints. Example names such as TEXT or SYMBOL do not override the accepted plan.
+
+The per-response output limit remains 8192 tokens. Drawing/correction truncation, malformed model responses or model-response timeout permit at most two recovery attempts per verified drawing unit (two task-wide when no units exist): persist the ledger, verify the original connection/document and read back entities, then generate only missing short batches (at most eight operations per quality-task Patch). Native CAD timeouts are not replayed. Unknown writes, failed readback, changed bindings or exhausted total budgets stop continuation. Units share round allowances instead of resetting them. Internal source inspection has separate reservations bounded by its existing stages (at most 48: two partial-draft observations, two initial reads, one component inventory, two net reads, one label inventory, eight first-pass batches and 32 single-label retries). These are not Agent delegation slots. Final visual review retains its own capture/format limits, while all phases share the same task token/time/cost budget. Controlled visual exceptions save only a pending draft when the original binding, known writes, fresh guarded readback and file protection permit; unknown writes still stop saving.
+
+Planning confirmation units share execution-round allowances instead of resetting them. CAD visual reports have at most two formatting attempts with up to four model requests each, reusing the same capture; a still-invalid report remains pending.
+
+Default task limits are 400 cumulative model steps, 30 minutes and 16 explicit Agent delegations; cumulative tool/CAD/token limits and individual API timeouts still apply. Continuation is in-process only; `/quality resume` can continue unfinished progressive regions on the original live binding; other tasks retain verification-only behavior.
+
+Before tracing schematic nets, an independent full-image component inventory checks position/port coverage, including unlabelled symbols. Existing pin indices are preserved; missing components are added with unresolved connectivity until traced. Unmatched prior components block drawing with `SOURCE_COMPONENT_INVENTORY_FAILED`. This check is separate from label inventory and cannot guarantee every visual interpretation.
+
+Batch label rereading returns index/text/certainty without redefining image boxes. Single-item review may refine original-image bounds. Each reading permits up to three model requests; exhausted format repair preserves uncertainty. A later explicit user confirmation can resolve the task evidence while the failed reading/status remains recorded as human-resolved, never OCR success. Supplementary source crops are limited to two per reading.
+
+The two label inventories are associated one-to-one. Independent inventory boxes remain the crop targets; shifted old boxes do not grow across neighboring labels. Case folding is used only to associate readings: conflicting case-sensitive values remain uncertain and must be reread or actually confirmed.
+
+An independent source-net review checks terminal groups; a separate full-image inventory preserves every label occurrence. All labels are reread in batches of at most four, uncertain first, with one wider-context retry for unresolved crops. Unreadable labels/connections remain pending. `series_cycle` is reserved for explicit simple two-terminal series loops. Netlist verification checks queried straight-wire connectivity: interior crossings do not join automatically, and declared interior junctions need actual small circle markers. It does not simulate transistor behavior or certify electrical functionality.
+
+Clear source observations that disagree must use the existing bounded local adjudication before drawing. A corroborated original can be restored; an unsupported changed grouping cannot silently become the contract. Historical disagreement still requires final source-fidelity review. If a clear final source partition contradicts the frozen plan, Scheduler saves a pending draft instead of attempting geometric edits toward that contract, even when native geometry has not yet passed.
+
+A clear source rereading may correct an initially uncertain relationship while unrelated uncertainty stays pending. Only relations clear in both observations count as hard conflicts; bounded local rereading preserves already established clear groups.
+
+Source-net review exposes a dynamic `membership` schema requiring every known terminal key exactly once; the program derives net groups and validates added component terminals. `SOURCE_NET_REPORT_INVALID` means the review failed to produce a valid structured report, not that the source image was proven ambiguous. `SOURCE_TOPOLOGY_UNCERTAIN` remains separate for unresolved source relationships.
+
+When final source-topology fidelity is required, Vision reports original-image pin groups in `source_topology`; the program compares them with the CAD groups and native verification state. A clear matching source map and verified CAD contacts cannot be contradicted by demanding extra dots at T joints or pixel proof of microscopic CAD gaps. Genuine source uncertainty/mismatches still block acceptance. Overlap defects include wire IDs and intervals for local correction. Planning has up to two supplementary source crops per run; the attached image and independent observations remain available.
+
+Explicit label clarifications may accompany the original request. The program records the submitted quote, source hash/position and original OCR reading; human confirmation is not reported as OCR success. An uncertain net is not a proven disconnection: a candidate may continue only when other clear terminal relations agree, and must pass the dedicated `source_topology_fidelity` image comparison. Clear conflicts or unresolved final vision still prevent completion. Final review includes relevant original-image details and coordinate transforms alongside the same CAD capture.
+
+When the request contains a clarification, planning must review every remaining uncertain label. An explicit label clarification (`补充确认`, `标注确认` or `label clarification`) additionally requires reviewing all required labels, including clear OCR readings; genuinely uncovered indices need reasons and keep their original certainty. Quote binding is serialized and rolls back on persistence failure. Applicable values require exact user-quote bindings; uncovered indices need explicit `unconfirmed` reasons and remain pending. Source-inspection events are immutable snapshots. Image symbols do not imply a requirement for CAD block references; unrequested block-count gates are rejected before drawing.
+
+For an ambiguous source connection, append `connection confirmation:` (or `连接确认：`) and your confirmed relationship to the request. Before sealing the plan, the Agent must bind the exact quote and source pins through `cader_confirm_source_connections`, or record why it cannot apply. Only confirmed merges are supported; unrelated uncertainty remains pending. Independent source review receives these confirmations and retains its raw reading separately. Human confirmation does not clear an unknown CAD write, authorize adopting another document, or imply unassisted image recognition.
+
+For circuit redraws, “hand-drawn” identifies the source medium. Rough strokes and handwritten fonts are output requirements only when explicitly requested. Independent final vision compares the actual source and CAD images; preliminary model opinions are withheld to reduce anchoring.
+
+If a queued Patch encounters a proven pre-dispatch rejection after budget renewal, the model receives its actual partial results and may replan missing operations. This requires the original connection/document and an unfrozen execution ledger; confirmed leaves are never replayed. Uncertain native outcomes still stop execution. Failed reservations remain spent.
+
+Symbols must actually reach their declared ports; a polyline bounding box is not endpoint evidence. Proven coincident ports may touch directly without a zero-length wire. A final Patch may request program readback/check-in with `unit_complete`, avoiding an extra model request; missing contacts return acknowledged results and missing items for continuation without replay.
 
 Cader CLI is a CAD agent terminal built on DeepSeek Harness. Describe tasks in a persistent conversation, select models and skills, reference images, inspect CAD status, or use a single command from a script.
 
 This guide is versioned alongside the implementation. Proposed features are tracked in the [roadmap](../development/roadmap.md).
+
+dev.11 separates visual business results from control handoff: `× cader_review_cad_view` means visual defects; `!` means capture/readback failure, an invalid report, clipping or uncertainty. Only a valid pass report receives `✓`, and independent Harness task acceptance still applies. `/quality` and historical status distinguish capture attempts from admitted vision-model request steps; failed captures do not count as vision calls, and these counters are not billing receipts.
+
+With the updated independent AutoCAD-MCP, capture preflights before changing plot state and verifies restoration by readback. Only complete evidence matching this request, drawing and path can classify an unchanged/fully restored failure as pending without freezing. Other outcomes remain protected. Capture currently requires the model layout; paper layouts are rejected before changes, without switching user layouts. Restart the CLI and its MCP child process to load the update. Historic unknown barriers remain intact and old drawings are never automatically adopted. See [real original-house regression](../validation/2026-11-24-capture-restoration-fix.md).
+
+dev.10 quality tasks automatically renew execution rounds within the original process: stop new dispatch, read and checkpoint progress, then continue on the same task, connection, drawing and grant. A Patch reserves its wrapper and all leaves before any mutation. An insufficient round admits none of its leaves; Scheduler dispatches only never-dispatched requests through the original tools before fresh model reasoning. Confirmed or unknown writes are never replayed. Changed bindings, failed readback or unknown writes stop continuation. Failed vision or post-review readback immediately returns control to Scheduler.
+
+In [`configs/runtime.yaml`](../../configs/runtime.yaml), `max_tool_calls: 100` limits each execution round. `max_task_tool_calls: 600` counts total tool reservations, including Patch wrappers/leaves and vision tools. `max_cad_operations_per_round: 64` and `max_cad_operations: 400` limit round/task CAD writes. Reservations precede dispatch and do not mean entities committed. `validation_tool_reserve: 8` protects validation capacity. Patch schemas adapt to round capacity, at most 32 operations. Total limits do not reset: `max_execution_rounds: 12`, `max_task_model_steps: 400` and the default 30-minute task duration apply across rounds; `max_model_steps: 100` remains the ordinary invocation limit.
+
+`max_task_tokens: 2000000` stops later requests using reported provider usage as a cost proxy, not an exact currency cap; it cannot undo an in-flight paid request. The CLI shows checkpoints, automatic renewal and total-limit pauses. The task's private `quality.json` retains observations, connection identity, confirmed operations, never-dispatched requests and budget counts. A paused task has not passed acceptance. Renewal is in-process only; restarting never restores write authority. `/quality resume` continues unfinished progressive regions or safely rechecks other tasks on the original binding, without replaying confirmed drawing or bypassing barriers.
+
+Explicit live validation: `pnpm live-smoke --mcp configs/mcp/AutoCAD.local.yaml --quality --round-cad-budget 4 --task "Create a new drawing with 10 separate circles and verify it"`. `--round-cad-budget` is valid only with `--quality`, accepts 1–64, and reduces this test's round CAD allowance; the report also requires actual automatic renewal. This uses paid models and real AutoCAD in a private test workspace. See [implementation and evidence](../validation/2026-11-24-budget-continuation.md).
 
 ## Contents
 
@@ -456,7 +616,7 @@ The CLI shows planning, drawing, geometry, topology, vision, correcting and comp
 
 Default ask approves the concrete plan and owned scratch once, covering layers, drawing, captures and safe local patches to task-created entities, with at most three cumulative corrections. The approval explicitly includes deletion of those entities. Foreign deletion, saving/overwrite, files and Shell retain existing permission checks. Grants expire at task end. `cader_apply_cad_patch` batches drawing/edit/delete operations through the original schemas, guards, serial owner and journal. It stops at the first failure; committed operations must never be replayed.
 
-Vision uses a strict report schema and one format repair on the same captured image; MainAgent and VisionAgent each allow up to 8192 output tokens by default. Shared limits are 40 model steps, 100 tool calls and four view reviews, not mandatory spending per task. Cancellation, invalid reports, failed vision, unknown entity references, changed observations and suspected capture clipping cannot complete. Nonessential observations and geometry already proven by queries should not become visual defects. Uncertainty without a localized defect remains pending instead of triggering speculative edits.
+Vision uses a strict report schema and one format repair on the same captured image; MainAgent and VisionAgent each allow up to 8192 output tokens by default. Quality tasks share 400 cumulative model steps; each ordinary verification scope allows four view reviews; the 100-tool execution-round allowance renews automatically within separate cumulative tool/CAD/time/usage limits. Ordinary nonscheduled turns retain the 100-tool limit. Cancellation, invalid reports, failed vision, unknown entity references, changed observations and suspected capture clipping cannot complete. Nonessential observations and geometry already proven by queries should not become visual defects. Uncertainty without a localized defect remains pending instead of triggering speculative edits.
 
 ```text
 画一个带有 5V 电源和一个灯泡的串联电路图。
@@ -464,7 +624,7 @@ Vision uses a strict report schema and one format repair on the same captured im
 /quality resume
 ```
 
-These are input examples, **not a claim that full real-CAD acceptance has passed**. `/quality` shows the latest checklist/evidence; `resume` rechecks on the same live connection and scratch, skips original drawing and preserves the three-correction limit. Reconnect, exit or ordinary session restore invalidates that ownership. Quality resume never clears a write barrier; `/mcp recover` retains its existing conditions.
+These are input examples, **not a claim that full real-CAD acceptance has passed**. `/quality` shows the latest checklist/evidence; `resume` rechecks on the same live connection and scratch, continues unfinished progressive regions (other tasks skip original drawing), and preserves the three-correction limit. Reconnect, exit or ordinary session restore invalidates that ownership. Quality resume never clears a write barrier; `/mcp recover` retains its existing conditions.
 
 Private `quality.json`, `verification.json`, `events.jsonl` and execution journals retain requirements, phases, per-round checks, visual results, image hashes, observed-state digests and failures. Native `document_revision` and `pixel_to_cad` are unavailable and explicitly null. Referenced ObjectIDs must exist in queries; pixel-only edits are not authorized. The border test is conservative clipping evidence, not proof of full image coverage.
 
@@ -561,3 +721,70 @@ Topology failures now identify coordinates, node degrees, wire IDs, nearest endp
 Component tasks also cannot acquire an unrequested line-entity ceiling. An uncertain visual verdict must identify an affected required check; all-pass checklists with unrelated global uncertainty require bounded report repair, never automatic promotion to pass. Updated 2026-11-22: the local reference and power/lamp cases passed real testing; this does not guarantee arbitrary drawing quality.
 
 MainAgent defaults to `reasoning_effort: low`, while vision remains `off`; output/step/tool/repair limits are unchanged. Adjust the MainAgent model YAML if needed. Bounded reasoning still incurs provider costs and cannot guarantee acceptance of every drawing. After restart, `cader -v` should report dev.7. [Actual retesting and limits](../validation/2026-11-21-complete-quality-retest.md).
+
+## dev.9: native creation and bounded recovery (2026-11-23)
+
+The paired AutoCAD-MCP fix attaches without implicit creation. Explicit new_drawing resolves Add metadata with bounded read-only readiness, invokes once, and binds only a uniquely new active document. An old ActiveDocument is not successful creation.
+
+Optional request_id is correlation, not idempotency or replay permission; successful names remain compatible. Cader supplies its operation ID. Only complete, matched native preflight evidence proving no invocation/implicit creation avoids freezing. The terminal distinguishes MCP receipt from native invocation. Legacy text, mismatched requests and failures/timeouts after invocation remain frozen.
+
+Agent-requested quality review yields to Scheduler immediately. API request timeouts remain unchanged; scheduled main turns use the existing task deadline (600 seconds by default), avoiding premature cancellation of nested vision. Child limits, shared budgets, user cancellation and at most three corrections remain enforced.
+
+A truncated plan with no valid submission gets one compact retry before CAD authorization; QUOTA is not retried. Generic illustrations may omit topology ports, and unrequested primitive ceilings are rejected. Visual malformed/truncated output gets one same-image repair. Only fully accepted current evidence supersedes prior failed visual attempts; failures remain recorded. Main failures and unmet requirements still block success.
+
+Old unknown barriers are not retrospectively released. Exit the old CLI and start a new workspace to load a new MCP process. Existing recover/resolve cannot adjudicate the old Add outcome. Isolation neither confirms the historical request nor adopts its drawing. Check dev.9 with cader -v. See [fix and layered validation](../validation/2026-11-23-native-document-create-fix.md).
+
+## dev.8: capability catalog, agent review and task evidence (2026-11-23)
+
+Each model step receives a unified tool/worker/Skill catalog with purpose, trigger, input/output, invocation entry, availability and refusal reason. Input references point to that step's actual tool schemas; availability is projected from the resolved DSH toolSet. Availability does not grant write permission. Model profiles accept optional description/when_to_use, and the Skill catalog accepts optional when_to_use. Explicit registration and lazy Markdown/resource loading remain enforced.
+
+The main agent can call `cader_review_cad_view`. In quality tasks the Harness binds this entry to frozen requirements and actual CAD observations. If omitted, mandatory Harness review still runs; model prose cannot complete a task. Valid reports are reused only within the same task with matching connection, document, write history, entity snapshot and reference image. Edits trigger revalidation. This is not a native revision guarantee; reuse never transfers across tasks, processes or resume. Clipping, invalid/cancelled reports, changed observations and unknown writes still block acceptance.
+
+Dynamic task_state supplies phase, original requirements, visual call count, latest report/image hash, checks and unmet conditions. `/quality` exposes the same evidence, with historical rather than live-drawing scope. The terminal distinguishes agent-requested review from Harness acceptance, new calls from reuse, and source comparison from ordinary visual review.
+
+```text
+Always use vision review after drawing.
+是否使用了视觉验证？
+继续
+以后按需做视觉检查。
+```
+
+The first input persists a session preference without a drawing plan or CAD call. The history inquiry reads recorded evidence without a model or new capture. Continue rechecks the bound task only when its original connection/document and frozen plan remain valid; it never replays drawing and does nothing to an already accepted task. The last input restores complexity-based review while preserving mandatory gates. Policy text cannot disable required acceptance, grant permission or clear barriers.
+
+The shorter MainAgent static prompt retains stable coordination and evidence/permission rules. CAD workflow knowledge is the registered cad-execution Skill; vision uses its own role prompt. New drawings without a reference do not require one. For a local launcher already bound to this repository, run `pnpm build`, restart, and check dev.8 with `cader -v`. One real house/tree task verifies active review and Harness reuse, not arbitrary redraw, DWG delivery or full v0.4 acceptance. See [implementation and tests](../validation/2026-11-23-capability-routing.md).
+
+Recovery sends only the latest eight operation records to the model; full audits remain persisted. A completed unit does not reset the shared token, time, step or execution-round budget.
+
+Scheduler supplies a fresh geometry/text readback at each drawing-unit start. Explicit confirmation quotes are offered from the actual request; source indices and values remain model-selected and program-checked. Terminal recovery counts distinguish the unit allowance from the task cumulative count.
+
+Planning and confirmation allow one compact retry for truncated output, malformed responses or model-response timeout. QUOTA/authentication errors are reported directly. Original failed records remain preserved.
+
+A visual report cannot claim every required condition passed while its overall verdict is uncertain, even with minor advice. The model must identify an affected required condition or submit a consistent report; bounded same-image repair never converts uncertainty into success automatically.
+
+## Long conversations and user clarification: current behavior
+
+Cader does not automatically compact and start a successor conversation at its limits. Over 20000 estimated visible-text tokens (excluding images/tools), or an input over 24000 characters, prompts manual `/compact` or `/clear`. Over 1900 stored messages or 1600000 serialized bytes prompts `/clear`. These are application guards, not the provider's actual context capacity. `/compact` disables tools and preserves the dialogue archive; `/clear` disposes the execution owner and cannot seamlessly inherit drawing authority. Renewable execution-round allowances are separate from chat compaction; task-wide limits do not reset automatically.
+
+A tool-approval y/N is not factual confirmation of a source label or connection. Existing tools can bind actual confirmation text, but a complete structured pending-question, batch clarification and answer-continuation workflow is not implemented. Necessary unresolved conditions still block acceptance. Stable source facts, proactive clarification and safe automatic compaction are proposed work, documented in the [engineering review](../development/2026-11-25-complex-redraw-engineering-review.md).
+
+Internal semantic-unit/recovery/round invocations use new DSH model sessions with structured task state and readback. This is distinct from automatically summarizing or rolling over the user ChatSession; the native CAD binding and total task budgets are preserved.
+
+For explicit large-reference runs, configuration ceilings are 30,000 task tool reservations, 20,000 CAD operations and 500 counted execution rounds. Defaults remain 600/400/12; per-round limits, validation reserves, total time/tokens and approvals still apply. The index reports candidate volume before drawing; limits are not an acceptance criterion.
+
+For indexed line art, independent raster checks release only source-supported centerlines; literal TEXT uses vision reading. Connected source edges may form a native path, with original-edge provenance and no invented bridge. Glyph groups are admitted together. Batch visual evidence binds source IDs to native entities and the attached crop, and must match the source/document/current native state. Compact Agent receipts reference full retained audit data. Final graphical connectivity, residual and visual checks remain mandatory; none certifies a functional netlist.
+
+Large-reference source batches validate submitted primitives first; `partial_verified` is progress, not complete regional acceptance. After every source item exists, Harness compares each paired high-resolution source/CAD window for full fidelity, followed by global and file checks. Low-confidence OCR can retain editable outline geometry; this does not certify an engineering netlist.
+
+Source literal reconciliation ignores repeated whitespace, while preserving case, units and numeric punctuation. Conflicting broad crops require two agreeing target-only rereads. When native source geometry is correct but a primitive is unresolved in a plot, Harness requests bounded real close-ups; it blocks unnecessary geometry moves and retains all conflicting reports. These checks never replace full regional/global acceptance.
+
+The source-ID compiler fills pending/accepted group siblings within the actual Patch capacity, including across worklist pages. Oversized groups continue in bounded primitive batches; remaining IDs stay pending and complete-window/global acceptance is mandatory. A label-only worker receives glyph lookup/readability tasks without whole-drawing planning context. Ink crossing an OCR box boundary stays editable outline geometry, preserving two-dimensional typesetting. Available shows compact evidence identities and defects; full snapshots remain in the private manifest.
+
+During indexed construction, independent source-pixel and exact native checks precede a CAD-only rendering review of the submitted primitives. The full reference is not a primitive completeness target. After every source item exists, complete high-resolution source/CAD comparisons and global/file acceptance remain mandatory; a CAD-only report cannot satisfy full source fidelity.
+
+On Windows, checkpoint replacement retries transient file-sharing denials for under five seconds using the same synced candidate; CAD operations are never replayed. Persistent failure reports CHECKPOINT_PERSIST_FAILED and retains the old checkpoint, candidate and private error details. Resolve the file lock or permissions before /quality resume in the original live session; restarting does not inherit write authority to the old drawing.
+
+A provider interruption does not block the controlled readonly checkpoint. In the original live connection, /quality resume can reconcile a stale source-task checkpoint only against an exact confirmed journal extension, frozen source/request bindings and a complete fresh native read. Unknown outcomes, extra or altered geometry, changed arguments and destructive suffixes still fail. Reconciliation changes neither visual acceptance nor document write authority.
+
+Private quality evidence loads through a shared byte-bounded reader (256MiB), separate from model context and token budgets. /quality, resume, continuation and user review share this path. QUALITY_MANIFEST_TOO_LARGE or QUALITY_MANIFEST_INVALID returns a recoverable error without disposing the session/connection or changing the original record. Resume reuses its parsed object. A new connection still cannot inherit the old drawing's write authority.
+
+Disputed source labels require two independent target-only readings; repeated wide-view agreement is insufficient. Tiny targets can use nearest-neighbor display enlargement with original crop, scale and inverse mapping audited; no new source information is created. Fresh evidence can refine only unexecuted source text. Acknowledged geometry requires controlled repair and revalidation; genuinely unreadable targets remain pending clarification.

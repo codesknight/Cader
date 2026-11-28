@@ -54,6 +54,7 @@ test('task and smoke propagate actual DSH QUOTA to terminal and saved verificati
 
 test('setup failures identify MCP/configuration and never forward raw exception data', async () => {
   assert.deepEqual(describeFailure('QUOTA sk-sensitive', 'provider').errorCode, 'UNKNOWN');
+  assert.equal(describeFailure('INVOCATION_MODEL_STEP_BUDGET_EXCEEDED','verification').errorCode,'INVOCATION_MODEL_STEP_BUDGET_EXCEEDED');
   const failed = await runLiveSmoke(process.cwd(), { mcpPath: 'configs/mcp/AutoCAD.example.yaml' },
     async () => { throw new Error('private provider body sk-sensitive'); });
   assert.equal(failed.errorCode, 'MCP_CONNECTION_FAILED');
@@ -95,7 +96,13 @@ test('CLI help and invalid exec arguments do not require repository config, cred
   const cli = fileURLToPath(new URL('../../../apps/cli/dist/index.js', import.meta.url));
   for (const args of [['--help'], ['exec', '--help'], ['exec'], ['exec', '任务', '--write'], ['exec', '任务', '--mcp'],
     ['exec', '任务', '--image'], ['exec', '任务', '--skill', 'cad-inspection', '--skill', 'cad-inspection'],
-    ['live-smoke', '--mcp', 'local.yaml', '--task', '画圆']]) {
+    ['live-smoke', '--mcp', 'local.yaml', '--execution-evidence', '--execution'],
+    ['live-smoke', '--mcp', 'local.yaml', '--execution-evidence', '--image', 'file.png'],
+    ['live-smoke', '--mcp', 'local.yaml', '--task', '画圆'],
+    ['live-smoke', '--mcp', 'local.yaml', '--round-cad-budget', '4'],
+    ['live-smoke', '--mcp', 'local.yaml', '--quality', '--round-cad-budget', '0'],
+    ['live-smoke', '--mcp', 'local.yaml', '--quality', '--round-cad-budget', '1.5'],
+    ['live-smoke', '--mcp', 'local.yaml', '--quality', '--round-cad-budget', '65']]) {
     const result = spawnSync(process.execPath, [cli, ...args], { cwd: process.env.TEMP ?? '/tmp', encoding: 'utf8' });
     if (args.includes('--help')) {
       assert.equal(result.status, 0, result.stderr);

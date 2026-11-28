@@ -1,4 +1,22 @@
 import type {QualityPlan} from '@cader/config';
+import type {ToolDefinition} from '@cader/dsh-adapter';
+import {createHash} from 'node:crypto';
+
+/** Exact submitted payload binding, separate from default-normalized duplicate detection. */
+export function cadRequestDigest(tool:string,args:unknown):string{
+  const ordered=(v:any):any=>Array.isArray(v)?v.map(ordered):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,ordered(v[k])])):v;
+  return createHash('sha256').update(JSON.stringify([tool.split('__').at(-1),ordered(args)])).digest('hex');
+}
+
+/** Advertise the same point contract already enforced before native dispatch.
+ * Preserve the server schema and its references; never silently invent Z. */
+export function publishCadInputContract(tool:ToolDefinition):ToolDefinition{
+  const name=tool.name.split('__').at(-1)!;if(!['draw_polyline','draw_hatch'].includes(name))return tool;
+  const parameters=structuredClone(tool.parameters) as Record<string,any>,properties=parameters.properties??parameters,points=properties.points;
+  if(!points||typeof points!=='object')return tool;
+  properties.points={...points,description:String(points.description??'')+' Cader requires every point as [x,y,z]; use explicit z=0 for XY drawings.',allOf:[...points.allOf??[],{type:'array',minItems:name==='draw_hatch'?3:2,maxItems:10000,items:{type:'array',minItems:3,maxItems:3,items:{type:'number'}}}]};
+  return {...tool,parameters};
+}
 
 /** Exact slab clipping against an open rectangle, including very long segments. */
 export function crossesInterior(a:number[],b:number[],box:number[][]){
@@ -14,7 +32,7 @@ export function crossesInterior(a:number[],b:number[],box:number[][]){
 /** Reject a known forbidden segment before native mutation; incomplete networks
  * remain allowed so the Agent can construct them incrementally. */
 export function validatePlannedWire(tool:string,args:Record<string,unknown>,plan:QualityPlan){
-  if((args.layer??'0')===plan.wire_layer&&tool.startsWith('draw_')&&tool!=='draw_line'&&plan.requirements.some(r=>r.check==='series_cycle'))throw new Error('TOPOLOGY_REQUIRES_LINE_SEGMENTS: this MCP query exposes endpoints only for AcDbLine; draw wire segments as lines. Other symbol/text layers may use their normal primitives');
+  if((args.layer??'0')===plan.wire_layer&&tool.startsWith('draw_')&&tool!=='draw_line'&&plan.requirements.some(r=>['series_cycle','netlist'].includes(r.check)))throw new Error('TOPOLOGY_REQUIRES_LINE_SEGMENTS: this MCP query exposes endpoints only for AcDbLine; draw wire segments as lines. Other symbol/text layers may use their normal primitives');
   if(tool!=='draw_line'||(args.layer??'0')!==plan.wire_layer||!plan.requirements.some(r=>r.check==='no_wire_through_component'))return;
   const a=[Number(args.start_x),Number(args.start_y)],b=[Number(args.end_x),Number(args.end_y)];
   const blocked=plan.components.find(component=>crossesInterior(a,b,component.bounds));
@@ -37,7 +55,13 @@ export function validateCadArguments(tool: string, args: Record<string, unknown>
   }
   if (tool === 'draw_line' && ['x','y','z'].every(axis => args[`start_${axis}`] !== undefined && args[`start_${axis}`] === args[`end_${axis}`]))
     throw new Error('CAD_ZERO_LENGTH_LINE');
-  for (const key of ['radius', 'height', 'scale_factor']) {
+  for (const key of ['radius', 'height', 'scale_factor','width_factor']) {
     if (key in args && (typeof args[key] !== 'number' || (args[key] as number) <= 0)) throw new Error('CAD_POSITIVE_VALUE_REQUIRED');
+  }
+  if(tool==='draw_polyline'&&args.width!==undefined&&(typeof args.width!=='number'||args.width<0))throw new Error('CAD_POLYLINE_WIDTH_INVALID');
+  if(tool==='draw_text'&&args.fit_box!==undefined&&args.fit_box!==null){
+    const box=args.fit_box as number[];
+    if(!Array.isArray(box)||box.length!==4||!box.every(v=>typeof v==='number'&&Number.isFinite(v))||box[0]!>=box[2]!||box[1]!>=box[3]!)throw new Error('CAD_TEXT_FIT_BOX_INVALID');
+    const rotation=Number(args.rotation??0);if(!Number.isFinite(rotation)||Math.abs(rotation/90-Math.round(rotation/90))>1e-8)throw new Error('CAD_TEXT_FIT_REQUIRES_ORTHOGONAL_ROTATION');
   }
 }

@@ -12,10 +12,16 @@ export type { AgentResult, PublicEvent } from './live.js';
 export type { StreamChunk } from '@deepseek-ai/dsh-llm';
 export { LlmError } from '@deepseek-ai/dsh-llm';
 export { ChildPool } from './pool.js';
+export { ExecutionBudget } from './budget.js';
 export { createManagedClient, createMcpClient, MANAGED_TOOLS } from './managed-client.js';
+export { NativeCreateNotInvokedError } from './managed-client.js';
+export { NativeCaptureSafeError } from './managed-client.js';
+export { captureEvidence } from './capture-evidence.js';
+export type { CaptureReceipt } from './capture-evidence.js';
+export { nativeCreateRejection } from './native-create.js';
 export type { ToolDefinition } from '@deepseek-ai/dsh-tools';
 export { prepareImageView, attachmentToSource, inspectCadImageBorder } from './image-view.js';
-export type { ImageView } from './image-view.js';
+export type { ImageView,CadCaptureRequest,CadReviewView } from './image-view.js';
 export type { ToolExecution, ToolExecutionResult, PreToolDecision } from '@deepseek-ai/dsh-tools';
 
 export async function createToolRuntime(): Promise<Context> {
@@ -30,3 +36,19 @@ export async function createToolRuntime(): Promise<Context> {
     throw error;
   }
 }
+
+export { comEvidence, parseNativeBinding, observedArguments, parseExecutionEnvelope, receiptOutcome, legacyObservedResult, EvidenceProtocolError, ObservedMcpCallError, ExecutionReceiptError } from './execution-evidence.js';
+export type { ComEvidence, NativeBinding, ObservedRequest, ExecutionReceipt } from './execution-evidence.js';
+
+export {parseFileResult} from './file-evidence.js';
+export type {ComFileArtifact,VerificationDocument,VerificationQuery} from './file-evidence.js';
+export {sourceCoordinates,sourceRegionView,clipSourceView,sourceAspectViews} from './source-coordinates.js';
+
+export {sourceViewContract} from './source-view-contract.js';
+
+export {indexReferenceSource,parseReferenceIndex} from './reference-index.js';
+export {runSourceHelper,sourceHelperEnvironment,sourceHelperFailureCode} from './source-helper.js';
+export type {ReferenceIndex,SourceItem,PixelBox} from './reference-index.js';
+
+export {sourceItemView,sourceLiteralKey,reviewIndexedSource} from './reference-review.js';
+export type {IndexedSourceReading} from './reference-review.js';

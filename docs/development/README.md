@@ -25,3 +25,11 @@
 当前推进到 `0.4.0-dev.2`：[自主质量实测及脱敏轨迹](../validation/2026-11-20-autonomous-quality.md)、[调度决策](../adr/0010-harness-owned-quality-gate.md)、[#20](https://github.com/codesknight/Cader/issues/20)。自动视觉/补丁已有真实执行，完整电路验收未通过；Drawing5新捕获屏障保留。上段dev.1为历史阶段记录。
 
 当前为 `0.4.0-dev.3`：[12:32日志审计](../validation/2026-11-20-user-log-1232.md)及[代码修复/实机证据](../validation/2026-11-20-schema-preflight-fix.md)。参数漏检、状态诊断和重复输出已修复；真实Flash已越过文字绘制进入视觉，完整质量仍未通过。上段dev.2为历史记录；旧锁不自动迁移。
+
+2026-11-25：**[复杂手稿重绘：代码/提示词/证据复盘、标注稳定性、上下文续接与主动澄清](2026-11-25-complex-redraw-engineering-review.md)** · [MCP协同建议](../contracts/2026-11-25-cader-mcp-execution-evidence-proposal.md)。已修复与拟议能力分别列出，不将设计写成已实现。
+
+2026-11-25：**[Cader新回执适配、身份校验与错误分级](../validation/2026-11-25-cader-execution-evidence.md)**（REQ-047 / #20）。组件、真实服务契约和完整绘图验收分开记录。
+
+2026-11-25：**[原始房子/复杂手稿联合回归](../validation/2026-11-25-original-joint-regression.md)**（REQ-048）：热态绘本通过，冷态新建失败，手稿结构通过但视觉待验；BUG077–078保持open。
+
+REQ-048人工验收补充：用户确认两最终DWG均无问题，hash一致；两成品人工通过，原自动历史和冷态问题分别保留，见[报告补充](../validation/2026-11-25-original-joint-regression.md)。

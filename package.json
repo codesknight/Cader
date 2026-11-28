@@ -1,6 +1,6 @@
 {
   "name": "@cader/workspace",
-  "version": "0.4.0-dev.7",
+  "version": "0.4.0-dev.17",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.28.5",
@@ -14,7 +14,7 @@
     "cader": "pnpm build && node apps/cli/dist/index.js",
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false",
-    "test": "pnpm build && node --test dist/tests/unit/*.test.js",
+    "test": "pnpm build && node --test --test-concurrency=4 dist/tests/unit/*.test.js",
     "smoke": "pnpm build && node apps/cli/dist/index.js harness-smoke",
     "doctor": "pnpm build && node apps/cli/dist/index.js doctor",
     "models": "pnpm build && node apps/cli/dist/index.js models",

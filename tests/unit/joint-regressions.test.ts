@@ -91,6 +91,13 @@ test('crop/rotation mapping and source hash are reproducible and never mutate th
   assert.equal(view.audit.view_width, 48); assert.equal(view.audit.view_height, 64);
   assert.deepEqual(view.audit.view_to_source, [0, 1, 5, -1, 0, 55]);
   assert.deepEqual(attachmentToSource(view.audit.view_to_source, 48, 64, 24, 32), [0, 2, 5, -2, 0, 55]);
+  for(const rotation of [0,90,180,270] as const){
+    const raw=await prepareImageView(process.cwd(),path,{crop:{left:5,top:7,width:64,height:48},rotation}),large=await prepareImageView(process.cwd(),path,{crop:{left:5,top:7,width:64,height:48},rotation,display_scale:4});
+    assert.equal(large.audit.source_sha256,hash);assert.equal(large.audit.view_width,raw.audit.view_width*4);assert.equal(large.audit.view_height,raw.audit.view_height*4);assert.equal(large.data.readUInt32BE(16),large.audit.view_width);assert.equal(large.data.readUInt32BE(20),large.audit.view_height);
+    assert.deepEqual(attachmentToSource(large.audit.view_to_source,large.audit.view_width,large.audit.view_height,raw.audit.view_width,raw.audit.view_height),raw.audit.view_to_source);
+    assert.deepEqual(large.audit.display_enlargement,{scale:4,kernel:'nearest',new_source_information:false});
+  }
+  for(const display_scale of [0,.5,9,NaN])await assert.rejects(prepareImageView(process.cwd(),path,{display_scale}));
   assert.equal(createHash('sha256').update(await readFile(path)).digest('hex'), hash);
   await assert.rejects(prepareImageView(process.cwd(), path, { crop: { left: -1, top: 0, width: 5, height: 5 } }));
 });

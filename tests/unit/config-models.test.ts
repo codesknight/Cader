@@ -46,6 +46,16 @@ test('rejects unsafe runtime limits and unreviewed CAD write tools', async () =>
   assert.throws(() => parseRuntime(text.replace('max_parallel_subagents: 5', 'max_parallel_subagents: 6')));
   assert.throws(() => parseRuntime(text.replace('max_delegation_depth: 1', 'max_delegation_depth: 2')));
   assert.throws(() => parseRuntime(text.replace('list_layers', 'delete_entity')));
+  assert.throws(() => parseRuntime(text.replace('validation_tool_reserve: 8', 'validation_tool_reserve: 100')));
+  assert.throws(() => parseRuntime(text.replace('max_cad_operations: 400', 'max_cad_operations: 0')));
+});
+
+test('explicit large-task duration is bounded separately and does not increase shipped defaults',async()=>{
+  const text=await readFile('configs/runtime.yaml','utf8'),defaults=parseRuntime(text);
+  assert.equal(defaults.max_task_duration_ms??defaults.timeout_ms,1800000);
+  const withDuration=(ms:number)=>/^max_task_duration_ms:/m.test(text)?text.replace(/^max_task_duration_ms:.*$/m,'max_task_duration_ms: '+ms):text+'\nmax_task_duration_ms: '+ms+'\n';
+  for(const duration of [21600000,86400000]){const runtime=parseRuntime(withDuration(duration));assert.equal(runtime.max_task_duration_ms,duration);assert.equal(runtime.max_task_tokens,defaults.max_task_tokens);assert.equal(runtime.max_cad_operations,defaults.max_cad_operations);assert.equal(runtime.max_tool_calls,defaults.max_tool_calls);}
+  for(const invalid of [0,86400001,21600000.5])assert.throws(()=>parseRuntime(withDuration(invalid)));
 });
 
 test('seven child tasks use at most five slots and release slots after failure', async () => {

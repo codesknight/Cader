@@ -3,11 +3,18 @@ main_profile: MainAgent
 subagent_profiles: [SubAgent, VisionAgent]
 max_parallel_subagents: 5
 max_delegation_depth: 1
-max_model_steps: 40
+max_model_steps: 100
+max_task_model_steps: 400
 max_tool_calls: 100
-max_delegations: 10
+max_task_tool_calls: 600
+max_cad_operations_per_round: 64
+max_cad_operations: 400
+max_execution_rounds: 12
+validation_tool_reserve: 8
+max_task_tokens: 2000000
+max_delegations: 16
 max_visual_reviews_per_turn: 4
-timeout_ms: 600000
+timeout_ms: 1800000
 read_only_tools:
   - mcp__autocad__get_backend_status
   - mcp__autocad__list_layers

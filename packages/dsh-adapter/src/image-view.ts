@@ -2,7 +2,9 @@ import sharp from 'sharp';
 import { createHash } from 'node:crypto';
 import { readReferenceImage, ConfigError } from '@cader/config';
 
-export interface ImageView { rotation?: 0 | 90 | 180 | 270; crop?: { left: number; top: number; width: number; height: number } }
+export interface ImageView { rotation?: 0 | 90 | 180 | 270; crop?: { left: number; top: number; width: number; height: number };display_scale?:number }
+export interface CadCaptureRequest {world_window:[number,number,number,number];min_long_edge:number}
+export interface CadReviewView extends CadCaptureRequest {sourceView?:ImageView;details?:{request:CadCaptureRequest;sourceView?:ImageView;entity_ids:number[]}[]}
 /** Conservative clipping evidence for plotted CAD PNGs. A border hit is uncertainty,
  * never a claimed CAD coordinate transform or permission to repair geometry. */
 export async function inspectCadImageBorder(path:string){
@@ -23,14 +25,16 @@ export async function prepareImageView(root: string, path: string, view: ImageVi
   const source = await readReferenceImage(root, path);
   const crop = view.crop ?? { left: 0, top: 0, width: source.width, height: source.height };
   const rotation = view.rotation ?? 0;
-  if (![0, 90, 180, 270].includes(rotation) || Object.values(crop).some(value => !Number.isSafeInteger(value))
+  const scale=view.display_scale??1;
+  if (!Number.isSafeInteger(scale)||scale<1||scale>8||crop.width*crop.height*scale*scale>40_000_000||![0, 90, 180, 270].includes(rotation) || Object.values(crop).some(value => !Number.isSafeInteger(value))
     || crop.left < 0 || crop.top < 0 || crop.width <= 0 || crop.height <= 0
     || crop.left + crop.width > source.width || crop.top + crop.height > source.height)
     throw new ConfigError('Invalid original-pixel crop or rotation');
   // Explicit pixel coordinates: ignore EXIF orientation here, strip metadata on output.
   const metadata = await sharp(source.data).metadata();
-  const transformed = await sharp(source.data, { limitInputPixels: 40_000_000 }).extract(crop).rotate(rotation)
-    .png().toBuffer({ resolveWithObject: true });
+  let pipeline=sharp(source.data, { limitInputPixels: 40_000_000 }).extract(crop).rotate(rotation);
+  if(scale!==1)pipeline=pipeline.resize((rotation%180?crop.height:crop.width)*scale,(rotation%180?crop.width:crop.height)*scale,{kernel:'nearest'});
+  const transformed = await pipeline.png().toBuffer({ resolveWithObject: true });
   const { left: x, top: y, width: w, height: h } = crop;
   const matrix = rotation === 0 ? [1, 0, x, 0, 1, y] : rotation === 90 ? [0, 1, x, -1, 0, y + h]
     : rotation === 180 ? [-1, 0, x + w, 0, -1, y + h] : [0, -1, x + w, 1, 0, y];
@@ -40,7 +44,8 @@ export async function prepareImageView(root: string, path: string, view: ImageVi
       exif_orientation: metadata.orientation ?? null, orientation_policy: 'explicit-pixel-rotation',
       crop, rotation, view_width: transformed.info.width, view_height: transformed.info.height,
       view_sha256: createHash('sha256').update(transformed.data).digest('hex'),
-      view_to_source: matrix, coordinates: 'continuous pixel edges, top-left origin' } };
+      ...(scale!==1?{display_enlargement:{scale,kernel:'nearest' as const,new_source_information:false}}:{}),
+      view_to_source: matrix.map((v,i)=>i===2||i===5?v:v/scale), coordinates: 'continuous pixel edges, top-left origin' } };
 }
 
 export function attachmentToSource(viewMatrix: readonly number[], viewWidth: number, viewHeight: number,

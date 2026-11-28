@@ -2,7 +2,17 @@ import { readFile, realpath, stat } from 'node:fs/promises';
 import { dirname, resolve, relative, isAbsolute } from 'node:path';
 import { parseDocument } from 'yaml';
 import { z } from 'zod';
-export { parseVisualReport, visualReportSchema, parseAcceptancePlan, acceptancePlanSchema,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema } from './quality.js';
+export {progressiveDrawingSelection,parseProgressivePlan,progressivePlanSchema} from './progressive.js';
+export {parseProgressivePartition,progressivePartitionSchema} from './progressive.js';
+export type {ProgressivePlanData} from './progressive.js';
+export {rasterizeProgressivePlan} from './progressive.js';
+export {isAnalysisOnlyRequest} from './progressive.js';
+export {progressiveDraftSchema,parseProgressiveDraft} from './progressive.js';
+export type {ProgressiveDraftData,ProgressiveTrace} from './progressive.js';
+export { parseVisualReport, visualReportSchema, parseAcceptancePlan, acceptancePlanSchema,parseReferenceObservation,referenceObservationSchema,parseReferenceLabels,referenceLabelsSchema,parseReferenceLabelInventory,referenceLabelInventorySchema,parseReferenceNets,referenceNetsSchema,reconcileSourceNets,referenceMembershipSchema,parseReferenceMembership,sourceConnectionReviewSchema,parseSourceConnectionReview,mergeConfirmedSourceConnections } from './quality.js';
+export type {ConfirmedSourceConnection} from './quality.js';
+export {reconcileSourceLabels,assertSourceBodyLayout,sourceBodyMarginOverlapMax} from './quality.js';
+export {referenceComponentInventorySchema,parseReferenceComponentInventory,reconcileSourceComponents} from './quality.js';
 export type { VisualReview, QualityPlan,ReferenceObservationData } from './quality.js';
 
 const Profile = z.object({
@@ -14,8 +24,11 @@ const Profile = z.object({
   }),
   api_key_env: z.string().regex(/^[A-Z][A-Z0-9_]*$/), model: z.string().min(1),
   input: z.array(z.enum(['text', 'image'])).min(1),
+  description: z.string().min(1).max(400).optional(),
+  when_to_use: z.string().min(1).max(400).optional(),
   generation: z.object({ max_output_tokens: z.int().min(64).max(32768),
-    reasoning_effort: z.enum(['off', 'low', 'high', 'max']) }).strict(),
+    reasoning_effort: z.enum(['off', 'low', 'high', 'max']),
+    progressive_reasoning_effort:z.enum(['off','low','high','max']).optional() }).strict(),
   timeout_ms: z.int().min(1000).max(300000), can_delegate: z.boolean(),
 }).strict().superRefine((value, context) => {
   const main = value.role === 'main';
@@ -31,11 +44,22 @@ const Runtime = z.object({
   version: z.literal(1), main_profile: z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/),
   subagent_profiles: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/)).min(1),
   max_parallel_subagents: z.int().min(1).max(5), max_delegation_depth: z.literal(1),
-  max_model_steps: z.int().min(1).max(50), max_tool_calls: z.int().min(1).max(100),
-  max_delegations: z.int().min(1).max(25), timeout_ms: z.int().min(1000).max(600000),
+  max_model_steps: z.int().min(1).max(100), max_tool_calls: z.int().min(1).max(100),
+  max_task_model_steps:z.int().min(1).max(2000).optional(),
+  max_task_duration_ms:z.int().min(1000).max(86400000).optional(),
+  max_task_tool_calls: z.int().min(1).max(30000).optional(),
+  max_cad_operations_per_round: z.int().min(1).max(256).optional(),
+  max_cad_operations: z.int().min(1).max(20000).optional(),
+  max_execution_rounds: z.int().min(1).max(500).optional(),
+  validation_tool_reserve: z.int().min(0).max(32).optional(),
+  max_task_tokens: z.int().min(1).max(20000000).optional(),
+  max_delegations: z.int().min(1).max(25), timeout_ms: z.int().min(1000).max(1800000),
   max_visual_reviews_per_turn: z.int().min(1).max(5).default(4),
   read_only_tools: z.array(z.string().regex(/^mcp__[A-Za-z0-9_-]+__(list_layers|list_symbol_library|get_backend_status)$/)),
-}).strict();
+}).strict().superRefine((value, context) => {
+  if ((value.validation_tool_reserve ?? 8) >= value.max_tool_calls)
+    context.addIssue({code:'custom',message:'validation_tool_reserve must be smaller than max_tool_calls'});
+});
 
 const Mcp = z.object({
   version: z.literal(1), server_name: z.string().regex(/^[A-Za-z0-9_-]{1,32}$/),
@@ -122,6 +146,7 @@ export async function workspacePath(root: string, path: string): Promise<string>
 const skillName = z.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/).max(64);
 const Catalog = z.object({ version: z.literal(1), skills: z.array(z.object({
   name: skillName, description: z.string().min(1).max(400),
+  when_to_use: z.string().min(1).max(400).optional(),
   roles: z.array(z.enum(['main', 'subagent', 'vision'])).min(1),
   mode: z.literal('read-only'),
   resources: z.record(skillName, z.string().regex(/^references\/[A-Za-z0-9_-]+\.md$/)).default({}),
@@ -151,7 +176,7 @@ export async function loadSkills(root: string) {
       for (const resource of Object.values(skill.resources)) await readAsset(directory, resource);
     }
     const list = (role: SkillRole) => catalog.skills.filter(skill => skill.roles.includes(role))
-      .map(skill => ({ name: skill.name, description: skill.description, mode: skill.mode,
+      .map(skill => ({ name: skill.name, description: skill.description, when_to_use: skill.when_to_use ?? skill.description, mode: skill.mode,
         resources: Object.keys(skill.resources) }));
     return {
       list,

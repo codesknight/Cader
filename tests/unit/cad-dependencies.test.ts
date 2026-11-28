@@ -102,3 +102,33 @@ test('planning QUOTA and missing plan remain explicit failures before drawing or
     }
   }finally{delete process.env.CADER_DEPENDENCY_FIXTURE;await f.cleanup();}
 });
+
+test('planning truncation has one compact retry with no CAD writes or quota retry',async()=>{
+  const f=await fixture();process.env.CADER_DEPENDENCY_FIXTURE='offline-only';
+  f.owner.mode='ask'; // Decline drawing after a repaired plan; this tests planning only.
+  try{
+    for(const repair of [true,false]){
+      let steps=0;
+      const report=await runTask(process.cwd(),{task:'绘制一个房子',workspaceRoot:f.root,permissionMode:'ask',executionTools:[],executionOwner:f.owner,executionState:()=>f.owner.facts()},async options=>{
+        const runtime=await createLiveRuntime({...options,profiles:options.profiles.map(p=>({...p,api_key_env:'CADER_DEPENDENCY_FIXTURE'}))});
+        runtime.ctx.on('llm/stream',async function*():AsyncGenerator<StreamChunk>{
+          if(++steps===1||!repair){
+            yield {type:'block-start',index:0,blockType:'text'};
+            yield {type:'text-delta',index:0,text:'Truncated fixture plan'};
+            yield {type:'block-end',index:0,block:{type:'text',text:'Truncated fixture plan'}};
+            yield {type:'finish',reason:{kind:'max-tokens'}};return;
+          }
+          const id='compact-plan' as Extract<StreamChunk,{type:'tool-call-delta'}>['id'];
+          const args=JSON.stringify({version:1,domain:'generic',components:[],visual_required:true,requirements:[{id:'house',source_quote:'绘制一个房子',description:'Recognizable house',check:'visual'}]});
+          yield {type:'block-start',index:0,blockType:'tool-call'};
+          yield {type:'tool-call-delta',index:0,id,name:'cader_submit_acceptance_plan',argumentsDelta:args};
+          yield {type:'block-end',index:0,block:{type:'tool-call',id,name:'cader_submit_acceptance_plan',arguments:args}};
+          yield {type:'finish',reason:{kind:'tool-calls'}};
+        });return runtime;
+      });
+      assert.equal(steps,2,JSON.stringify({repair,error:report.errorCode,failure:report.quality?.failure,runs:report.quality?.model_runs.map(r=>({status:r.status,tools:r.tools}))}));assert.equal(report.quality?.model_runs.length,2);assert.deepEqual(f.calls,[]);
+      if(repair){assert.ok(report.quality?.plan);assert.notEqual(report.errorCode,'OUTPUT_TRUNCATED');}
+      else{assert.equal(report.errorCode,'OUTPUT_TRUNCATED');assert.equal(report.quality?.phase,'blocked');}
+    }
+  }finally{delete process.env.CADER_DEPENDENCY_FIXTURE;await f.cleanup();}
+});

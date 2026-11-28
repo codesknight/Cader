@@ -7,12 +7,28 @@ import type { McpConfig } from '@cader/config';
 import { mcpEnvironment } from '@cader/config';
 import { invokeTool } from './tool-call.js';
 import { assertToolArguments, ToolArgumentsError } from './tool-validation.js';
+import { randomUUID } from 'node:crypto';
+import { nativeCreateRejection } from './native-create.js';
+import { ObservedMcpCallError } from './execution-evidence.js';
+import { captureEvidence } from './capture-evidence.js';
+import type { CaptureReceipt } from './capture-evidence.js';
 
 /** Preserve protocol failure evidence. Owners redact this before displaying/persisting. */
 export class McpCallError extends Error {
   readonly code = 'MCP_TOOL_FAILED';
   constructor(readonly tool: string, readonly failure: unknown) {
     super(`MCP_TOOL_FAILED: ${tool}`); this.name = 'McpCallError';
+  }
+}
+export class NativeCreateNotInvokedError extends McpCallError {
+  constructor(readonly requestId:string, readonly evidence:Record<string,unknown>) {
+    super('new_drawing',{error:{message:'Native new-document preflight failed; MCP received the request, but Documents.Add was not invoked.'},native_create:evidence});
+    this.name='NativeCreateNotInvokedError';
+  }
+}
+export class NativeCaptureSafeError extends McpCallError {
+  constructor(readonly evidence:CaptureReceipt){
+    super('export_current_view',{native_capture:evidence});this.name='NativeCaptureSafeError';
   }
 }
 
@@ -35,8 +51,25 @@ export async function createMcpClient(config: McpConfig) {
       async call(name: string, args: Record<string, unknown>, callId?: string): Promise<unknown> {
         const definition = ctx.tools.get(`mcp__${config.server_name}__${name}`);
         if (!definition) throw new ToolArgumentsError(name,[{path:'/',keyword:'tool',message:'Tool is absent from this local registry; no request sent'}]);
-        assertToolArguments(definition, args);
-        const result = await invokeTool(ctx, `mcp__${config.server_name}__${name}`, args, undefined, callId);
+        const properties=(definition.parameters as {properties?:Record<string,unknown>}).properties;
+        const requestId=['new_drawing','export_current_view'].includes(name)&&properties?.request_id ? callId??randomUUID():undefined;
+        const payload=requestId?{...args,request_id:requestId}:args;
+        assertToolArguments(definition, payload);
+        const result = await invokeTool(ctx, `mcp__${config.server_name}__${name}`, payload, undefined, callId);
+        if(result.isError&&requestId&&name==='new_drawing'){
+          const evidence=nativeCreateRejection(result.error.message,requestId);
+          if(evidence)throw new NativeCreateNotInvokedError(requestId,evidence);
+        }
+        if(result.isError&&requestId&&name==='export_current_view'){
+          try{
+            const evidence=captureEvidence(JSON.parse(result.error.message),requestId,String(args.file_path));
+            if(evidence)throw new NativeCaptureSafeError(evidence);
+          }catch(error){if(error instanceof NativeCaptureSafeError)throw error;}
+        }
+        if(result.isError&&name==='execute_observed_operation'){
+          let envelope:unknown;try{envelope=JSON.parse(result.error.message);}catch{/* Unstructured failure cannot prove a native outcome. */}
+          if(envelope&&typeof envelope==='object')throw new ObservedMcpCallError(envelope);
+        }
         if (result.isError) throw new McpCallError(name, { error: result.error,
           content: result.content.filter(block => block.type === 'text') });
         const value = result.value as { structuredContent?: unknown; content?: { type: string; text?: string }[] };

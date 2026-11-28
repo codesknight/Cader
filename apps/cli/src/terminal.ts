@@ -4,6 +4,8 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { InteractiveSession, SafeTextStream, terminalText, failureFromError, replyTextAfterStreaming, toolResultLine } from '@cader/profile';
 
+const regionStatus=(value:unknown)=>({pending:'待处理',observing:'局部分析',ready:'待绘制',drawing:'绘制',repairing:'局部修正',verified:'区域通过',partial_verified:'片段通过，覆盖待验',blocked:'区域待解决'} as Record<string,string>)[String(value)]??String(value);
+
 export function findConfigRoot(workspace: string) {
   let path = resolve(workspace);
   while (true) {
@@ -35,7 +37,7 @@ export async function runTerminal(options: { workspace?: string; stdio?: boolean
     '  ╚██████╗██║  ██║██████╔╝███████╗██║  ██║',
     '   ╚═════╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝',
   ].map((line, index) => paint(index < 3 ? '1;36' : '1;34', line)).join('\n') + '\n');
-  output.write(paint('1', '  Cader 0.4.0-dev.7') + '  ·  DeepSeek Harness  ·  CAD terminal\n'
+  output.write(paint('1', '  Cader 0.4.0-dev.17') + '  ·  DeepSeek Harness  ·  CAD terminal\n'
     + paint('2;36', '─'.repeat(Math.max(20, Math.min((output.columns ?? 80) - 2, 90)))) + '\n');
   write(`  ${session.model.model} · ${session.state.permission} · ${basename(workspace)}\n  ${session.startupStatus}\n  /help 命令  ·  @图片/图纸  ·  !Shell  ·  Tab 补全  ·  Esc 中断\n\n`);
   if (tty && process.env.TERM === 'dumb') write('当前终端声明TERM=dumb，使用简化输入。支持VT的终端可设置TERM=xterm-256color以启用完整编辑/补全。\n');
@@ -71,7 +73,7 @@ export async function runTerminal(options: { workspace?: string; stdio?: boolean
   const confirm = async (command: string, cwd: string) => {
     if (!tty || active?.signal.aborted) return false;
     queue.length = 0; // Never consume pasted/type-ahead text as a permission decision or a later model task.
-    write(command.startsWith('人工审定历史参数拒绝')
+    write(command.startsWith('人工图纸复核') ? `\n人工图纸复核 · ${cwd}\n${command}\n已查看并确认符合需求？[y/N] ` : command.startsWith('人工审定历史参数拒绝')
       ? `\n历史屏障复核 · ${cwd}\n${command}\n确认以上事实并批准归档？[y/N] `
       : `\n工具审批 · ${cwd}\n${command}\nAgent工具结果会返回模型；Shell以本机账号执行（非沙箱）。允许本次执行？[y/N] `);
     return new Promise<boolean>(resolve => { confirmation = resolve; });
@@ -84,9 +86,24 @@ export async function runTerminal(options: { workspace?: string; stdio?: boolean
       const stream = new SafeTextStream(session.secrets, chunk => { streamed = true; output.write(chunk); });
       try {
         if (!line.startsWith('/') && !line.startsWith('!') && line.trim()) write('\nCader · 正在处理（Esc 中断）\n');
-        const reply = await session.execute(line, { signal: active.signal, confirm, onEvent: event => {
+        const reply = await session.execute(line, { signal: active.signal, confirm, review:confirm, onEvent: event => {
           if (event.type === 'assistant.delta' && event.role === 'main') stream.push(String(event.text ?? ''));
-          else if(event.type==='task.phase') write(`\n  阶段：${({reference:'读取手稿',planning:'规划',drawing:'绘制',geometry:'几何验证',topology:'拓扑验证',vision:'源图对照验证',correcting:'局部修正',saving:'保存DWG',complete:'验收完成',pending_verification:'待验证',blocked:'阻塞'} as Record<string,string>)[String(event.phase)]??String(event.phase)}\n`);
+          else if(event.type==='task.phase') write(`\n  阶段：${({reference:'读取手稿',planning:'规划',drawing:'绘制',geometry:'几何验证',topology:'拓扑验证',vision:event.has_reference?'源图对照验证':'视觉验证',correcting:'局部修正',saving:'保存DWG',complete:'验收完成',pending_verification:'待验证',blocked:'阻塞'} as Record<string,string>)[String(event.phase)]??String(event.phase)}\n`);
+          else if(event.type==='task.visual_adjudication')write('\n  视觉证据仲裁：复用同一截图，核对未决必要条件。\n');
+          else if(event.type==='task.user_review_required')write(`\n  待人工复核：${JSON.stringify(event.artifact)}\n`);
+          else if(event.type==='task.visual') write(`\n  视觉检查 · ${event.source==='agent'?'Agent主动调用':'Harness验收'} · ${event.reused?'复用有效报告':`第${event.call_count}次`} · ${event.review_valid?String(event.verdict):'报告无效，待验证'}\n`);
+          else if(event.type==='task.planning_retry')write('\n  规划输出被截断，正在进行一次紧凑重试（尚未绘图）。\n');
+          else if(event.type==='task.output_retry')write(`\n  模型响应中断（${String(event.reason)}） · 已核对账本及图纸 · 短批续跑 ${event.scope_attempt??event.attempt}/2${event.recovery_scope&&event.recovery_scope!=='task'?` · 单元 ${String(event.recovery_scope)}`:''}（累计${event.attempt}次，不重放已确认操作）。\n`);
+          else if(event.type==='task.drawing_unit')write(`\n  绘图进度：${String(event.unit_id)} 已读回登记，整图尚待验收。\n`);
+          else if(event.type==='task.region')write(`\n  区域 ${String(event.region)} · ${regionStatus(event.status)} · ${String(event.entities)} 实体${event.failure?` · ${String(event.failure)}`:''}（整图尚待验收）\n`);
+          else if(event.type==='task.region_split')write(`\n  区域细分：${String(event.parent)} → ${(event.children as string[]).join('、')}，保留原失败证据。\n`);
+          else if(event.type==='source.index_progress')write(`\n  本地源图索引：${String(event.tile)}/${String(event.tiles)}（候选分析，尚未验收）\n`);
+          else if(event.type==='source.index_loaded')write(`\n  已载入 ${String(event.items)} 个稳定源对象候选；逐批独立验证，不代表图纸已完成。\n`);
+          else if(event.type==='source.index_unavailable')write(`\n  本地源索引不可用：${String(event.reason)}，使用现有渐进式观察流程。\n`);
+          else if(event.type==='task.progressive_fallback')write('\n  整图参考检查未通过，转为同一任务的局部分区；保留原失败及累计预算，未重放CAD操作。\n');
+          else if(event.type==='task.batch_verified')write(`\n  批次 ${String(event.batch)} · ${event.status==='pass'?'结构与视觉通过':'待修正或复核'}（整图尚待验收）\n`);
+          else if(event.type==='task.checkpoint')write(`\n  预算检查点 · 第${event.execution_round}回合 · ${event.continuing?'已读回并保存进度，自动续轮':'已保存进度，任务总限额暂停'} · ${String(event.document??'尚未新建图纸')}\n`);
+          else if(event.type==='task.review_handoff')write('\n  视觉或读回异常，已交回调度器；当前图纸尚未通过验收。\n');
           else if (event.type === 'tool.result') {
             write(toolResultLine(event));
           }
